@@ -1,0 +1,1 @@
+"""Beacon MCP server layer."""

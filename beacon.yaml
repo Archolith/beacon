@@ -1,0 +1,350 @@
+beacon_version: "0.1"
+
+project:
+  name: menhir
+  tagline: Temporal memory infrastructure for agentic coding.
+  status: experimental
+  description: >
+    menhir is a graph-based, long-term memory system for AI agents.
+    It stores memories as a knowledge graph (Neo4j + Graphiti),
+    ranks retrieval by graph adjacency and recency, manages lifecycle
+    (compression, decay, conflict detection), and indexes project code
+    structure so agents can reason about files and blast radius alongside
+    semantic memory.
+  repository: ""
+  primary_language: Python
+  license: Private
+
+purpose:
+  one_sentence: >
+    menhir helps coding agents remember decisions, recall context across
+    sessions, and reason about code structure — without filling the context
+    window or relying on stale flat files.
+  problem: >
+    Agents forget everything between sessions. Context windows fill up. Vector
+    search finds similar text but ignores how memories relate to each other.
+    menhir provides a graph memory where well-connected memories outrank
+    isolated notes, stale memories compress and eventually expire, and
+    contradictions get flagged rather than silently coexisting.
+  non_goals:
+    - Being a generic vector-memory store only.
+    - Being a documentation chatbot only.
+    - Replacing git or source control.
+    - Replacing human maintainers.
+    - Claiming benchmark novelty without prior-art comparison.
+
+audiences:
+  - coding agents
+  - LLM coding tool developers
+  - OSS maintainers
+  - AI memory researchers
+  - developer-tool builders
+
+current_focus:
+  - backend-first MCP architecture (stdio client + HTTP backend)
+  - namespace (silo) isolation for multi-tenant use
+  - oracle retrieval benchmarks (recall quality measurement)
+  - Beacon public MCP endpoint (this project)
+  - Chronostratum temporal memory model (experimental, in design)
+
+core_concepts:
+  - id: knowledge_graph_memory
+    name: Knowledge Graph Memory
+    status: current
+    description: >
+      Memories are stored as entities and relationships in Neo4j (via Graphiti),
+      not a flat list of vectors. Graph adjacency between candidates reinforces
+      retrieval: a memory well-connected to other relevant candidates ranks higher
+      than an isolated note with the same keywords.
+    why_it_exists: >
+      Vector-only search ignores the structure of what you know. Graph scoring
+      captures the intuition that a memory you keep revisiting is more important
+      than a one-off note.
+
+  - id: memory_lifecycle
+    name: Memory Lifecycle
+    status: current
+    description: >
+      Memories move through states: SESSION → PERSISTENT → ACTIVE →
+      COMPRESSED → GONE. Session memories are temporary and promoted only
+      if they build enough connections. Active memories are regularly accessed.
+      Compressed memories have their content replaced with an LLM summary.
+      Gone memories are queued for deletion with neighbor bridging to preserve
+      graph connectivity.
+    why_it_exists: >
+      Without lifecycle management, memory accumulates indefinitely. The graph
+      needs active management: useful memories stay sharp, irrelevant ones fade.
+
+  - id: graph_scoring
+    name: Graph Scoring
+    status: current
+    description: >
+      Retrieval re-ranks vector-search candidates using:
+      relevance = similarity + α×adjacency + β×recency + γ×prominence + δ×conflict.
+      Adjacency boosts memories clustered with other relevant candidates.
+      Recency boosts recently accessed memories. Prominence boosts well-connected
+      nodes. The conflict signal surfaces unresolved contradictions.
+    why_it_exists: >
+      Plain cosine similarity is insufficient. Graph-aware scoring surfaces
+      memories that are both relevant and contextually connected.
+    related_concepts:
+      - knowledge_graph_memory
+
+  - id: structure_graph
+    name: Structure Graph
+    status: current
+    description: >
+      menhir indexes project code — files, imports, tests, endpoints,
+      dependencies — into the same Neo4j database. A background watcher
+      re-scans every 30 minutes using fingerprint-based change detection.
+      Memories are linked to structural entities via ANCHORED_TO edges,
+      enabling blast-radius analysis and structure-aware recall.
+    why_it_exists: >
+      Code structure and semantic memory should reinforce each other. When
+      you change a file, you should be able to see which memories are affected.
+
+  - id: blast_radius
+    name: Blast Radius
+    status: current
+    description: >
+      Given a file change, blast_radius traces downstream impact: affected
+      imports, dependent tests, and memories linked to the impacted code.
+      Available via query_structure(blast_radius, ...).
+    why_it_exists: >
+      Before editing a file, an agent should know what it might break.
+    related_concepts:
+      - structure_graph
+
+  - id: episode
+    name: Episode
+    status: current
+    description: >
+      A provenance anchor for one ingest event. Episodes move through
+      processing states (PENDING → ENRICHING → READY | FAILED) and point to
+      the memory graph changes created or touched during enrichment. Episodes
+      are async: the agent does not block waiting for enrichment.
+    why_it_exists: >
+      Async ingest requires a durable anchor so work is never lost and failures
+      can be diagnosed and recovered.
+
+  - id: namespace_isolation
+    name: Namespace Isolation
+    status: current
+    description: >
+      Memories, todos, and structure entries can be scoped to a named namespace
+      (silo). Namespaces are isolated from each other: recall, conflict scanning,
+      and lifecycle operations stay within their silo. Used for multi-tenant and
+      multi-project deployments.
+    why_it_exists: >
+      Different projects or users sharing one menhir instance should not see
+      each other's memories.
+
+  - id: conflict_detection
+    name: Conflict Detection
+    status: current
+    description: >
+      When two memories contradict each other, they are flagged rather than
+      silently coexisting. An LLM can review and resolve conflicts
+      (keep_both, replace, or discard_new). Unresolved conflicts surface
+      during retrieval via the conflict scoring signal.
+    why_it_exists: >
+      A system that accumulates contradictions silently is unreliable. Agents
+      need to know when knowledge is disputed.
+    related_concepts:
+      - graph_scoring
+
+  - id: backend_first_mcp
+    name: Backend-First MCP Architecture
+    status: current
+    description: >
+      menhir separates the MCP stdio client (what agents connect to) from the
+      backend HTTP server (where Neo4j, Graphiti, and lifecycle services run).
+      The stdio client proxies requests to the backend. This allows the heavy
+      service to stay running while clients reconnect.
+    why_it_exists: >
+      MCP stdio processes restart on every agent session. A backend-first split
+      keeps Neo4j connections alive and avoids cold-start latency.
+
+  - id: recall_scoring_presets
+    name: Recall Scoring Presets
+    status: current
+    description: >
+      Five presets shift the scoring formula balance: knowledge (similarity +
+      graph structure), recent (recency above all), connected (adjacency +
+      prominence), emotional (recency + adjacency balance), conflict (surfaces
+      contradictions). Pass the preset to recall_memories.
+    why_it_exists: >
+      Different tasks need different ranking behavior. Presets make the right
+      balance easy to express without tuning raw weights.
+    related_concepts:
+      - graph_scoring
+
+  - id: chronostratum
+    name: Chronostratum
+    status: experimental
+    description: >
+      Planned temporal memory layer with valid-time, learned-time, supersession,
+      and ingestion-order-independent reasoning. Chronostratum would let the
+      system reason about what was true *when*, distinguish outdated from current
+      knowledge, and surface superseded facts explicitly.
+    why_it_exists: >
+      Coding agents confuse stale docs with current decisions. A temporal layer
+      makes "what is current" a first-class query rather than a convention.
+    related_concepts:
+      - memory_lifecycle
+
+  - id: oracle
+    name: Oracle (Retrieval Benchmark)
+    status: experimental
+    description: >
+      Planned benchmark and evaluation machinery for retrieval quality and
+      temporal relevance. Oracle would let the project measure whether recall
+      actually surfaces the right memories for a given query, with ground-truth
+      fixtures and combiner evaluation.
+    why_it_exists: >
+      Retrieval quality claims need measurement. The oracle layer lets menhir
+      make honest statements about what works, backed by benchmark numbers.
+
+  - id: beacon
+    name: Beacon
+    status: experimental
+    description: >
+      A public, agent-accessible project knowledge surface. Beacon exposes
+      structured MCP tools (project overview, agent onboarding, search, concept
+      explanation, guardrails) so any coding agent can understand a project
+      without ad-hoc context stuffing. menhir is both the demo subject and a
+      future richer backend for Beacon.
+    why_it_exists: >
+      Projects need a machine-readable front door for agents, not just a README
+      for humans.
+
+canonical_docs:
+  - path: .agent/README.md
+    role: entrypoint
+    status: current
+    title: Agent entry point and quick-start routing
+  - path: .agent/architecture.md
+    role: architecture
+    status: current
+    title: Full runtime architecture (package layout, providers, ops, roadmap)
+  - path: .agent/memory-foundations.md
+    role: reference
+    status: current
+    title: Purpose, principles, and guiding constraints
+  - path: .agent/memory-policy.md
+    role: reference
+    status: current
+    title: Scope, lifecycle, scoring policy
+  - path: .agent/data_models.md
+    role: reference
+    status: current
+    title: Entity, episode, edge, and conflict data models
+  - path: .agent/endpoints.md
+    role: reference
+    status: current
+    title: All MCP tools and resources with input/output specs
+  - path: .agent/glossary.md
+    role: reference
+    status: current
+    title: Compact definitions for recurring terms
+  - path: .agent/memory-futures.md
+    role: backlog
+    status: experimental
+    title: Future direction — temporal, epochs, drift detection
+  - path: README.md
+    role: human_entrypoint
+    status: current
+    title: Public-facing README
+
+agent_guidance:
+  read_first:
+    - .agent/README.md
+    - .agent/memory-foundations.md
+    - .agent/architecture.md
+    - .agent/glossary.md
+
+  safe_first_tasks:
+    - Add or improve docs in .agent/.
+    - Add test fixtures or expand offline tests.
+    - Improve the .agent/glossary.md with missing terms.
+    - Add benchmark fixtures to the oracle layer (once it exists).
+    - Write examples showing recall + structure queries together.
+    - Improve onboarding instructions or error messages.
+
+  avoid_without_review:
+    - Renaming core concepts (episode, scope, freshness, sharpness).
+    - Changing Neo4j schema or Graphiti extraction prompts.
+    - Changing benchmark metrics or oracle fixtures.
+    - Deleting research notes or .agent/ history.
+    - Treating demo/benchmark numbers as final production claims.
+    - Removing or weakening provenance / status metadata.
+    - Changing the recall scoring formula weights without a benchmark run.
+
+  expected_behavior:
+    - Prefer source-backed answers over guesses.
+    - Mark uncertainty clearly — do not treat all output as equally reliable.
+    - Distinguish current decisions from experimental ideas or backlog items.
+    - Preserve temporal context (when was this decided, is it still valid?).
+    - Update docs when behavior changes; never leave docs contradicting code.
+
+build_and_test:
+  setup: "cd projects/archolith/menhir && pip install -e '.[dev]'"
+  test: "cd projects/archolith/menhir && python -m pytest tests/ -x --tb=short"
+  benchmark: "# Oracle benchmarks: not yet implemented (planned)"
+
+guardrails:
+  - id: no_schema_change_without_migration
+    scope: database_schema
+    severity: high
+    rule: >
+      Do not change the Neo4j node/edge schema or Graphiti extraction prompts
+      without a migration plan and a benchmark run to confirm recall quality
+      did not regress.
+    applies_to:
+      - src/menhir/infrastructure/
+      - migrations/
+      - src/menhir/core/
+
+  - id: no_rename_core_concepts
+    scope: vocabulary
+    severity: high
+    rule: >
+      Do not rename core concepts (episode, scope, freshness, sharpness,
+      ANCHORED_TO, PENDING/ENRICHING/READY/FAILED) without updating all docs,
+      tests, and the concept registry.
+    applies_to:
+      - src/menhir/domain/
+      - .agent/concept-ids.yaml
+      - .agent/glossary.md
+
+  - id: no_silent_contradiction
+    scope: memory_content
+    severity: medium
+    rule: >
+      Never suppress or ignore conflict-detection results. Contradictions must
+      surface to the operator or be explicitly resolved, not silently discarded.
+    applies_to:
+      - src/menhir/services/
+      - src/menhir/mcp/tools/conflict/
+
+  - id: no_benchmark_claim_without_evidence
+    scope: research_integrity
+    severity: high
+    rule: >
+      Do not claim benchmark improvements without running the oracle suite and
+      recording the full result (not just the best run). Label demo numbers
+      as demo numbers.
+    applies_to:
+      - .agent/
+      - README.md
+      - docs/
+
+  - id: test_before_commit
+    scope: development_process
+    severity: medium
+    rule: >
+      Run the offline test suite (pytest tests/ -m "not online") before
+      committing. The full suite requires Neo4j; the offline suite does not.
+    applies_to:
+      - tests/
+      - src/menhir/
