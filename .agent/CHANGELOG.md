@@ -1,5 +1,13 @@
 # Changelog — beacon
 
+## 2026-06-30 — CLI subcommands, self-referential manifest, demo transcript
+
+- `src/beacon/main.py` — restructured with typer; `beacon validate` and `beacon inspect` subcommands added. `beacon` with no args still starts MCP stdio server. Windows UTF-8 output fix.
+- `beacon.yaml` — rewritten to describe the beacon project itself (was describing menhir, referencing docs that don't exist here). Self-referential manifest makes `validate`/`inspect` work out of the box.
+- `tests/test_cli.py` — 19 offline tests for both CLI subcommands.
+- `README.md` — public-facing README added; MIT LICENSE added. Stale CLI status note removed after commands shipped.
+- `docs/demo-transcript.md` — four-query agent session transcript using real provider output. Covers project_overview, explain_concept, agent_onboarding (task-scoped), and guardrails.
+
 ## 2026-06-29 — Beacon v0 initial implementation
 
 - `src/beacon/core/schema.py` — BeaconManifest + all answer-contract frozen dataclasses
