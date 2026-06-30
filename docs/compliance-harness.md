@@ -28,12 +28,15 @@ Example providers:
 
 The harness should verify:
 
+- handshake exists and returns provider/capability metadata
 - required capabilities exist
 - required response envelope fields are present
+- context signals have severity, scope, evidence, and suggested action
 - source attribution is valid
 - unsupported capabilities fail explicitly
 - freshness/confidence/warnings are represented
 - declared/observed/inferred/generated source types are distinguishable
+- provider capabilities are accurately advertised
 
 ## 2. Why this matters
 
@@ -43,12 +46,21 @@ If Beacon only works with a static manifest, it is too weak.
 
 Beacon becomes real when materially different implementations can answer the same client requests through the same contract.
 
-## 3. Proposed command
+## 3. Proposed commands
 
 ```bash
 beacon compliance --provider manifest --fixture fixtures/basic_project
 beacon compliance --provider docs --fixture fixtures/docs_project
 beacon compliance --provider menhir --fixture fixtures/temporal_project
+```
+
+Small demo-facing commands:
+
+```bash
+beacon validate .
+beacon handshake .
+beacon ask . describe_project
+beacon signals .
 ```
 
 Possible aliases:
@@ -73,6 +85,9 @@ Contains:
 
 Tests:
 
+- handshake
+- get capabilities
+- context signals
 - describe project
 - onboarding path
 - guardrails
@@ -93,6 +108,7 @@ Tests:
 - explain concept
 - missing file warning
 - freshness metadata
+- context signal for stale or missing docs
 
 ### 4.3 Git history fixture
 
@@ -108,6 +124,7 @@ Tests:
 - change summary
 - stale references
 - declared vs observed drift
+- signal for superseded or stale project context
 
 ### 4.4 Local index fixture
 
@@ -122,6 +139,7 @@ Tests:
 - find relevant files
 - explain symbol
 - dependency graph hints
+- observed structure metadata
 
 ### 4.5 Menhir temporal fixture
 
@@ -138,12 +156,26 @@ Tests:
 - temporal blast radius
 - contradiction reporting
 - current vs superseded knowledge
+- proactive temporal drift signal
 
 ## 5. Required v0 assertions
 
 Every compliant v0 provider must satisfy these assertions for required capabilities.
 
-### 5.1 Envelope assertions
+### 5.1 Handshake assertions
+
+Handshake includes:
+
+- project identity
+- provider identity
+- provider tier
+- supported capabilities
+- unsupported capabilities
+- visibility scope
+- freshness/indexing metadata where available
+- initial context signals or explicit empty signal list
+
+### 5.2 Envelope assertions
 
 Response includes:
 
@@ -152,13 +184,30 @@ Response includes:
 - `sources`
 - `source_type`
 - `confidence`
+- `authority`
 - `freshness`
 - `scope`
 - `provider`
 - `warnings`
 - `next_actions`
 
-### 5.2 Source assertions
+### 5.3 Signal assertions
+
+Context signals include:
+
+- `signal_id`
+- `severity`
+- `summary`
+- `scope`
+- `evidence`
+- `source_type`
+- `authority`
+- `confidence`
+- `suggested_action`
+
+Signals should not be treated as commands. They are prioritized evidence/warnings.
+
+### 5.4 Source assertions
 
 Sources must include enough information to verify provenance.
 
@@ -172,13 +221,13 @@ Minimum source fields:
 
 For text files, line ranges should be included when possible.
 
-### 5.3 Unsupported capability assertions
+### 5.5 Unsupported capability assertions
 
 Unsupported capabilities should return structured errors.
 
 They should not return hallucinated or generic answers.
 
-### 5.4 Trust assertions
+### 5.6 Trust assertions
 
 Responses should distinguish:
 
@@ -204,6 +253,8 @@ Examples:
 - guardrail severity is preserved
 - unsupported advanced capability returns correct error code
 - declared/observed drift is represented as drift, not as a flat truth
+- context signals include severity/scope/evidence
+- handshake accurately advertises provider capability support
 
 ## 7. Provider comparison tests
 
@@ -226,7 +277,7 @@ Possible compliance levels:
 
 | Level | Meaning |
 | --- | --- |
-| Beacon Core | required v0 capabilities and envelope |
+| Beacon Core | handshake, context signals, required v0 capabilities, envelope |
 | Beacon Docs | core + docs search/concepts |
 | Beacon Git | docs + change summaries/freshness |
 | Beacon Index | git + file/symbol structure |
@@ -244,12 +295,14 @@ Beacon compliance report
 Provider: ManifestBeaconProvider
 Tier: 0
 
-✓ describe_project
-✓ get_onboarding_path
-✓ get_guardrails
-✓ search_project_context
-⚠ explain_architecture returned limited answer
-✓ unsupported get_temporal_blast_radius returned structured error
+✓ beacon.handshake
+✓ beacon.get_capabilities
+✓ beacon.get_context_signals
+✓ beacon.describe_project
+✓ beacon.get_onboarding_path
+✓ beacon.get_guardrails
+⚠ beacon.search_project_context returned limited answer
+✓ unsupported beacon.get_temporal_blast_radius returned structured error
 
 Result: Beacon Core compliant
 ```
