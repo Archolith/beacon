@@ -1,26 +1,30 @@
 # Beacon Strategy Handoff
 
 > Status: strategic handoff / product-research note  
-> Scope: Beacon as an agent-accessible project knowledge surface, with Menhir as the reference implementation  
+> Scope: Beacon as an agent-accessible project knowledge capability contract, with Menhir as the richest reference provider  
 > Origin: project planning discussion, June 2026
 
 ## 0. Core idea
 
-**Beacon** is a public, agent-accessible representation of a software project.
+**Beacon** is a capability contract for how software projects communicate with autonomous agents.
 
-It is not just an MCP server. MCP is one transport. Beacon is the higher-level concept:
+It is not just an MCP server. MCP is one transport.
 
-> A Beacon is a self-describing, machine-readable project knowledge surface that lets LLM agents understand, query, and safely contribute to a project.
+It is not just `beacon.yaml`. The manifest is one bootstrap input.
+
+The higher-level idea is:
+
+> A Beacon lets a project answer standard questions that agents need before they can understand, query, and safely contribute to that project.
 
 For Menhir and Archolith, Beacon serves three jobs at once:
 
 1. **Demo surface** — people can connect an agent to the Menhir Beacon and ask questions about Menhir itself.
 2. **Onboarding layer** — agents can quickly learn a project's purpose, architecture, current work, docs, risks, conventions, and relevant files.
-3. **Reference implementation** — Menhir becomes the first rich implementation of Beacon, while Beacon remains abstract enough to apply to many backends and organizational designs.
+3. **Reference implementation target** — Menhir becomes a rich implementation/provider for Beacon, while Beacon remains abstract enough to apply to many backends and organizational designs.
 
 Strategic positioning:
 
-> Beacon becomes the standard interface. Menhir becomes the richest way to generate one.
+> Beacon becomes the standard Agent-to-Project interface. Menhir becomes the richest way to generate and maintain one.
 
 ## 1. Why this matters
 
@@ -41,7 +45,7 @@ LLM agents currently reverse-engineer this through ad hoc context stuffing.
 
 Beacon changes the model:
 
-> A project should publish its own living, structured understanding.
+> A project should expose a standard, queryable understanding of itself.
 
 An agent should be able to ask:
 
@@ -67,16 +71,16 @@ Useful language:
 - Publish your project's Beacon.
 - Connect your agent to the Menhir Beacon.
 - Every serious OSS project should expose a Beacon.
-- Beacon is the machine-readable source of truth for agent onboarding.
+- Beacon is the standard conversation between a project and an agent.
 
 Internal distinction:
 
-- **Beacon** — the public representation / endpoint / spec concept.
-- **Menhir Beacon** — Menhir's implementation of Beacon.
-- **Beacon Manifest** — static or semi-static project summary document.
-- **Beacon MCP** — MCP transport exposing Beacon tools.
-- **Beacon Snapshot** — exportable JSON/YAML representation.
-- **Beacon Adapter** — backend-specific generator that produces Beacon-compatible data.
+- **Beacon** — the capability contract / Agent-to-Project interface.
+- **Menhir Beacon** — Menhir's implementation/provider for Beacon.
+- **Beacon Manifest** — static project summary and bootstrap input.
+- **Beacon MCP** — MCP transport exposing Beacon capabilities.
+- **Beacon Snapshot** — exportable JSON/YAML representation of Beacon answers or metadata.
+- **Beacon Provider** — backend-specific implementation that answers Beacon capabilities.
 
 The name works best if it can become category language:
 
@@ -88,7 +92,7 @@ That is stronger than:
 
 ## 3. Architectural principle
 
-Beacon should be **backend-agnostic**.
+Beacon should be **backend-agnostic** and **transport-agnostic**.
 
 Bad framing:
 
@@ -96,7 +100,7 @@ Bad framing:
 
 Better framing:
 
-> Beacon is a project knowledge interface. Menhir can generate one using temporal memory, structure graphs, git history, and documentation.
+> Beacon is a capability contract for project understanding. Menhir can answer that contract using temporal memory, structure graphs, git history, and documentation.
 
 This lets Beacon eventually apply to:
 
@@ -112,9 +116,36 @@ This lets Beacon eventually apply to:
 
 Menhir should produce the richest Beacon, but not be required for the basic concept.
 
-## 4. MVP goal
+## 4. LSP-style mental model
 
-Build a public MCP endpoint that answers useful questions about a project, starting with Menhir itself.
+A useful analogy is the Language Server Protocol.
+
+LSP does not standardize compiler internals. It standardizes useful interactions between editors and language tooling:
+
+- go to definition
+- hover
+- rename
+- diagnostics
+- completion
+
+Beacon should follow a similar pattern for Agent-to-Project communication.
+
+It should standardize useful project questions:
+
+- project overview
+- onboarding
+- search
+- concept explanation
+- guardrails
+- decision tracing
+- change history
+- file discovery
+
+It should not require every implementation to store project knowledge the same way.
+
+## 5. MVP goal
+
+Build a public MCP transport that answers useful questions about a project, starting with Menhir itself.
 
 The first demo query should be:
 
@@ -132,13 +163,13 @@ The answer should return:
 - recommended next actions
 - citations/provenance
 
-This should feel meaningfully better than a README chatbot.
+This should feel meaningfully better than a README chatbot because it is structured, source-backed, status-aware, and oriented toward agent action.
 
-## 5. Beacon v0 capabilities
+## 6. Beacon v0 capabilities
 
 Beacon v0 should support five core capabilities.
 
-### 5.1 Identify
+### 6.1 Identify / project overview
 
 Answer:
 
@@ -147,7 +178,7 @@ Answer:
 - Who is it for?
 - What is explicitly out of scope?
 
-### 5.2 Orient
+### 6.2 Orient / agent onboarding
 
 Answer:
 
@@ -155,26 +186,25 @@ Answer:
 - What are the major components?
 - What is the current build/test flow?
 - What docs are canonical?
+- What is safe to do first?
 
-### 5.3 Explain
-
-Answer:
-
-- How does this architecture work?
-- Why was this decision made?
-- What terms mean what?
-- How do components relate?
-
-### 5.4 Trace
+### 6.3 Search
 
 Answer:
 
-- What changed recently?
-- When did this idea appear?
-- What superseded what?
-- Which docs/files/commits relate to this feature?
+- What sources discuss this topic?
+- Which results are current, experimental, disputed, or superseded?
+- What is the safest source-backed answer?
 
-### 5.5 Guardrail
+### 6.4 Explain concept
+
+Answer:
+
+- What does this project-specific term mean?
+- Why does it exist?
+- What concepts/files/docs are related?
+
+### 6.5 Guardrails
 
 Answer:
 
@@ -184,21 +214,24 @@ Answer:
 - What conventions must be followed?
 - What changes require migration or benchmark updates?
 
-## 6. Manifest strategy
+## 7. Manifest strategy
 
-A Beacon should have a manifest that gives agents a compact starting map.
+A Beacon can have a manifest that gives agents a compact starting map.
 
 The manifest does not need to contain everything. It should act as:
 
-- table of contents
 - project identity card
+- bootstrap provider input
+- table of contents
 - safe starting context
 - status map
 - guardrail source
 
-The dynamic Beacon can then expand from docs, code, git history, memory, benchmarks, and other sources.
+The manifest is not the whole Beacon.
 
-## 7. Static vs dynamic Beacon
+The dynamic Beacon can expand from docs, code, git history, memory, benchmarks, and other sources.
+
+## 8. Static vs dynamic Beacon
 
 Beacon should support both static and dynamic forms.
 
@@ -213,6 +246,11 @@ Advantages:
 - version controlled
 - simple for early users
 - good fallback
+- useful bootstrap for dumb providers
+
+Risk:
+
+- stale static files can destroy trust if presented as authoritative live truth.
 
 ### Dynamic Beacon
 
@@ -229,27 +267,60 @@ Advantages:
 
 Recommended order:
 
-1. `beacon.yaml` manifest
-2. local Beacon loader
+1. `beacon.yaml` manifest as bootstrap input
+2. local Beacon loader and validator
 3. MCP tools over manifest + docs
-4. Menhir-backed dynamic answers
-5. public hosted Menhir Beacon
+4. richer provider responses
+5. Menhir-backed dynamic answers
+6. public hosted Menhir Beacon
 
-## 8. Provider separation
+## 9. Provider separation
 
-Beacon should use a provider interface so the MCP layer does not care where knowledge comes from.
+Beacon should use a provider interface so the transport layer does not care where knowledge comes from.
 
 Suggested providers:
 
 - `ManifestBeaconProvider`
 - `ManifestAndDocsBeaconProvider`
+- `GitAwareBeaconProvider`
 - `MenhirBeaconProvider`
 - future GitHub-only provider
 - future enterprise docs provider
 
-This keeps Beacon from becoming inseparable from Menhir internals.
+This keeps Beacon from becoming inseparable from Menhir internals or from MCP specifically.
 
-## 9. Answer contract
+## 10. Declared vs observed knowledge
+
+Beacon should eventually distinguish between two kinds of project knowledge.
+
+### Declared knowledge
+
+Maintainer intent:
+
+- intended architecture
+- documented conventions
+- guardrails
+- current roadmap
+- design goals
+
+### Observed knowledge
+
+Evidence from the project:
+
+- actual imports/dependencies
+- implementation structure
+- Git history
+- benchmark results
+- documentation drift
+- contradictions between sources
+
+A powerful Beacon should be able to report both:
+
+> The declared architecture says A. The observed code currently does B. These diverged recently.
+
+This distinction is a major reason Menhir can be valuable as a Beacon provider.
+
+## 11. Answer contract
 
 Every Beacon response should try to include:
 
@@ -277,7 +348,7 @@ Agent-facing responses should also include:
 
 The status and confidence fields matter because agents should not treat all generated text equally.
 
-## 10. Important design warnings
+## 12. Important design warnings
 
 ### Do not make Beacon too abstract too early
 
@@ -293,9 +364,9 @@ Good early goal:
 
 The standard can emerge from repeated use.
 
-### Do not make it just chat
+### Do not make Beacon just chat
 
-Beacon should expose structured tools, not only freeform Q&A.
+Beacon should expose structured capabilities, not only freeform Q&A.
 
 Agents need:
 
@@ -329,13 +400,14 @@ Suggested conceptual split:
 
 ```text
 beacon-core
+  capability schemas
   manifest schema
   loader
   validator
   response types
 
 beacon-mcp
-  MCP server exposing Beacon tools
+  MCP transport exposing Beacon capabilities
 
 menhir-beacon
   Menhir-backed provider with temporal/project graph power
@@ -343,16 +415,22 @@ menhir-beacon
 
 Simple projects should eventually be able to publish a Beacon without adopting the full Menhir stack.
 
-## 11. Success criteria
+### Avoid the ontology trap
+
+Beacon should not become RDF-for-agents.
+
+Prefer standard questions and practical response contracts over rigid universal modeling of all project concepts and relationships.
+
+## 13. Success criteria
 
 Beacon v0 is successful if:
 
-- A new agent can connect and understand the project faster than reading the README alone.
+- A new agent can connect and orient itself using standard project capabilities.
 - The endpoint gives safe, source-backed guidance.
 - The project can answer "what is current?" better than a generic docs chatbot.
 - The demo is understandable in under five minutes.
 - The implementation does not overfit to Menhir internals.
-- The abstraction remains clear enough to later support other backends.
+- The abstraction remains clear enough to later support other backends and transports.
 
 Beacon v1 is successful if:
 
@@ -361,11 +439,15 @@ Beacon v1 is successful if:
 - Agents begin asking for "the project Beacon" as an onboarding norm.
 - Beacon becomes part of the pitch for serious agent-ready OSS projects.
 
-## 12. Strategic thesis
+## 14. Strategic thesis
 
 Beacon should be positioned as:
 
 > The missing handshake between software projects and coding agents.
+
+Or, more specifically:
+
+> Beacon standardizes Agent-to-Project communication.
 
 Today, projects expose APIs for programs and READMEs for humans.
 
