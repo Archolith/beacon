@@ -10,6 +10,8 @@ This document records a response to an external architecture review of Beacon an
 
 The goal of this response is not to defend every original assumption. It is to clarify what the review changed, what we agree with, what we disagree with, and how the Beacon design should evolve.
 
+Important timeline note: Beacon was created on 2026-06-29. It emerged from Menhir's prior project-understanding work, but it was not an established Menhir component before today.
+
 ## 1. Executive summary
 
 The review correctly identified the most important architectural boundary:
@@ -341,6 +343,7 @@ The documentation should be adjusted to:
 5. Emphasize capability contracts over data schemas.
 6. Separate declared knowledge from observed knowledge.
 7. Treat Menhir as the rich provider, not the required backend.
+8. Preserve the historical note that Beacon was created on 2026-06-29 from Menhir's prior project-understanding work.
 
 ## 13. Open questions after the review
 
