@@ -318,7 +318,6 @@ The provider interface (`BeaconProvider`) is a typed Protocol. A future `MenhirB
 Beacon is **experimental**. The v0 surface (five tools, manifest schema, answer contract) is stable enough to use, but:
 
 - The manifest schema may gain new fields in v0.x releases.
-- The CLI subcommands (`validate`, `inspect`) are not yet implemented.
 - A `MenhirBeaconProvider` does not yet exist.
 - PyPI publication is pending — install from source for now.
 
