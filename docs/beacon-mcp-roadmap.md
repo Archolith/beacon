@@ -1,9 +1,17 @@
 # Beacon MCP Roadmap
 
 > Status: implementation roadmap  
-> Scope: Beacon v0 MCP surface, demo flow, and next milestones
+> Scope: Beacon v0 MCP transport, demo flow, and next milestones
 
-## 0. Current v0 surface
+## 0. Framing
+
+Beacon is not defined by MCP.
+
+Beacon is a capability contract for Agent-to-Project communication. MCP is the first transport used to expose those capabilities.
+
+This roadmap describes the MCP transport because it is the most practical initial way to let coding agents connect to a Beacon.
+
+## 1. Current v0 MCP surface
 
 Beacon v0 should keep the MCP surface intentionally small and always visible.
 
@@ -17,7 +25,15 @@ Initial tools:
 
 This is the right shape for a young project: enough to demonstrate the concept, not so much that the interface becomes mushy.
 
-## 1. Tool intent
+These tools are transport-specific names for the more general Beacon v0 capabilities:
+
+- project overview
+- agent onboarding
+- search
+- concept explanation
+- guardrails
+
+## 2. Tool intent
 
 ### `beacon_project_overview`
 
@@ -162,9 +178,11 @@ Ideal output fields:
 }
 ```
 
-## 2. Near-future tools
+## 3. Near-future capabilities
 
 Once the basic manifest/docs provider is stable, add Menhir-native power.
+
+These capabilities may be exposed over MCP first, but they should be defined at the Beacon capability layer rather than only as MCP tool names.
 
 ### `beacon_trace_decision`
 
@@ -263,7 +281,7 @@ Purpose: Explain what related files, symbols, decisions, docs, tests, and memori
 
 This should wait until Menhir-backed structure/git/memory joins are available.
 
-## 3. Demo script
+## 4. Demo script
 
 The public demo should be short and emotionally obvious.
 
@@ -322,7 +340,7 @@ Expected answer:
 
 This fourth prompt is the "normal RAG cannot do this cleanly" moment.
 
-## 4. Milestones
+## 5. Milestones
 
 ### Milestone 0 — Beacon exists
 
@@ -387,10 +405,11 @@ Add:
 - supersession metadata
 - `beacon_trace_decision`
 - `beacon_what_changed`
+- declared-vs-observed divergence fields
 
 Success criterion:
 
-> Beacon can distinguish current decisions from older or superseded ideas.
+> Beacon can distinguish current decisions from older ideas, and can identify where declared intent diverges from observed project reality.
 
 ### Milestone 5 — Menhir-backed dynamic Beacon
 
@@ -406,7 +425,7 @@ Success criterion:
 
 > Menhir can generate a richer Beacon than a static manifest/docs-only backend.
 
-## 5. Recommended next repo work
+## 6. Recommended next repo work
 
 The next highest-value work is not more abstraction. It is packaging and demonstration.
 
@@ -422,9 +441,13 @@ Priority order:
 6. Add a small golden-output test for each MCP tool.
 7. Add `beacon_trace_decision` only after the current five tools are pleasant to use.
 
-## 6. North-star product sentence
+## 7. North-star product sentence
 
 > Beacon is the missing handshake between software projects and coding agents.
+
+More precisely:
+
+> Beacon standardizes Agent-to-Project communication.
 
 Today, projects expose APIs for programs and READMEs for humans.
 
