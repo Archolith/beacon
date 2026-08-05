@@ -1,5 +1,12 @@
 # Changelog — beacon
 
+## 2026-08-05 — Graft prior-art and context-composition comparison
+
+- `docs/prior-art/graft-beacon-context-comparison.md` — compare Graft with Beacon v0 and the Adaptive Semantic Object / Orientation direction
+- Record direct overlap in code orientation, graph-ranked retrieval, source-grounded context packs, freshness, and push/pull benchmarking
+- Define Beacon differentiation around provider-neutral contracts, cross-source authority and history, consumer-aware composition, and Time-to-Competence
+- Propose cold, push, pull, adaptive, and Menhir-backed benchmark arms plus a possible Graft structural-provider adapter
+
 ## 2026-06-29 — Beacon v0 initial implementation
 
 - `src/beacon/core/schema.py` — BeaconManifest + all answer-contract frozen dataclasses
