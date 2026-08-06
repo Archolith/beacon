@@ -1,5 +1,12 @@
 # Changelog — beacon
 
+## 2026-08-06 — Atlaso Ambient Memory / Orientation comparison
+
+- `docs/prior-art/atlaso-ambient-memory-comparison.md` — compare Atlaso's automatic recall and closed Ambient Memory composer with Beacon v0 and the Adaptive Semantic Object / Orientation direction
+- Record direct prior art for cross-tool memory, session-start push context, returning-user continuity, compact conflict verdicts, and background enrichment
+- Distinguish Atlaso's memory-first fixed-seed context from Beacon's provider-neutral, cross-source, consumer/purpose/budget-aware composition model
+- Add lifecycle delivery, injection-safety, scope-parity, Time-to-Competence, push/pull/adaptive, and adversarial benchmark implications
+
 ## 2026-08-05 — Graft prior-art and context-composition comparison
 
 - `docs/prior-art/graft-beacon-context-comparison.md` — compare Graft with Beacon v0 and the Adaptive Semantic Object / Orientation direction
