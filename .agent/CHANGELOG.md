@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-07 — Doc sweep: fix stale CLI description, fill in code conventions
+
+- `.agent/architecture.md` — Package Layout's `main.py` row still described the pre-CLI
+  `configure_logging + run_server` shape; updated to reflect the typer app (`serve` default
+  + `validate`/`inspect` subcommands) added 2026-06-30. Added a `## CLI` section documenting
+  all three commands — this surface had no `.agent/` coverage at all before now.
+- `.agent/workflows/code_conventions.md` — was four empty TODO headers; filled in with
+  conventions actually observed in `src/beacon/` (frozen-dataclass-only data types, `Beacon`-
+  prefixed manifest types vs. unprefixed answer types, one-test-file-per-layer, no
+  linter/formatter configured yet).
+- `.agent/data_models.md`, root `README.md` — checked against `schema.py`/`main.py`; both
+  accurate, no changes.
+
 ## 2026-06-30 — CLI subcommands, self-referential manifest, demo transcript
 
 - `src/beacon/main.py` — restructured with typer; `beacon validate` and `beacon inspect` subcommands added. `beacon` with no args still starts MCP stdio server. Windows UTF-8 output fix.

@@ -54,7 +54,7 @@ structure graph, git history) can be swapped in later without touching the tools
 src/beacon/
 ├── __init__.py          version
 ├── __main__.py          python -m beacon entry
-├── main.py              configure_logging + run_server
+├── main.py              typer CLI: serve (default) / validate / inspect subcommands
 ├── config/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
@@ -107,6 +107,18 @@ tool call:
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level |
 | `BEACON_HOST` | no | `127.0.0.1` | Remote transport host (stdio ignores) |
 | `BEACON_PORT` | no | `8788` | Remote transport port (stdio ignores) |
+
+## CLI
+
+`src/beacon/main.py` is a `typer` app with one default action and two subcommands:
+
+| Command | Purpose |
+|---------|---------|
+| `beacon` (no subcommand) | Starts the MCP stdio server — loads `.env` via `ENV_FILE`, configures logging, calls `run_server(mcp)`. |
+| `beacon validate PATH` | Loads and validates a `beacon.yaml`; exits 0 with 0 errors, exits 1 on parse failure or any error-level issue. Warnings print but don't fail the exit code. |
+| `beacon inspect PATH` | Loads a manifest, validates it (hard-fails on errors), then calls all five `ManifestBeaconProvider` methods directly and prints a human-readable summary of each — a local smoke test before wiring an MCP client. |
+
+`validate`/`inspect` construct a `ManifestBeaconProvider` in-process (no MCP transport, no server startup) and reuse the same `validate_beacon_manifest()` used at server startup.
 
 ## MCP Tools
 
