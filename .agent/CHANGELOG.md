@@ -1,5 +1,11 @@
 # Changelog — beacon
 
+## 2026-08-10 — Future AI answer-broker boundary
+
+- Recorded the optional AI answer broker as a future layer over canonical Beacon knowledge, with
+  Beacon-shaped responses, strict schema/citation validation, provenance, bounded capabilities,
+  secret filtering, and fail-closed unanswered/refused/error behavior.
+
 ## 2026-08-10 — Public release candidate
 
 - Published `archolith-beacon==0.2.0rc1` through PyPI trusted publishing after the public

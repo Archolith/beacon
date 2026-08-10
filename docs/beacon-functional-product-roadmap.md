@@ -201,6 +201,23 @@ Provider selection must be configuration, not import-time magic. Startup must st
 are active, their last refresh, and whether the server is serving live, degraded, or snapshot-only
 knowledge.
 
+### Optional AI answer broker boundary
+
+Beacon may eventually place an AI answer broker between canonical Beacon knowledge and a consumer
+that asks a broader question. The broker is optional and cannot replace the deterministic snapshot,
+provider, or citation contracts. Regardless of whether a response is assembled deterministically or
+synthesized by a model, the public result remains a versioned Beacon-shaped response.
+
+Model output is never forwarded directly. It must pass strict response-schema and citation
+validation and identify its responder, synthesis mode, source snapshot digest, grounded facts,
+inferences, and uncertainties. Repository content is untrusted data rather than model instruction;
+input/output size, time, tool, network, persistence, and write capabilities are bounded and disabled
+unless explicitly authorized. Secret filtering applies before and after synthesis. If the model
+output is malformed, unsupported, or has unresolved citations, the broker discards it and returns a
+Beacon-shaped `unanswered`, `refused`, or `error` response. Unanswered-question persistence remains
+a separate authenticated capability and never promotes submitted or synthesized text to trusted
+project knowledge without maintainer policy and cited publication.
+
 ### Distribution and trust plane
 
 Archolith is the default directory, trust service, and optional host. A local Beacon trust broker
