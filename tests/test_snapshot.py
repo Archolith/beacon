@@ -229,6 +229,59 @@ def test_metadata_only_omits_text_keeps_structure(tmp_path: Path) -> None:
     assert payload["documents"][0]["source_sha256"]  # hashes still present
 
 
+def test_plan_documents_are_title_only_in_embedded_snapshot(tmp_path: Path) -> None:
+    plan_text = "# Internal execution plan\n\nDetailed private implementation sequence.\n"
+    (tmp_path / "README.md").write_text("# Public entrypoint\n\nPublic body.\n", encoding="utf-8")
+    (tmp_path / "internal-plan.md").write_text(plan_text, encoding="utf-8")
+    manifest = (
+        CLEAN_MANIFEST
+        + """\
+  - path: internal-plan.md
+    role: implementation_plan
+    status: current
+    title: Internal execution plan
+"""
+    )
+    manifest_file = tmp_path / "beacon.yaml"
+    manifest_file.write_text(manifest, encoding="utf-8")
+
+    snapshot = build_snapshot(manifest_file)
+    documents = {document["path"]: document for document in snapshot.to_payload()["documents"]}
+
+    assert documents["README.md"]["chunks"]
+    plan = documents["internal-plan.md"]
+    assert plan["path"] == "internal-plan.md"
+    assert plan["role"] == "implementation_plan"
+    assert plan["status"] == "current"
+    assert plan["title"] == "Internal execution plan"
+    assert plan["source_sha256"]
+    assert plan["chunks"] == []
+    assert plan_text.encode() not in snapshot_bytes(snapshot)
+
+
+def test_title_only_plan_body_is_not_scanned_as_exported_content(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# Public entrypoint\n\nPublic body.\n", encoding="utf-8")
+    (tmp_path / "internal-plan.md").write_text(
+        f"# Internal plan\n\nfixture token {GITHUB_TOKEN}\n", encoding="utf-8"
+    )
+    manifest = (
+        CLEAN_MANIFEST
+        + """\
+  - path: internal-plan.md
+    role: architecture_plan
+    status: current
+    title: Internal architecture plan
+"""
+    )
+    manifest_file = tmp_path / "beacon.yaml"
+    manifest_file.write_text(manifest, encoding="utf-8")
+
+    snapshot = build_snapshot(manifest_file)
+
+    assert snapshot.to_payload()["validation"]["security_overrides"] == []
+    assert GITHUB_TOKEN.encode() not in snapshot_bytes(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # Line ranges resolve to chunk text
 # ---------------------------------------------------------------------------

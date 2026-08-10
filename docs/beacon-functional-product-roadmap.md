@@ -257,7 +257,8 @@ Deliverables:
 - `beacon validate`, `inspect`, and local smoke-test output with actionable diagnostics;
 - `beacon export` for a canonical JSON snapshot of manifest/docs knowledge;
 - `beacon serve-http` for immutable, loopback-only JSON discovery, health, and snapshot retrieval
-  by clients that do not speak MCP;
+  by clients that do not speak MCP, with plan bodies withheld while their titles and identity
+  metadata remain visible;
 - examples for a library, service, and monorepo/research project;
 - complete client setup docs for supported MCP clients;
 - golden outputs and contract tests for all five tools;

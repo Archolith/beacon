@@ -10,6 +10,8 @@
   invalid, and occupied bind targets fail closed with stable redacted diagnostics.
 - Added direct Starlette/Uvicorn dependencies and a real installed-process HTTP release journey
   under outbound-socket denial.
+- Reduced snapshot size and internal-plan exposure by emitting `plan` and `*_plan` documents as
+  title/path/role/status/hash metadata only; the private local MCP index still reads their bodies.
 - Bumped the release candidate to `0.2.0rc2`; RC1 remains immutable.
 
 ## 2026-08-10 — Future AI answer-broker boundary

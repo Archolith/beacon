@@ -91,7 +91,9 @@ The routes are `/.well-known/archolith-beacon`, `/v1/snapshot`, the identical `/
 alias, and `/healthz`. Only `GET` and `HEAD` are supported. Snapshot responses include a SHA-256
 ETag and support `If-None-Match`; the snapshot is built once at startup. The command rejects every
 host except `127.0.0.1`, disables CORS and access logs, and applies the same strict publication and
-secret gates as export. Remote access, query, and question submission remain disabled.
+secret gates as export. Plan-role documents carry only title/path/role/status/hash in the snapshot;
+their body remains available only through the private local MCP index. Remote access, query, and
+question submission remain disabled.
 
 ---
 

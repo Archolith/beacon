@@ -315,7 +315,8 @@ def build_snapshot(
     findings = _manifest_findings(manifest, manifest.canonical_docs)
     if content_mode == CONTENT_EMBEDDED:
         for doc in manifest.canonical_docs:
-            findings.extend(detect_sensitive_text(doc_texts[doc.path], path=doc.path))
+            if _snapshot_embeds_body(doc):
+                findings.extend(detect_sensitive_text(doc_texts[doc.path], path=doc.path))
     security_result = resolve_security_overrides(
         findings, security_overrides, context=CONTEXT_EXPORT
     )
@@ -479,6 +480,8 @@ def _build_documents(
 
     Chunk order follows :class:`DocIndex` order (document order, then heading
     order). Embedded mode keeps each chunk's text; metadata-only drops it.
+    Plan-role documents are intentionally title-only in either mode: their
+    document metadata and source digest remain, but their chunks are omitted.
     """
     chunks_by_path: dict[str, list[SnapshotChunk]] = {}
     for chunk in doc_index.chunks:
@@ -499,10 +502,23 @@ def _build_documents(
                 status=doc.status,
                 title=doc.title,
                 source_sha256=doc_digests[doc.path],
-                chunks=tuple(chunks_by_path.get(doc.path, ())),
+                chunks=(
+                    tuple(chunks_by_path.get(doc.path, ())) if _snapshot_embeds_body(doc) else ()
+                ),
             )
         )
     return tuple(documents)
+
+
+def _snapshot_embeds_body(doc: BeaconDoc) -> bool:
+    """Return whether a snapshot may carry *doc*'s body.
+
+    Plan bodies remain available to the local MCP provider and its in-memory
+    index. Static snapshots expose only plan metadata until a reviewed
+    summarization/exposure policy replaces this conservative role boundary.
+    """
+    role = doc.role.strip().lower()
+    return role != "plan" and not role.endswith("_plan")
 
 
 def _refuse_unsafe_manifest_paths(manifest: BeaconManifest) -> None:

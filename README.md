@@ -166,8 +166,10 @@ curl http://127.0.0.1:8765/v1/snapshot
 metadata. The server builds the embedded canonical snapshot once at startup and serves immutable
 bytes with a SHA-256 ETag. It accepts only `127.0.0.1`, sends no CORS or access-log output, and
 refuses to start unless the same publication, path, resource, and secret gates as `beacon export`
-pass. Querying, question submission, remote binding, authentication, and AI synthesis are not RC2
-capabilities and are advertised as unavailable in discovery.
+pass. Documents with a `plan` or `*_plan` role are represented by title/path/role/status/hash only;
+their body chunks remain private to the local MCP index. Querying, question submission, remote
+binding, authentication, and AI synthesis are not RC2 capabilities and are advertised as
+unavailable in discovery.
 
 ---
 
@@ -410,8 +412,10 @@ Beacon tracks three independent version numbers:
 
 A snapshot records its generator (product) version, the manifest schema version
 it came from, and its own snapshot version separately. The default snapshot
-**embeds** each canonical document's heading-chunk text once; `--metadata-only`
-emits structure and hashes without the text.
+**embeds** each non-plan canonical document's heading-chunk text once. Documents
+whose role is `plan` or ends in `_plan` remain title-only in snapshots while the
+private MCP index retains their full text. `--metadata-only` emits structure and
+hashes without any document text.
 
 ---
 
