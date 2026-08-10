@@ -81,6 +81,10 @@ CONTENT_METADATA_ONLY = "metadata_only"
 #: All recognised content modes.
 CONTENT_MODES = frozenset({CONTENT_EMBEDDED, CONTENT_METADATA_ONLY})
 
+#: Manifest fields sufficient to identify a project without loading concepts,
+#: guardrails, document inventory, or document bodies.
+_IDENTITY_MANIFEST_KEYS = ("project", "purpose", "audiences", "current_focus")
+
 #: Stable snapshot-core error codes.
 SNAPSHOT_INVALID_CONTENT_MODE = "snapshot_invalid_content_mode"
 SNAPSHOT_BLOCKED_POLICY = "snapshot_blocked_policy"
@@ -392,6 +396,29 @@ def metadata_only_snapshot(snapshot: Snapshot) -> Snapshot:
     return replace(snapshot, content_mode=CONTENT_METADATA_ONLY, documents=documents)
 
 
+def identity_snapshot(snapshot: Snapshot) -> Snapshot:
+    """Return the smallest project-identity representation of *snapshot*.
+
+    Identity preserves the approved startup manifest/source digest and the
+    project, purpose, audiences, and current-focus fields. Canonical document
+    metadata and bodies are omitted. The transformation is deterministic and
+    performs no file I/O.
+    """
+    _require_content_mode(snapshot.content_mode)
+    identity_data = {
+        key: _json_safe(snapshot.manifest.data[key])
+        for key in _IDENTITY_MANIFEST_KEYS
+        if key in snapshot.manifest.data
+    }
+    manifest = replace(snapshot.manifest, data=identity_data)
+    return replace(
+        snapshot,
+        content_mode=CONTENT_METADATA_ONLY,
+        manifest=manifest,
+        documents=(),
+    )
+
+
 def snapshot_bytes(snapshot: Snapshot, *, byte_ceiling: int | None = None) -> bytes:
     """Serialize *snapshot* to deterministic bounded UTF-8 JSON + one newline.
 
@@ -682,6 +709,7 @@ __all__ = [
     "SnapshotProject",
     "SnapshotValidation",
     "build_snapshot",
+    "identity_snapshot",
     "metadata_only_snapshot",
     "snapshot_bytes",
     "write_snapshot_atomic",

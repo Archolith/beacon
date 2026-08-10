@@ -40,6 +40,7 @@ from beacon.core.snapshot import (
     SnapshotProject,
     SnapshotValidation,
     build_snapshot,
+    identity_snapshot,
     metadata_only_snapshot,
     snapshot_bytes,
     write_snapshot_atomic,
@@ -253,6 +254,33 @@ def test_metadata_only_can_be_derived_without_mutating_embedded_snapshot(tmp_pat
 def test_metadata_only_derivation_is_idempotent(tmp_path: Path) -> None:
     metadata = build_snapshot(_write_project(tmp_path), content_mode=CONTENT_METADATA_ONLY)
     assert metadata_only_snapshot(metadata) is metadata
+
+
+def test_identity_snapshot_keeps_only_identifying_manifest_fields(tmp_path: Path) -> None:
+    embedded = build_snapshot(_write_project(tmp_path), content_mode=CONTENT_EMBEDDED)
+    identity = identity_snapshot(embedded)
+
+    assert identity.content_mode == CONTENT_METADATA_ONLY
+    assert identity.project == embedded.project
+    assert identity.manifest.source_sha256 == embedded.manifest.source_sha256
+    assert set(identity.manifest.data) == {
+        "project",
+        "purpose",
+        "audiences",
+        "current_focus",
+    }
+    assert identity.manifest.data["project"]["name"] == "snapshot-project"
+    assert identity.documents == ()
+    assert identity.validation == embedded.validation
+    assert identity.policy == embedded.policy
+    jsonschema.validate(identity.to_payload(), _load_schema())
+
+
+def test_identity_snapshot_is_deterministic(tmp_path: Path) -> None:
+    embedded = build_snapshot(_write_project(tmp_path))
+    assert snapshot_bytes(identity_snapshot(embedded)) == snapshot_bytes(
+        identity_snapshot(embedded)
+    )
 
 
 def test_plan_documents_are_title_only_in_embedded_snapshot(tmp_path: Path) -> None:

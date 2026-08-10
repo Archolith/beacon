@@ -1,5 +1,14 @@
 # Changelog — beacon
 
+## 2026-08-10 — Minimal HTTP identity tier
+
+- Added immutable `GET`/`HEAD /v1/snapshot/identity` with project, purpose, audiences, and current
+  focus, no document inventory, and snapshot-1.0-compatible metadata-only shape.
+- Upgraded discovery to descriptor 1.2 with identity/orientation/full routes, exact byte sizes, and
+  independent SHA-256 digests; identity links progressively to orientation.
+- Added derivation, schema, route/header/cache, hostile-input, dogfood size, and installed-wheel
+  journey coverage, and documented identity as the cheapest project-orientation read.
+
 ## 2026-08-10 — Agent-first HTTP orientation tier
 
 - Added immutable `GET`/`HEAD /v1/snapshot/orientation`, derived in memory from the approved full

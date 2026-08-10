@@ -22,6 +22,7 @@ from beacon.core.snapshot import (
     SnapshotProject,
     SnapshotValidation,
     build_snapshot,
+    identity_snapshot,
     metadata_only_snapshot,
     snapshot_bytes,
 )
@@ -48,6 +49,7 @@ def _make_snapshot(
             source_sha256="0" * 64,
             data={
                 "project": {"name": "http-project"},
+                "purpose": {"one_sentence": "Exercise HTTP snapshot representations."},
                 "core_concepts": [
                     {
                         "id": "answer_contract",
@@ -97,6 +99,11 @@ def orientation_payload(snapshot: Snapshot) -> bytes:
 
 
 @pytest.fixture()
+def identity_payload(snapshot: Snapshot) -> bytes:
+    return snapshot_bytes(identity_snapshot(snapshot))
+
+
+@pytest.fixture()
 def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -117,6 +124,16 @@ def orientation_etag(orientation_sha256: str) -> str:
 
 
 @pytest.fixture()
+def identity_sha256(identity_payload: bytes) -> str:
+    return hashlib.sha256(identity_payload).hexdigest()
+
+
+@pytest.fixture()
+def identity_etag(identity_sha256: str) -> str:
+    return f'"{identity_sha256}"'
+
+
+@pytest.fixture()
 def client(snapshot: Snapshot) -> TestClient:
     return TestClient(create_http_app(snapshot))
 
@@ -129,6 +146,7 @@ def client(snapshot: Snapshot) -> TestClient:
 def test_exact_route_set_get(client: TestClient, payload: bytes, sha256: str) -> None:
     for path in (
         "/.well-known/archolith-beacon",
+        "/v1/snapshot/identity",
         "/v1/snapshot/orientation",
         "/v1/snapshot",
         "/beacon.json",
@@ -174,6 +192,22 @@ def test_orientation_is_exact_metadata_only_representation(
     assert all("text" not in chunk for doc in body["documents"] for chunk in doc["chunks"])
 
 
+def test_identity_is_exact_minimal_snapshot(
+    client: TestClient,
+    identity_payload: bytes,
+    orientation_payload: bytes,
+) -> None:
+    response = client.get("/v1/snapshot/identity")
+    assert response.status_code == 200
+    assert response.content == identity_payload
+    assert len(response.content) < len(orientation_payload)
+    body = response.json()
+    assert body["content_mode"] == "metadata_only"
+    assert body["project"]["name"] == "http-project"
+    assert set(body["manifest"]["data"]) == {"project", "purpose"}
+    assert body["documents"] == []
+
+
 def test_snapshot_headers(client: TestClient, payload: bytes, sha256: str, etag: str) -> None:
     response = client.get("/v1/snapshot")
     assert response.status_code == 200
@@ -201,12 +235,31 @@ def test_orientation_headers(
     assert response.headers["link"] == '</v1/snapshot>; rel="alternate"; title="full snapshot"'
 
 
+def test_identity_headers(
+    client: TestClient,
+    identity_payload: bytes,
+    identity_sha256: str,
+    identity_etag: str,
+) -> None:
+    response = client.get("/v1/snapshot/identity")
+    assert response.headers["content-length"] == str(len(identity_payload))
+    assert response.headers["etag"] == identity_etag
+    assert response.headers["x-beacon-snapshot-sha256"] == identity_sha256
+    assert response.headers["link"] == (
+        '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
+
+
 def test_app_retains_snapshot_metadata(snapshot: Snapshot, sha256: str) -> None:
     app = create_http_app(snapshot)
     assert app.state.beacon_snapshot_sha256 == sha256
     assert (
         app.state.beacon_orientation_sha256
         == hashlib.sha256(snapshot_bytes(metadata_only_snapshot(snapshot))).hexdigest()
+    )
+    assert (
+        app.state.beacon_identity_sha256
+        == hashlib.sha256(snapshot_bytes(identity_snapshot(snapshot))).hexdigest()
     )
     assert app.state.beacon_snapshot_schema_version == SNAPSHOT_VERSION
 
@@ -233,6 +286,15 @@ def test_get_and_head_orientation_equivalent_headers(client: TestClient) -> None
     assert head_response.status_code == 200
     assert head_response.content == b""
     for header in ("content-length", "etag", "content-type", "x-beacon-snapshot-sha256"):
+        assert head_response.headers[header] == get_response.headers[header]
+
+
+def test_get_and_head_identity_equivalent_headers(client: TestClient) -> None:
+    get_response = client.get("/v1/snapshot/identity")
+    head_response = client.head("/v1/snapshot/identity")
+    assert head_response.status_code == 200
+    assert head_response.content == b""
+    for header in ("content-length", "etag", "content-type", "x-beacon-snapshot-sha256", "link"):
         assert head_response.headers[header] == get_response.headers[header]
 
 
@@ -312,6 +374,22 @@ def test_orientation_if_none_match_uses_its_own_etag(
     assert other_tier.content == orientation_payload
 
 
+def test_identity_if_none_match_uses_its_own_etag(
+    client: TestClient,
+    identity_etag: str,
+    orientation_etag: str,
+    identity_payload: bytes,
+) -> None:
+    matched = client.get("/v1/snapshot/identity", headers={"If-None-Match": identity_etag})
+    assert matched.status_code == 304
+    assert matched.headers["link"] == (
+        '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
+    other_tier = client.get("/v1/snapshot/identity", headers={"If-None-Match": orientation_etag})
+    assert other_tier.status_code == 200
+    assert other_tier.content == identity_payload
+
+
 # ---------------------------------------------------------------------------
 # Discovery document
 # ---------------------------------------------------------------------------
@@ -323,6 +401,8 @@ def test_discovery_fields(
     sha256: str,
     orientation_payload: bytes,
     orientation_sha256: str,
+    identity_payload: bytes,
+    identity_sha256: str,
 ) -> None:
     response = client.get("/.well-known/archolith-beacon")
     assert response.status_code == 200
@@ -336,7 +416,7 @@ def test_discovery_fields(
         "snapshot",
         "representations",
     }
-    assert body["descriptor_version"] == "1.1"
+    assert body["descriptor_version"] == "1.2"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"
@@ -353,6 +433,13 @@ def test_discovery_fields(
         "schema_version": SNAPSHOT_VERSION,
     }
     assert body["representations"] == {
+        "identity": {
+            "url": "/v1/snapshot/identity",
+            "mode": "metadata_only",
+            "sha256": identity_sha256,
+            "bytes": len(identity_payload),
+            "schema_version": SNAPSHOT_VERSION,
+        },
         "orientation": {
             "url": "/v1/snapshot/orientation",
             "mode": "metadata_only",
@@ -408,7 +495,12 @@ def test_health_canonical_newline(client: TestClient) -> None:
 
 def test_unsupported_method_405(client: TestClient) -> None:
     for method in ("post", "put", "delete", "patch"):
-        for path in ("/v1/snapshot/orientation", "/v1/snapshot", "/healthz"):
+        for path in (
+            "/v1/snapshot/identity",
+            "/v1/snapshot/orientation",
+            "/v1/snapshot",
+            "/healthz",
+        ):
             response = client.request(method, path)
             assert response.status_code == 405, (method, path)
             body = response.json()
@@ -429,7 +521,13 @@ def test_404_body_no_server_path_or_content(client: TestClient) -> None:
 
 def test_no_cors_headers(client: TestClient) -> None:
     for method in ("get", "head", "options", "post"):
-        for path in ("/v1/snapshot/orientation", "/v1/snapshot", "/healthz", "/nope"):
+        for path in (
+            "/v1/snapshot/identity",
+            "/v1/snapshot/orientation",
+            "/v1/snapshot",
+            "/healthz",
+            "/nope",
+        ):
             response = client.request(method, path)
             assert "access-control-allow-origin" not in response.headers, (method, path)
 
@@ -472,12 +570,15 @@ def test_query_strings_do_not_echo(client: TestClient, payload: bytes) -> None:
     assert client.get("/healthz?a=1").content == health_plain
     orientation_plain = client.get("/v1/snapshot/orientation").content
     assert client.get("/v1/snapshot/orientation?secret=leak").content == orientation_plain
+    identity_plain = client.get("/v1/snapshot/identity").content
+    assert client.get("/v1/snapshot/identity?secret=leak").content == identity_plain
 
 
 def test_no_project_text_outside_snapshot_routes(client: TestClient) -> None:
     assert DOC_TEXT in client.get("/v1/snapshot").text
     for path in (
         "/.well-known/archolith-beacon",
+        "/v1/snapshot/identity",
         "/v1/snapshot/orientation",
         "/healthz",
         "/nope",
@@ -508,6 +609,7 @@ def test_immutable_after_source_file_changes(tmp_path) -> None:
         # Discovery and health never expose the temporary path or doc text.
         assert original_text not in test_client.get("/healthz").text
         assert original_text not in test_client.get("/.well-known/archolith-beacon").text
+        assert original_text not in test_client.get("/v1/snapshot/identity").text
         assert original_text not in test_client.get("/v1/snapshot/orientation").text
         assert absolute not in test_client.get("/v1/snapshot").text
 
@@ -517,8 +619,18 @@ def test_dogfood_orientation_is_materially_smaller_and_traceable() -> None:
     with TestClient(create_http_app(snapshot)) as test_client:
         full = test_client.get("/v1/snapshot")
         orientation = test_client.get("/v1/snapshot/orientation")
+        identity = test_client.get("/v1/snapshot/identity")
 
     assert len(orientation.content) <= len(full.content) / 2
+    assert len(identity.content) <= len(orientation.content) / 5
+    identity_body = identity.json()
+    assert set(identity_body["manifest"]["data"]) == {
+        "project",
+        "purpose",
+        "audiences",
+        "current_focus",
+    }
+    assert identity_body["documents"] == []
     body = orientation.json()
     assert body["project"]["name"] == "beacon"
     concept = next(

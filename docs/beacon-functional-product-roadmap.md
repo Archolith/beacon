@@ -240,19 +240,21 @@ which knowledge is relevant. Static HTTP exposes immutable, precomputed tiers de
 startup source identity:
 
 1. discovery: version, capabilities, available representations, digests, and byte sizes;
-2. orientation/index: manifest knowledge plus document and chunk inventory without chunk bodies; and
-3. full snapshot: the existing embedded corpus for consumers that need all published content.
+2. identity: project, purpose, audiences, and current focus without document inventory;
+3. orientation/index: manifest knowledge plus document and chunk inventory without chunk bodies; and
+4. full snapshot: the existing embedded corpus for consumers that need all published content.
 
-These tiers form a monotonic progressive-disclosure chain: discovery advertises orientation and
-full, orientation advertises the available full or chunk-body representation, and full remains the
-maximum static context. Public contracts use semantic tier names rather than ambiguous labels such
-as `low`, `medium`, and `max`; clients may present those labels as convenience aliases.
+These tiers form a monotonic progressive-disclosure chain: discovery advertises every tier, identity
+links to orientation, orientation links to full, and full remains the maximum static context. Public
+contracts use semantic tier names rather than ambiguous labels such as `low`, `medium`, and `max`;
+clients may present those labels as convenience aliases.
 
-The implemented orientation representation is the HTTP counterpart of `beacon export
---metadata-only`. It is static, cacheable, deterministic, and query-free; discovery descriptor 1.1
-advertises its stable route, `/v1/snapshot/orientation`, digest, and exact size. The existing
-`/v1/snapshot` route remains the backward-compatible full representation. Both tiers come from the
-same startup source set while retaining representation-specific hashes.
+The implemented identity and orientation representations are static, cacheable, deterministic, and
+query-free. Orientation is the HTTP counterpart of `beacon export --metadata-only`; identity is a
+snapshot-1.0-compatible projection of its identifying manifest fields. Discovery descriptor 1.2
+advertises their stable routes, digests, and exact sizes. The existing `/v1/snapshot` route remains
+the backward-compatible full representation. All tiers come from the same startup source set while
+retaining representation-specific hashes.
 
 Every retrievable chunk should advertise its exact UTF-8 byte count before a client fetches its body.
 Token estimates are optional and must identify their tokenizer. A versioned index may denormalize a
@@ -356,8 +358,8 @@ Deliverables:
   receipts, deterministic source/document synchronization checks, and conditional semantic review;
 - wrapup/CI integration that blocks known Beacon-facing drift without requiring a model call for
   unaffected tasks;
-- conformance and agent-task evaluation for the v0.2 metadata/orientation HTTP representation,
-  which is derived from the full snapshot's startup source set with its own digest and exact size;
+- conformance and agent-task evaluation for the v0.2 identity/orientation HTTP representations,
+  which are derived from the full snapshot's startup source set with their own digests and sizes;
 - per-chunk UTF-8 byte budgets and an explicit index/schema decision for denormalized parent role and
   status; and
 - dogfood and fixture provenance-completeness gates for concepts and guardrails.

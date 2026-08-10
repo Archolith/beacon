@@ -1,8 +1,8 @@
 """Loopback HTTP surface for an immutable Beacon snapshot.
 
 Builds a small :class:`starlette.applications.Starlette` ASGI app over an
-already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded
-and derived metadata-only representations are each serialized exactly once
+already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded,
+orientation, and identity representations are each serialized exactly once
 (via :func:`beacon.core.snapshot.snapshot_bytes`) and their SHA-256 digests are
 computed once. Both are retained as immutable state for the life of the app.
 No source file is ever reread and no snapshot is rebuilt after construction, so
@@ -15,6 +15,7 @@ work -- those boundaries belong to the caller.
 Routes (GET and HEAD):
 
 * ``/.well-known/archolith-beacon`` -- deterministic discovery document;
+* ``/v1/snapshot/identity`` -- minimal project identity representation;
 * ``/v1/snapshot/orientation`` -- metadata-only orientation representation;
 * ``/v1/snapshot`` -- the canonical snapshot payload;
 * ``/beacon.json`` -- byte/header-identical alias of ``/v1/snapshot``;
@@ -42,12 +43,13 @@ from beacon.core.canonical_json import dumps_canonical
 from beacon.core.snapshot import (
     CONTENT_EMBEDDED,
     Snapshot,
+    identity_snapshot,
     metadata_only_snapshot,
     snapshot_bytes,
 )
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.1"
+_DESCRIPTOR_VERSION = "1.2"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -79,6 +81,9 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     orientation_payload = snapshot_bytes(metadata_only_snapshot(snapshot))
     orientation_sha256 = hashlib.sha256(orientation_payload).hexdigest()
     orientation_etag = f'"{orientation_sha256}"'
+    identity_payload = snapshot_bytes(identity_snapshot(snapshot))
+    identity_sha256 = hashlib.sha256(identity_payload).hexdigest()
+    identity_etag = f'"{identity_sha256}"'
     schema_version = snapshot.beacon_snapshot_version
 
     discovery = _discovery_payload(
@@ -86,6 +91,8 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         byte_count=len(payload),
         orientation_sha256=orientation_sha256,
         orientation_byte_count=len(orientation_payload),
+        identity_sha256=identity_sha256,
+        identity_byte_count=len(identity_payload),
         schema_version=schema_version,
     )
     discovery_body = dumps_canonical(discovery)
@@ -97,6 +104,10 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         orientation_payload, orientation_sha256, orientation_etag
     )
     orientation_headers["link"] = '</v1/snapshot>; rel="alternate"; title="full snapshot"'
+    identity_headers = _representation_headers(identity_payload, identity_sha256, identity_etag)
+    identity_headers["link"] = (
+        '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
 
     async def snapshot_route(request: Request) -> Response:
         return _snapshot_response(request, payload, snapshot_headers, etag)
@@ -110,6 +121,14 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             orientation_payload,
             orientation_headers,
             orientation_etag,
+        )
+
+    async def identity_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            identity_payload,
+            identity_headers,
+            identity_etag,
         )
 
     async def discovery_route(request: Request) -> Response:
@@ -129,6 +148,7 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     app = Starlette(
         routes=[
             Route("/.well-known/archolith-beacon", discovery_route, methods=["GET", "HEAD"]),
+            Route("/v1/snapshot/identity", identity_route, methods=["GET", "HEAD"]),
             Route("/v1/snapshot/orientation", orientation_route, methods=["GET", "HEAD"]),
             Route("/v1/snapshot", snapshot_route, methods=["GET", "HEAD"]),
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
@@ -137,6 +157,7 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     )
     app.state.beacon_snapshot_sha256 = sha256
     app.state.beacon_orientation_sha256 = orientation_sha256
+    app.state.beacon_identity_sha256 = identity_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
@@ -247,6 +268,8 @@ def _discovery_payload(
     byte_count: int,
     orientation_sha256: str,
     orientation_byte_count: int,
+    identity_sha256: str,
+    identity_byte_count: int,
     schema_version: str,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document."""
@@ -268,6 +291,13 @@ def _discovery_payload(
             "schema_version": schema_version,
         },
         "representations": {
+            "identity": {
+                "url": "/v1/snapshot/identity",
+                "mode": "metadata_only",
+                "sha256": identity_sha256,
+                "bytes": identity_byte_count,
+                "schema_version": schema_version,
+            },
             "orientation": {
                 "url": "/v1/snapshot/orientation",
                 "mode": "metadata_only",

@@ -65,7 +65,7 @@ src/beacon/
 ├── __init__.py          single-source package version
 ├── __main__.py          python -m beacon entry
 ├── main.py              typer CLI: init / validate / inspect / export / serve / serve-http
-├── http_api.py          immutable discovery, orientation, full snapshot, and health routes
+├── http_api.py          immutable discovery, identity, orientation, full snapshot, and health routes
 ├── config/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
@@ -122,15 +122,16 @@ exception text never cross the MCP boundary.
 ### Loopback HTTP data flow
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
-embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives a
-metadata-only orientation representation from the same approved in-memory value; it never rereads
-project files. Discovery descriptor 1.1 advertises `/v1/snapshot/orientation` and `/v1/snapshot`
-with their independent SHA-256 digests and exact byte sizes. Both representations are immutable for
-the process lifetime, support GET/HEAD plus `If-None-Match`, and use snapshot schema 1.0. The
-orientation tier retains manifest knowledge, citations, document hashes, and chunk inventory while
-omitting every chunk body and linking to the full representation. `/beacon.json` remains
-byte-identical to the full route. The listener is restricted to `127.0.0.1`, has no CORS or access
-logs, and exposes no query capability.
+embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
+identity and metadata-only orientation representations from the same approved in-memory value; it
+never rereads project files. Discovery descriptor 1.2 advertises `/v1/snapshot/identity`,
+`/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
+All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
+and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
+orientation adds manifest knowledge, citations, document hashes, and chunk inventory without chunk
+bodies. Each lighter tier links to the next. `/beacon.json` remains byte-identical to the full route.
+The listener is restricted to `127.0.0.1`, has no CORS or access logs, and exposes no query
+capability.
 
 ## Config / Environment Variables
 
