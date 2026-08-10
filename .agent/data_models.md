@@ -227,6 +227,22 @@ converts nested frozen dataclasses and tuples to dicts/lists ready for `json.dum
 `render_json(payload)` in `mcp/contracts.py` serializes with compact separators,
 sorted keys, and a `datetime.isoformat()` fallback.
 
+## Static HTTP Companion Catalogs
+
+`src/beacon/core/knowledge_resources.py` derives two immutable companion catalogs from the
+approved embedded snapshot's in-memory manifest data. `StaticKnowledgeCatalogs` contains
+`concepts` and `guardrails`; each `StaticKnowledgeCatalog` carries canonical index bytes, its
+SHA-256, and frozen `StaticKnowledgeResource` values containing opaque ID, canonical response
+bytes, and response SHA-256.
+
+Concept resource IDs use `k1-<32 hex>` and guardrail IDs use `g1-<32 hex>`, derived from kind plus
+logical manifest ID. Logical IDs remain response data and never become route structure. Index
+entries publish selector metadata, exact response bytes, and digest before retrieval. All index and
+resource responses are version 1.0, bounded by the snapshot byte ceiling, independently cacheable,
+and tied to a validated full-snapshot SHA-256 without changing snapshot schema 1.0. Construction
+requires the exact typed concept/guardrail/source record shapes, so every served record conforms to
+its published Draft 2020-12 resource schema.
+
 ---
 
 ## Validation Vocabulary

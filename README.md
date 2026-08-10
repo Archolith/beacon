@@ -161,6 +161,8 @@ beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
 curl http://127.0.0.1:8765/v1/snapshot/identity
 curl http://127.0.0.1:8765/v1/snapshot/orientation
+curl http://127.0.0.1:8765/v1/concepts
+curl http://127.0.0.1:8765/v1/guardrails
 curl http://127.0.0.1:8765/v1/chunks
 curl http://127.0.0.1:8765/v1/snapshot
 ```
@@ -171,10 +173,12 @@ without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full pu
 `/beacon.json` is its permanent alias. To avoid fetching full, inspect `/v1/chunks`: each entry has a
 stable ID, parent document role/status, exact UTF-8 text bytes, exact response bytes, and a shared URL
 template for retrieving only that chunk. Each retrieved resource has its own SHA-256/ETag. Discovery
-descriptor 1.3 advertises all representations and the
-chunk index with exact byte sizes and digests; `/healthz` returns redacted readiness metadata. The
+descriptor 1.4 also advertises `/v1/concepts` and `/v1/guardrails`: each is a cheap selector index
+whose opaque resource IDs retrieve one complete source-cited manifest record without making its
+logical ID part of the URL. All three companion indexes publish exact byte sizes and digests;
+`/healthz` returns redacted readiness metadata. The
 server builds the embedded canonical snapshot once at startup, derives every lighter representation
-and chunk resource from that approved in-memory source set, and serves immutable bytes with
+and companion resource from that approved in-memory source set, and serves immutable bytes with
 independent ETags. It accepts only `127.0.0.1`, sends no CORS or access-log output, and refuses to
 start unless the same publication, path, resource, and secret gates as `beacon export` pass.
 Documents with a `plan` or `*_plan` role are represented by title/path/role/status/hash only; their

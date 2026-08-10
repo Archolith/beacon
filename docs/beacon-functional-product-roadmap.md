@@ -251,17 +251,24 @@ clients may present those labels as convenience aliases.
 
 The implemented identity and orientation representations are static, cacheable, deterministic, and
 query-free. Orientation is the HTTP counterpart of `beacon export --metadata-only`; identity is a
-snapshot-1.0-compatible projection of its identifying manifest fields. Discovery descriptor 1.3
+snapshot-1.0-compatible projection of its identifying manifest fields. Discovery descriptor 1.4
 advertises their stable routes, digests, and exact sizes. The existing `/v1/snapshot` route remains
 the backward-compatible full representation. All tiers come from the same startup source set while
 retaining representation-specific hashes.
 
-Discovery descriptor 1.3 also advertises the implemented chunk-index 1.0 companion contract. Every
+Discovery descriptor 1.4 also advertises the implemented chunk-index 1.0 companion contract. Every
 retrievable chunk has a stable location-derived ID, exact UTF-8 text bytes, exact response bytes, URL
 template, and denormalized parent document role/status before a client fetches its body. Chunk
 resource 1.0 responses supply their own SHA-256/ETag, are precomputed from the same full snapshot,
 and are independently cacheable. This selective retrieval does not alter snapshot 1.0. Token
 estimates remain optional and must identify their tokenizer.
+
+Concept-index 1.0 and guardrail-index 1.0 provide the same static selective-read pattern for
+manifest knowledge. Their selector entries expose logical identity, status or scope metadata,
+exact response bytes, and resource digests; opaque location-stable resource IDs retrieve one full
+source-cited record. This keeps the cheapest concept or safety lookup below the orientation tier,
+avoids treating arbitrary manifest IDs as URL paths, and still performs no runtime query or source
+read.
 
 Evaluation measures bytes and tokens separately for project identification, general orientation,
 concept explanation, and a scoped task. The cheapest question must not cost the full corpus.
@@ -362,7 +369,7 @@ Deliverables:
   unaffected tasks;
 - conformance and agent-task evaluation for the v0.2 identity/orientation HTTP representations,
   which are derived from the full snapshot's startup source set with their own digests and sizes;
-- conformance and task-cost evaluation for chunk-index/resource 1.0 selective retrieval; and
+- conformance and task-cost evaluation for concept, guardrail, and chunk companion retrieval; and
 - dogfood and fixture provenance-completeness gates for concepts and guardrails.
 
 Exit gate:

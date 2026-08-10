@@ -1,5 +1,16 @@
 # Changelog — beacon
 
+## 2026-08-10 — Targeted static concept and guardrail retrieval
+
+- Added versioned concept and guardrail companion indexes plus individually addressable immutable
+  resources, preserving complete citations and implementation/applicability metadata.
+- Upgraded discovery to descriptor 1.4 with exact counts, bytes, digests, and URL templates for all
+  three companion catalogs while leaving snapshot 1.0 and the five MCP tools unchanged.
+- Added opaque stable resource IDs so arbitrary manifest IDs never become route structure, with
+  schema, hostile-input, cache, dogfood, and installed-wheel journey coverage.
+- Tightened full-record and snapshot-lineage validation, rejected lone Unicode surrogates through
+  the canonical JSON error contract, and schema-validated installed companion responses.
+
 ## 2026-08-10 — Selective static chunk retrieval
 
 - Added versioned `/v1/chunks` and `/v1/chunks/{id}` companion contracts without changing snapshot

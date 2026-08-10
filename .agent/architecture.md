@@ -77,6 +77,7 @@ src/beacon/
 │   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
 │   ├── snapshot.py      static snapshot build + in-memory metadata-only derivation
 │   ├── chunk_resources.py  versioned chunk index, stable IDs, budgets, static resources
+│   ├── knowledge_resources.py  concept/guardrail indexes and static resources
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
 ├── provider/
 │   ├── base.py          @runtime_checkable BeaconProvider Protocol (5 methods)
@@ -125,7 +126,7 @@ exception text never cross the MCP boundary.
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
 embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value; it
-never rereads project files. Discovery descriptor 1.3 advertises `/v1/snapshot/identity`,
+never rereads project files. Discovery descriptor 1.4 advertises `/v1/snapshot/identity`,
 `/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
 All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
 and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
@@ -135,7 +136,10 @@ The versioned `/v1/chunks` companion index adds stable location-derived IDs, par
 exact text/response byte costs, resource hashes, and individual `/v1/chunks/{id}` retrieval without
 changing snapshot 1.0. Index and resource bytes are bounded, precomputed, independently cacheable,
 and tied to the full snapshot digest. The listener is restricted to `127.0.0.1`, has no CORS or
-access logs, and exposes no free-text query capability.
+access logs, and exposes no free-text query capability. Companion `/v1/concepts` and
+`/v1/guardrails` indexes map manifest logical IDs to opaque stable resource IDs, exact byte costs,
+and independent digests; their item routes return one complete source-cited record without changing
+snapshot 1.0 or rereading source files.
 
 ## Config / Environment Variables
 

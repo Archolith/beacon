@@ -86,6 +86,8 @@ beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
 curl http://127.0.0.1:8765/v1/snapshot/identity
 curl http://127.0.0.1:8765/v1/snapshot/orientation
+curl http://127.0.0.1:8765/v1/concepts
+curl http://127.0.0.1:8765/v1/guardrails
 curl http://127.0.0.1:8765/v1/chunks
 curl http://127.0.0.1:8765/v1/snapshot
 ```
@@ -93,10 +95,12 @@ curl http://127.0.0.1:8765/v1/snapshot
 Use `/v1/snapshot/identity` as the cheapest project read, then
 `/v1/snapshot/orientation` when concepts, guardrails, citations, or document inventory are needed.
 Use `/v1/snapshot` for the full corpus; `/beacon.json` is its identical alias. Discovery descriptor
-1.3 also advertises `/v1/chunks`, a companion index for selective body retrieval. Each entry carries
+1.4 advertises three companion catalogs. `/v1/concepts` and `/v1/guardrails` let a client select and
+retrieve one complete source-cited manifest record through an opaque resource ID. `/v1/chunks`
+supports selective body retrieval; each entry carries
 a stable location-derived ID, parent role/status, exact UTF-8 text bytes, exact response bytes, and
 the shared `/v1/chunks/{id}` URL template; each retrieved response supplies its own SHA-256/ETag. The
-index and resources use version 1.0 without changing snapshot schema 1.0. Only `GET` and `HEAD` are
+indexes and resources use version 1.0 without changing snapshot schema 1.0. Only `GET` and `HEAD` are
 supported. Each static response has its own ETag and
 supports `If-None-Match`; all are precomputed from one approved startup source set. The command
 rejects every host except `127.0.0.1`, disables CORS and access logs, and applies the same strict

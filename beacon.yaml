@@ -42,7 +42,7 @@ audiences:
 
 current_focus:
   - manifest-driven MCP tools (v0, shipped)
-  - agent-first static HTTP tiers and selective chunk retrieval
+  - agent-first static HTTP tiers and selective knowledge retrieval
   - functional product roadmap from local publishing through an operable v1
   - CLI validation and inspection commands
   - demo transcript and client setup docs
@@ -173,6 +173,7 @@ core_concepts:
       - src/beacon/core/schema.py
       - src/beacon/provider/manifest_provider.py
       - src/beacon/mcp/tools/guardrails.py
+      - src/beacon/core/knowledge_resources.py
     sources:
       - type: file
         title: BeaconGuardrail schema
@@ -185,6 +186,12 @@ core_concepts:
         path: src/beacon/provider/manifest_provider.py
         line_start: 254
         line_end: 275
+        status: current
+      - type: file
+        title: Static concept and guardrail companion resources
+        path: src/beacon/core/knowledge_resources.py
+        line_start: 1
+        line_end: 284
         status: current
 
 canonical_docs:
