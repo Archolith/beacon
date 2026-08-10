@@ -31,6 +31,12 @@ dist/
 *.egg
 wheels/
 
+# CI/build scratch created in the local checkout (.deps framework bridge,
+# wheel dirs, installed-wheel smoke venv, scratch outputs/checksums)
+.deps/
+.smoke/
+.ci/
+
 # Local environment / secrets
 .env
 .env.*
