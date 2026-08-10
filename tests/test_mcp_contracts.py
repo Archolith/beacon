@@ -40,3 +40,22 @@ async def test_limit_error_preserves_stable_public_diagnostic() -> None:
         "code": LIMIT_QUERY_BYTES,
         "message": "resource limit exceeded: limit_query_bytes",
     }
+
+
+async def test_public_tool_surface_is_exactly_the_five_beacon_tools() -> None:
+    """The plain FastMCP server exposes exactly the five v0 tools.
+
+    Guards against the Archolith gateway adding ``call_tool``/``search_tools``
+    meta-tools or any transform-based tool appearing on the public surface.
+    """
+    from beacon.mcp.server import mcp
+
+    tools = await mcp.list_tools()
+    names = {tool.name for tool in tools}
+    assert names == {
+        "beacon_project_overview",
+        "beacon_agent_onboarding",
+        "beacon_search",
+        "beacon_explain_concept",
+        "beacon_guardrails",
+    }

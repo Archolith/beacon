@@ -80,6 +80,10 @@ def test_framework_dependency_declared(pyproject: dict) -> None:
     assert "archolith-mcp-framework>=0.2,<0.3" in pyproject["project"]["dependencies"]
 
 
+def test_fastmcp_dependency_declared(pyproject: dict) -> None:
+    assert "fastmcp>=3.2.4,<4" in pyproject["project"]["dependencies"]
+
+
 def test_legacy_framework_dependency_absent(pyproject: dict) -> None:
     assert "cth-mcp-framework" not in " ".join(pyproject["project"]["dependencies"])
 
@@ -93,7 +97,7 @@ def test_runtime_dependencies_complete(pyproject: dict) -> None:
     names = {
         dep.split(">=")[0].split("<")[0].lower() for dep in pyproject["project"]["dependencies"]
     }
-    assert {"archolith-mcp-framework", "pyyaml", "python-dotenv", "typer"} <= names
+    assert {"archolith-mcp-framework", "fastmcp", "pyyaml", "python-dotenv", "typer"} <= names
 
 
 # ---------------------------------------------------------------------------

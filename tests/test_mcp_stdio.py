@@ -108,7 +108,9 @@ socket.socket.connect_ex = _guard_connect_ex
 
     async with Client(transport, timeout=20) as client:
         names = {tool.name for tool in await client.list_tools()}
-        assert expected <= names
+        # The v0.2 public surface is exactly the five Beacon tools — no gateway
+        # meta-tools (call_tool / search_tools) and no transforms.
+        assert names == expected
 
         for name, arguments in calls.items():
             result = await client.call_tool(name, arguments)
