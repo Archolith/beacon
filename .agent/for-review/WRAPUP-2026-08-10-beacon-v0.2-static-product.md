@@ -1,15 +1,15 @@
 # WRAPUP — Beacon v0.2 static product
 
-**Date:** 2026-08-10  
-**Agent:** Codex  
-**Model:** GPT-5  
-**Status:** PARTIAL  
-**Plan / Ticket:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-publishable-static-product-plan-2026-08-09.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`  
-**Worktree:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0`  
-**Branch:** `release/v0.2.0`  
-**Commits:** `0cc63c550374937cbc2433f63fd3fdd649ddb110`, `8fe10c534b83f4f8f984f50568f7588f9c9b8a9d`, `04ebfc6df71c6503cebed60ea26088d53d9ea060`, `4bca71d9466cde17325dc76891df4b6fed8447f7`, `8459f106179610b2795128b1ffa59064ff7fd27e`, `215ad0d562524d57c2955d6f9abfc78346470e04`, `ca6dc9ecf5ea64c95a860e86a8e9374176060838`, `270fc459b14a24e1ccabd122a723687ffcba7792`, `7a593314200d1c1f5f1b2cec520e47a2584947d4`, `ff9fb8d2e77dcabd8b893a4b44842cf895b11356`, `766a3d8a601943589af7b82a5a14611d8e609ecc`, `9961285630771203a0289b211ab5445c4644026d`, `bf3af836d8fd8d1137ab71245e7956462b0c9ad6`  
-**Verification Scope:** committed implementation range `0cc63c550374937cbc2433f63fd3fdd649ddb110^..bf3af836d8fd8d1137ab71245e7956462b0c9ad6`; clean `release/v0.2.0` worktree; locally built `C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-wheel-audit\beacon-accepted\archolith_beacon-0.2.0rc1-py3-none-any.whl` (SHA-256 `5934293e7461943bc36264848e7401d9a56cb66971209d5892e7ef490bfa7962`, 91,086 bytes)  
-**Docs Updated:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\README.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\client-setup.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\demo-transcript.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\examples\README.md` and the three maintained example trees  
+**Date:** 2026-08-10
+**Agent:** Codex
+**Model:** GPT-5
+**Status:** PARTIAL
+**Plan / Ticket:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-publishable-static-product-plan-2026-08-09.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`
+**Worktree:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0`
+**Branch:** `release/v0.2.0`
+**Commits:** `0cc63c550374937cbc2433f63fd3fdd649ddb110`, `8fe10c534b83f4f8f984f50568f7588f9c9b8a9d`, `04ebfc6df71c6503cebed60ea26088d53d9ea060`, `4bca71d9466cde17325dc76891df4b6fed8447f7`, `8459f106179610b2795128b1ffa59064ff7fd27e`, `215ad0d562524d57c2955d6f9abfc78346470e04`, `ca6dc9ecf5ea64c95a860e86a8e9374176060838`, `270fc459b14a24e1ccabd122a723687ffcba7792`, `7a593314200d1c1f5f1b2cec520e47a2584947d4`, `ff9fb8d2e77dcabd8b893a4b44842cf895b11356`, `766a3d8a601943589af7b82a5a14611d8e609ecc`, `9961285630771203a0289b211ab5445c4644026d`, `bf3af836d8fd8d1137ab71245e7956462b0c9ad6`
+**Verification Scope:** committed implementation range `0cc63c550374937cbc2433f63fd3fdd649ddb110^..bf3af836d8fd8d1137ab71245e7956462b0c9ad6`; clean `release/v0.2.0` worktree; locally built `C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-wheel-audit\beacon-accepted\archolith_beacon-0.2.0rc1-py3-none-any.whl` (SHA-256 `5934293e7461943bc36264848e7401d9a56cb66971209d5892e7ef490bfa7962`, 91,086 bytes)
+**Docs Updated:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\README.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\client-setup.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\demo-transcript.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\examples\README.md` and the three maintained example trees
 **Changelog Updated:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\CHANGELOG.md`
 
 ---
