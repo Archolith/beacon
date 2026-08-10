@@ -2,9 +2,9 @@
 """Cross-platform installed-wheel release-check journey for Beacon v0.2 (WP5).
 
 This script proves the product works from an *installed* distribution rather
-than an editable checkout. It is deliberately pure Python (stdlib only, plus a
-lazy ``yaml`` import for the review-edit step) so it runs identically on
-Windows, macOS, and Linux with no bash-only logic.
+than an editable checkout. It uses the standard library plus lazy ``yaml`` for
+the review edit and ``jsonschema`` for published HTTP contract validation, so
+it runs identically on Windows, macOS, and Linux with no bash-only logic.
 
 Two input modes:
 
@@ -65,12 +65,46 @@ DEFAULT_TASK_HINT = "review the release-check journey implementation"
 
 #: Purpose sentence written by the deterministic review edit.
 REVIEW_PURPOSE = "A maintainer-authored purpose for the release-check fixture."
+#: Concept entry written by the deterministic review edit.
+REVIEW_CONCEPTS = [
+    {
+        "id": "release_contract",
+        "name": "Release Contract",
+        "definition": "The installed product journey Beacon must preserve.",
+        "why_it_exists": "Keep release evidence reproducible and source-cited.",
+        "status": "current",
+        "related_concepts": [],
+        "implementation_locations": ["README.md"],
+        "sources": [
+            {
+                "type": "doc",
+                "title": "Fixture README",
+                "path": "README.md",
+                "line_start": 1,
+                "line_end": 1,
+                "status": "current",
+            }
+        ],
+    }
+]
 #: Guardrail entry written by the deterministic review edit.
 REVIEW_GUARDRAILS = [
     {
         "id": "no_documented_assumptions",
         "severity": "high",
         "rule": "Do not introduce undocumented assumptions in this fixture.",
+        "scope": "release_process",
+        "applies_to": ["README.md"],
+        "sources": [
+            {
+                "type": "doc",
+                "title": "Fixture README",
+                "path": "README.md",
+                "line_start": 1,
+                "line_end": 1,
+                "status": "current",
+            }
+        ],
     }
 ]
 
@@ -269,8 +303,8 @@ def build_plan(
             Step(
                 name="http_snapshot",
                 description=(
-                    "real loopback HTTP discovery, identity/orientation/full snapshots, indexed "
-                    "chunks, health, alias, HEAD, ETag, and errors"
+                    "real loopback HTTP discovery, identity/orientation/full snapshots, selective "
+                    "concept/guardrail/chunk resources, health, alias, HEAD, ETag, and errors"
                 ),
                 func=lambda: probe_http_snapshot(
                     beacon_cmd,
@@ -329,6 +363,7 @@ def apply_review_edits(manifest: Path) -> None:
         raise JourneyError("review edit requires a project mapping in the manifest")
     project["status"] = "experimental"
     data["purpose"] = {"one_sentence": REVIEW_PURPOSE, "problem": "", "non_goals": []}
+    data["core_concepts"] = REVIEW_CONCEPTS
     data["guardrails"] = REVIEW_GUARDRAILS
     text = yaml.safe_dump(
         data,
@@ -410,6 +445,8 @@ def probe_http_snapshot(
         capabilities = descriptor.get("capabilities")
         if capabilities != {
             "chunks": True,
+            "concepts": True,
+            "guardrails": True,
             "mcp_http": False,
             "query": False,
             "question_submission": False,
@@ -418,8 +455,8 @@ def probe_http_snapshot(
             raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.3":
-            raise JourneyError("HTTP discovery descriptor version is not 1.3")
+        if descriptor.get("descriptor_version") != "1.4":
+            raise JourneyError("HTTP discovery descriptor version is not 1.4")
         representations = descriptor.get("representations", {})
         if representations.get("identity") != {
             "url": "/v1/snapshot/identity",
@@ -485,6 +522,68 @@ def probe_http_snapshot(
         if chunk_headers.get("x-beacon-chunk-sha256") != chunk_sha:
             raise JourneyError("HTTP chunk digest header is wrong")
         _assert_no_server_identity(chunk_headers)
+
+        knowledge_responses: list[tuple[str, dict[str, str], str, dict[str, str]]] = []
+        for kind, entries_key, resource_key, index_digest_header, resource_digest_header in (
+            (
+                "concepts",
+                "concepts",
+                "concept",
+                "x-beacon-concept-index-sha256",
+                "x-beacon-concept-sha256",
+            ),
+            (
+                "guardrails",
+                "guardrails",
+                "guardrail",
+                "x-beacon-guardrail-index-sha256",
+                "x-beacon-guardrail-sha256",
+            ),
+        ):
+            index_body, index_headers = _http_request(base_url + f"/v1/{kind}")
+            index_sha = hashlib.sha256(index_body).hexdigest()
+            index = json.loads(index_body)
+            _validate_http_schema(
+                index,
+                schema_name=f"beacon-{resource_key}-index-1.0.schema.json",
+            )
+            entries_for_kind = index.get(entries_key, [])
+            if len(entries_for_kind) != 1 or index.get("count") != 1:
+                raise JourneyError(f"HTTP {kind} index is empty or has the wrong count")
+            if index.get("snapshot", {}).get("sha256") != expected_sha:
+                raise JourneyError(f"HTTP {kind} index does not identify the full snapshot")
+            if index_headers.get(index_digest_header) != index_sha:
+                raise JourneyError(f"HTTP {kind} index digest header is wrong")
+            advertised = descriptor.get("resources", {}).get(kind)
+            if advertised != {
+                "index_url": f"/v1/{kind}",
+                "item_url_template": f"/v1/{kind}/{{id}}",
+                "version": "1.0",
+                "count": 1,
+                "sha256": index_sha,
+                "bytes": len(index_body),
+            }:
+                raise JourneyError(f"HTTP discovery {kind} resource is wrong")
+            entry = entries_for_kind[0]
+            resource_url = index["item_url_template"].replace("{id}", entry["resource_id"])
+            resource_body, resource_headers = _http_request(base_url + resource_url)
+            resource_sha = hashlib.sha256(resource_body).hexdigest()
+            resource = json.loads(resource_body)
+            _validate_http_schema(
+                resource,
+                schema_name=f"beacon-{resource_key}-resource-1.0.schema.json",
+            )
+            if len(resource_body) != entry.get("bytes") or resource_sha != entry.get("sha256"):
+                raise JourneyError(f"HTTP {kind} resource byte budget or digest is wrong")
+            if resource_headers.get(resource_digest_header) != resource_sha:
+                raise JourneyError(f"HTTP {kind} resource digest header is wrong")
+            if resource.get("snapshot_sha256") != expected_sha:
+                raise JourneyError(f"HTTP {kind} resource lineage is wrong")
+            if resource.get(resource_key, {}).get("id") != entry.get("id"):
+                raise JourneyError(f"HTTP {kind} resource logical identity is wrong")
+            _assert_no_server_identity(index_headers)
+            _assert_no_server_identity(resource_headers)
+            knowledge_responses.append((resource_url, resource_headers, kind, index_headers))
         _assert_no_server_identity(descriptor_headers)
 
         identity_body, identity_headers = _http_request(base_url + "/v1/snapshot/identity")
@@ -582,6 +681,29 @@ def probe_http_snapshot(
             304,
             headers={"If-None-Match": chunk_headers["etag"]},
         )
+        for resource_url, resource_headers, kind, index_headers in knowledge_responses:
+            index_head_body, index_head_headers = _http_request(
+                base_url + f"/v1/{kind}", method="HEAD"
+            )
+            if index_head_body or index_head_headers.get("etag") != index_headers.get("etag"):
+                raise JourneyError(f"HTTP {kind} index HEAD response differs from GET")
+            _http_expect_status(
+                base_url + f"/v1/{kind}",
+                304,
+                headers={"If-None-Match": index_headers["etag"]},
+            )
+            resource_head_body, resource_head_headers = _http_request(
+                base_url + resource_url, method="HEAD"
+            )
+            if resource_head_body or resource_head_headers.get("etag") != resource_headers.get(
+                "etag"
+            ):
+                raise JourneyError(f"HTTP {kind} resource HEAD response differs from GET")
+            _http_expect_status(
+                base_url + resource_url,
+                304,
+                headers={"If-None-Match": resource_headers["etag"]},
+            )
 
         health_body, health_headers = _http_request(base_url + "/healthz")
         health = json.loads(health_body)
@@ -596,6 +718,9 @@ def probe_http_snapshot(
         _http_expect_status(base_url + "/v1/snapshot/identity", 405, method="POST")
         _http_expect_status(base_url + "/v1/chunks", 405, method="POST")
         _http_expect_status(base_url + "/v1/chunks/not-a-real-id?private=query", 404)
+        for kind in ("concepts", "guardrails"):
+            _http_expect_status(base_url + f"/v1/{kind}", 405, method="POST")
+            _http_expect_status(base_url + f"/v1/{kind}/not-a-real-id?private=query", 404)
     except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
         raise JourneyError(f"loopback HTTP journey failed ({type(exc).__name__})") from exc
     finally:
@@ -662,6 +787,21 @@ def _http_expect_status(
 def _assert_no_server_identity(headers: dict[str, str]) -> None:
     if "server" in headers or "date" in headers:
         raise JourneyError("HTTP response exposes a server-identifying header")
+
+
+def _validate_http_schema(instance: dict[str, Any], *, schema_name: str) -> None:
+    """Validate one installed HTTP response against its published source schema."""
+    try:
+        import jsonschema
+    except ImportError as exc:
+        raise JourneyError("jsonschema is required for HTTP contract validation") from exc
+    schema_path = Path(__file__).resolve().parents[1] / "docs" / "schemas" / schema_name
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(schema)
+        jsonschema.validate(instance, schema)
+    except (OSError, ValueError, jsonschema.SchemaError, jsonschema.ValidationError) as exc:
+        raise JourneyError(f"HTTP response failed published schema: {schema_name}") from exc
 
 
 def serve_or_stdio(

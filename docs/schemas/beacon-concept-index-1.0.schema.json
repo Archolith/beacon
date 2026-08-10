@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:concept-index:1.0",
+  "title": "Beacon Concept Index 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["concept_index_version", "beacon_version", "snapshot", "item_url_template", "count", "concepts"],
+  "properties": {
+    "concept_index_version": {"const": "1.0"},
+    "beacon_version": {"type": "string", "minLength": 1},
+    "snapshot": {"$ref": "#/$defs/snapshot"},
+    "item_url_template": {"const": "/v1/concepts/{id}"},
+    "count": {"type": "integer", "minimum": 0},
+    "concepts": {"type": "array", "items": {"$ref": "#/$defs/conceptEntry"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resourceId": {"type": "string", "pattern": "^k1-[0-9a-f]{32}$"},
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "schema_version"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"const": "1.0"}
+      }
+    },
+    "conceptEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "id", "name", "status", "bytes", "sha256"],
+      "properties": {
+        "resource_id": {"$ref": "#/$defs/resourceId"},
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

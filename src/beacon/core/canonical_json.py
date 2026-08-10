@@ -27,9 +27,10 @@ from beacon.core.limits import (
 class InvalidJsonValue(ValueError):
     """Raised when a value is not representable as canonical JSON.
 
-    Non-JSON types, non-string mapping keys, and non-finite numbers (NaN,
-    infinity) are refused. ``path`` names the offending location in the value
-    tree but the message never embeds document or secret content.
+    Non-JSON types, non-string mapping keys, lone Unicode surrogates, and
+    non-finite numbers (NaN, infinity) are refused. ``path`` names the
+    offending location in the value tree but the message never embeds document
+    or secret content.
     """
 
     def __init__(self, *, path: str) -> None:
@@ -48,8 +49,9 @@ def validate_json_value(value: Any) -> None:
     """Recursively refuse values that canonical JSON cannot represent.
 
     Accepts ``None``, ``bool``, ``int``, finite ``float``, ``str``, ``list``,
-    and ``dict`` (with string keys). Refuses non-finite floats, non-string
-    mapping keys, tuples, bytes, sets, and any other object type.
+    and ``dict`` (with Unicode-scalar string keys). Refuses non-finite floats,
+    lone surrogates, non-string mapping keys, tuples, bytes, sets, and any other
+    object type.
     """
     _validate(value, "$")
 
@@ -124,7 +126,11 @@ def write_atomic(path: str | Path, value: Any, *, byte_ceiling: int | None = Non
 
 
 def _validate(value: Any, path: str) -> None:
-    if value is None or isinstance(value, (bool, str)):
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, str):
+        if _contains_surrogate(value):
+            raise InvalidJsonValue(path=path)
         return
     if isinstance(value, int):
         return
@@ -138,7 +144,7 @@ def _validate(value: Any, path: str) -> None:
         return
     if isinstance(value, dict):
         for key, item in value.items():
-            if not isinstance(key, str):
+            if not isinstance(key, str) or _contains_surrogate(key):
                 raise InvalidJsonValue(path=f"{path}.<key>")
             _validate(item, _join(path, key))
         return
@@ -147,6 +153,10 @@ def _validate(value: Any, path: str) -> None:
 
 def _join(parent: str, key: str) -> str:
     return f"{parent}.{key}" if parent != "$" else f"$.{key}"
+
+
+def _contains_surrogate(value: str) -> bool:
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
 
 
 def _validate_ceiling(byte_ceiling: int | None) -> int:

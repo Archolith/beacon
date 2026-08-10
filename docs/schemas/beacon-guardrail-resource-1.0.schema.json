@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:guardrail-resource:1.0",
+  "title": "Beacon Guardrail Resource 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["guardrail_resource_version", "beacon_version", "snapshot_sha256", "resource_id", "guardrail"],
+  "properties": {
+    "guardrail_resource_version": {"const": "1.0"},
+    "beacon_version": {"type": "string", "minLength": 1},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "resource_id": {"$ref": "#/$defs/resourceId"},
+    "guardrail": {"$ref": "#/$defs/guardrail"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resourceId": {"type": "string", "pattern": "^g1-[0-9a-f]{32}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "title", "path", "url", "line_start", "line_end", "status"],
+      "properties": {
+        "type": {"type": "string"},
+        "title": {"type": "string"},
+        "path": {"type": "string"},
+        "url": {"type": "string"},
+        "line_start": {"type": ["integer", "null"], "minimum": 1},
+        "line_end": {"type": ["integer", "null"], "minimum": 1},
+        "status": {"type": "string"}
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rule", "scope", "severity", "applies_to", "sources"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "rule": {"type": "string"},
+        "scope": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "minLength": 1},
+        "applies_to": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}}
+      }
+    }
+  }
+}

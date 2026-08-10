@@ -236,7 +236,16 @@ def test_apply_review_edits_produces_strict_clean_manifest(rc, tmp_path: Path) -
     data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     assert data["project"]["status"] == "experimental"
     assert data["purpose"]["one_sentence"] == rc.REVIEW_PURPOSE
+    assert data["core_concepts"] == rc.REVIEW_CONCEPTS
     assert data["guardrails"] == rc.REVIEW_GUARDRAILS
+
+
+def test_http_contract_validator_rejects_schema_invalid_response(rc) -> None:
+    with pytest.raises(rc.JourneyError, match="failed published schema"):
+        rc._validate_http_schema(  # noqa: SLF001 - release helper contract
+            {},
+            schema_name="beacon-concept-index-1.0.schema.json",
+        )
 
 
 # ---------------------------------------------------------------------------

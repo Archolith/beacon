@@ -121,6 +121,18 @@ def test_nested_non_json_value_rejected() -> None:
         dumps_canonical({"a": {"b": {2: "x"}}})
 
 
+def test_lone_unicode_surrogate_value_rejected_with_stable_error() -> None:
+    with pytest.raises(InvalidJsonValue) as excinfo:
+        dumps_canonical({"a": "\ud800"})
+    assert excinfo.value.path == "$.a"
+
+
+def test_lone_unicode_surrogate_mapping_key_rejected_with_stable_error() -> None:
+    with pytest.raises(InvalidJsonValue) as excinfo:
+        dumps_canonical({"\udfff": "value"})
+    assert excinfo.value.path == "$.<key>"
+
+
 # ---------------------------------------------------------------------------
 # Size boundary
 # ---------------------------------------------------------------------------

@@ -22,6 +22,8 @@ Routes (GET and HEAD):
 * ``/beacon.json`` -- byte/header-identical alias of ``/v1/snapshot``;
 * ``/v1/chunks`` -- companion chunk index with byte budgets;
 * ``/v1/chunks/{id}`` -- one immutable published chunk resource;
+* ``/v1/concepts`` / ``/v1/concepts/{id}`` -- concept index and resources;
+* ``/v1/guardrails`` / ``/v1/guardrails/{id}`` -- guardrail index and resources;
 * ``/healthz`` -- redacted readiness document.
 
 All response bodies are canonical compact JSON ending in exactly one newline.
@@ -44,6 +46,11 @@ from starlette.routing import Route
 from beacon import __version__
 from beacon.core.canonical_json import dumps_canonical
 from beacon.core.chunk_resources import CHUNK_INDEX_VERSION, build_chunk_catalog
+from beacon.core.knowledge_resources import (
+    CONCEPT_INDEX_VERSION,
+    GUARDRAIL_INDEX_VERSION,
+    build_knowledge_catalogs,
+)
 from beacon.core.snapshot import (
     CONTENT_EMBEDDED,
     Snapshot,
@@ -53,7 +60,7 @@ from beacon.core.snapshot import (
 )
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.3"
+_DESCRIPTOR_VERSION = "1.4"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -90,6 +97,11 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     identity_etag = f'"{identity_sha256}"'
     chunk_catalog = build_chunk_catalog(snapshot, snapshot_sha256=sha256)
     chunk_index_etag = f'"{chunk_catalog.index_sha256}"'
+    knowledge_catalogs = build_knowledge_catalogs(snapshot, snapshot_sha256=sha256)
+    concept_catalog = knowledge_catalogs.concepts
+    concept_index_etag = f'"{concept_catalog.index_sha256}"'
+    guardrail_catalog = knowledge_catalogs.guardrails
+    guardrail_index_etag = f'"{guardrail_catalog.index_sha256}"'
     schema_version = snapshot.beacon_snapshot_version
 
     discovery = _discovery_payload(
@@ -102,6 +114,12 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         chunk_index_sha256=chunk_catalog.index_sha256,
         chunk_index_byte_count=len(chunk_catalog.index_body),
         chunk_count=len(chunk_catalog.resources),
+        concept_index_sha256=concept_catalog.index_sha256,
+        concept_index_byte_count=len(concept_catalog.index_body),
+        concept_count=len(concept_catalog.resources),
+        guardrail_index_sha256=guardrail_catalog.index_sha256,
+        guardrail_index_byte_count=len(guardrail_catalog.index_body),
+        guardrail_count=len(guardrail_catalog.resources),
         schema_version=schema_version,
     )
     discovery_body = dumps_canonical(discovery)
@@ -128,17 +146,69 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
     )
     chunk_resources: dict[str, tuple[bytes, dict[str, str], str]] = {}
-    for resource in chunk_catalog.resources:
-        resource_etag = f'"{resource.sha256}"'
+    for chunk_resource in chunk_catalog.resources:
+        resource_etag = f'"{chunk_resource.sha256}"'
         resource_headers = _representation_headers(
-            resource.body,
-            resource.sha256,
+            chunk_resource.body,
+            chunk_resource.sha256,
             resource_etag,
             digest_header="x-beacon-chunk-sha256",
         )
         resource_headers["x-beacon-snapshot-sha256"] = sha256
         resource_headers["link"] = '</v1/chunks>; rel="index"; title="chunk index"'
-        chunk_resources[resource.id] = (resource.body, resource_headers, resource_etag)
+        chunk_resources[chunk_resource.id] = (
+            chunk_resource.body,
+            resource_headers,
+            resource_etag,
+        )
+
+    concept_index_headers = _representation_headers(
+        concept_catalog.index_body,
+        concept_catalog.index_sha256,
+        concept_index_etag,
+        digest_header="x-beacon-concept-index-sha256",
+    )
+    concept_index_headers["x-beacon-snapshot-sha256"] = sha256
+    concept_resources: dict[str, tuple[bytes, dict[str, str], str]] = {}
+    for concept_resource in concept_catalog.resources:
+        resource_etag = f'"{concept_resource.sha256}"'
+        resource_headers = _representation_headers(
+            concept_resource.body,
+            concept_resource.sha256,
+            resource_etag,
+            digest_header="x-beacon-concept-sha256",
+        )
+        resource_headers["x-beacon-snapshot-sha256"] = sha256
+        resource_headers["link"] = '</v1/concepts>; rel="index"; title="concept index"'
+        concept_resources[concept_resource.id] = (
+            concept_resource.body,
+            resource_headers,
+            resource_etag,
+        )
+
+    guardrail_index_headers = _representation_headers(
+        guardrail_catalog.index_body,
+        guardrail_catalog.index_sha256,
+        guardrail_index_etag,
+        digest_header="x-beacon-guardrail-index-sha256",
+    )
+    guardrail_index_headers["x-beacon-snapshot-sha256"] = sha256
+    guardrail_resources: dict[str, tuple[bytes, dict[str, str], str]] = {}
+    for guardrail_resource in guardrail_catalog.resources:
+        resource_etag = f'"{guardrail_resource.sha256}"'
+        resource_headers = _representation_headers(
+            guardrail_resource.body,
+            guardrail_resource.sha256,
+            resource_etag,
+            digest_header="x-beacon-guardrail-sha256",
+        )
+        resource_headers["x-beacon-snapshot-sha256"] = sha256
+        resource_headers["link"] = '</v1/guardrails>; rel="index"; title="guardrail index"'
+        guardrail_resources[guardrail_resource.id] = (
+            guardrail_resource.body,
+            resource_headers,
+            resource_etag,
+        )
 
     async def snapshot_route(request: Request) -> Response:
         return _snapshot_response(request, payload, snapshot_headers, etag)
@@ -177,6 +247,36 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         body, headers, resource_etag = resource
         return _snapshot_response(request, body, headers, resource_etag)
 
+    async def concept_index_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            concept_catalog.index_body,
+            concept_index_headers,
+            concept_index_etag,
+        )
+
+    async def concept_resource_route(request: Request) -> Response:
+        resource = concept_resources.get(request.path_params["concept_id"])
+        if resource is None:
+            raise HTTPException(status_code=404)
+        body, headers, resource_etag = resource
+        return _snapshot_response(request, body, headers, resource_etag)
+
+    async def guardrail_index_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            guardrail_catalog.index_body,
+            guardrail_index_headers,
+            guardrail_index_etag,
+        )
+
+    async def guardrail_resource_route(request: Request) -> Response:
+        resource = guardrail_resources.get(request.path_params["guardrail_id"])
+        if resource is None:
+            raise HTTPException(status_code=404)
+        body, headers, resource_etag = resource
+        return _snapshot_response(request, body, headers, resource_etag)
+
     async def discovery_route(request: Request) -> Response:
         return _static_response(
             request.method,
@@ -200,6 +300,14 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks", chunk_index_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks/{chunk_id:str}", chunk_resource_route, methods=["GET", "HEAD"]),
+            Route("/v1/concepts", concept_index_route, methods=["GET", "HEAD"]),
+            Route("/v1/concepts/{concept_id:str}", concept_resource_route, methods=["GET", "HEAD"]),
+            Route("/v1/guardrails", guardrail_index_route, methods=["GET", "HEAD"]),
+            Route(
+                "/v1/guardrails/{guardrail_id:str}",
+                guardrail_resource_route,
+                methods=["GET", "HEAD"],
+            ),
             Route("/healthz", health_route, methods=["GET", "HEAD"]),
         ],
     )
@@ -207,6 +315,8 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     app.state.beacon_orientation_sha256 = orientation_sha256
     app.state.beacon_identity_sha256 = identity_sha256
     app.state.beacon_chunk_index_sha256 = chunk_catalog.index_sha256
+    app.state.beacon_concept_index_sha256 = concept_catalog.index_sha256
+    app.state.beacon_guardrail_index_sha256 = guardrail_catalog.index_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
@@ -328,6 +438,12 @@ def _discovery_payload(
     chunk_index_sha256: str,
     chunk_index_byte_count: int,
     chunk_count: int,
+    concept_index_sha256: str,
+    concept_index_byte_count: int,
+    concept_count: int,
+    guardrail_index_sha256: str,
+    guardrail_index_byte_count: int,
+    guardrail_count: int,
     schema_version: str,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document."""
@@ -339,6 +455,8 @@ def _discovery_payload(
         "capabilities": {
             "snapshot": True,
             "chunks": True,
+            "concepts": True,
+            "guardrails": True,
             "query": False,
             "question_submission": False,
             "mcp_http": False,
@@ -380,7 +498,23 @@ def _discovery_payload(
                 "count": chunk_count,
                 "sha256": chunk_index_sha256,
                 "bytes": chunk_index_byte_count,
-            }
+            },
+            "concepts": {
+                "index_url": "/v1/concepts",
+                "item_url_template": "/v1/concepts/{id}",
+                "version": CONCEPT_INDEX_VERSION,
+                "count": concept_count,
+                "sha256": concept_index_sha256,
+                "bytes": concept_index_byte_count,
+            },
+            "guardrails": {
+                "index_url": "/v1/guardrails",
+                "item_url_template": "/v1/guardrails/{id}",
+                "version": GUARDRAIL_INDEX_VERSION,
+                "count": guardrail_count,
+                "sha256": guardrail_index_sha256,
+                "bytes": guardrail_index_byte_count,
+            },
         },
     }
 
