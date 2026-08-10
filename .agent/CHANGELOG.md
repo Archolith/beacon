@@ -1,5 +1,25 @@
 # Changelog — beacon
 
+## 2026-08-10 — WP4 examples and documentation
+
+- Added three maintained, self-contained example repositories under `examples/` — `library` (a small
+  Python package), `service` (a long-running background service), and `monorepo-research` (a
+  research/analysis monorepo). Each ships a `beacon_version: "0.1"` manifest, real referenced
+  canonical docs, meaningful concepts/guardrails/build-and-test metadata, and validates with zero
+  errors and a clean publication policy.
+- Added `examples/README.md` as the examples index, with per-shape guidance and maintenance notes.
+- Added `tests/test_examples.py`: an example-matrix test that enumerates exactly the maintained set,
+  validates each with the public core APIs, executes all five provider methods, and builds and
+  schema-validates both embedded and metadata-only snapshots against the snapshot v1.0 schema. It
+  exercises the shipped v0.2 behavior without coupling to the CLI wrapper.
+- Added `docs/client-setup.md`: an install-first, copy-paste client setup guide covering the v0.2
+  product loop, static/offline behavior, MCP client configuration for Claude/Cursor/Codex/Gemini/
+  OpenCode and generic stdio, an examples index, the manifest-0.1 / product-0.2 / snapshot-1.0
+  version model, and honest limitations.
+- Updated `README.md` (product-loop quick start, an Examples section, a Versions section,
+  static/offline statement, and a release-state Status) and `docs/demo-transcript.md`
+  (Running-this-yourself now uses the explicit `beacon serve --manifest` form and the v0.2 loop).
+
 ## 2026-08-09 — Release-readiness audit and trust-boundary hardening
 
 - Added one canonical-document path resolver used by validation and indexing. Absolute POSIX,

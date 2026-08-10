@@ -272,7 +272,15 @@ beacon validate beacon.yaml
 beacon inspect beacon.yaml
 
 # Start the MCP server (configure your client to point at beacon.yaml)
-BEACON_MANIFEST_PATH=$(pwd)/beacon.yaml beacon
+beacon serve --manifest beacon.yaml
 ```
 
-Connect any MCP client using the configs in [README.md](../README.md#connecting-an-agent).
+The full v0.2 product loop — `beacon init` → review → `beacon validate
+--strict-warnings` → `beacon inspect --task-hint "..."` → `beacon export` →
+`beacon serve` — is described in [`client-setup.md`](client-setup.md). Three
+ready-to-run examples live under
+[`../examples/`](../examples/README.md) and are exercised by
+[`../tests/test_examples.py`](../tests/test_examples.py).
+
+Connect any MCP client using the configs in
+[`client-setup.md`](client-setup.md) or the README.

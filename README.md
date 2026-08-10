@@ -60,7 +60,27 @@ or depend on a private package index. Once the framework is on PyPI,
 
 ## Quick start
 
+The v0.2 product loop is: initialize, review, validate strictly, inspect with a
+task in mind, export a reviewable snapshot, then connect an agent.
+
+```text
+beacon init
+  -> review beacon.yaml
+  -> beacon validate --strict-warnings
+  -> beacon inspect --task-hint "..."
+  -> beacon export
+  -> connect MCP client / beacon serve
+```
+
 **1. Add a `beacon.yaml` to your repo.**
+
+The manifest is the source of truth. `init` generates a conservative starter from
+bounded repository evidence; you can also write one by hand. See
+[`beacon.yaml`](beacon.yaml) in this repo for a full example (describing [Menhir](https://github.com/Archolith/menhir)), and the
+[`examples/`](examples/README.md) index for ready-to-run manifests in three
+different project shapes.
+
+A minimal manifest declares identity, purpose, and the canonical docs:
 
 ```yaml
 beacon_version: "0.1"
@@ -76,17 +96,12 @@ project:
 purpose:
   one_sentence: >
     What is the core job this project does for its users?
-  problem: >
-    What breaks or is painful without this project?
-  non_goals:
-    - Things this project explicitly will not do.
 
 core_concepts:
   - id: key_concept
     name: Key Concept
     status: current
     description: What it is.
-    why_it_exists: Why the project needs it.
 
 canonical_docs:
   - path: .agent/README.md
@@ -104,21 +119,23 @@ guardrails:
       - src/myproject/core/
 ```
 
-See [`beacon.yaml`](beacon.yaml) in this repo for a full example (describing [Menhir](https://github.com/Archolith/menhir)).
-
 **2. Validate the manifest.**
 
 ```bash
-BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon validate
+beacon validate path/to/beacon.yaml
 ```
 
-Fix any reported errors before connecting an agent. Warnings are informational.
+Fix any reported errors before connecting an agent. Warnings are informational;
+under `--strict-warnings`, unresolved publication warnings block the export path.
 
 **3. Inspect what the tools will return.**
 
 ```bash
-BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon inspect
+beacon inspect path/to/beacon.yaml
 ```
+
+Pass a task hint to see task-scoped onboarding and guardrails rather than only
+the no-argument defaults.
 
 **4. Check the installed version.**
 
@@ -129,11 +146,19 @@ beacon --version
 
 **5. Start the MCP server.**
 
+Start stdio explicitly with `serve`, or rely on the environment-driven
+no-argument form. Both run the same MCP-over-stdio server:
+
 ```bash
+beacon serve --manifest beacon.yaml
+# or the compatible no-argument form, driven by the environment:
 BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon
 ```
 
-The server speaks MCP over stdio. Configure your agent client to launch this command (see [Connecting an agent](#connecting-an-agent)).
+`beacon serve` also accepts `--docs-root DIR` and the six `--max-*` limit flags.
+Configure your agent client to launch one of these commands (see
+[Connecting an agent](#connecting-an-agent) and the maintained
+[docs/client-setup.md](docs/client-setup.md)).
 
 ---
 
@@ -221,7 +246,9 @@ Agents should respect `status` and `confidence`. A response marked `experimental
 
 ## Connecting an agent
 
-Replace `/absolute/path/to/beacon.yaml` with the real path on your machine.
+Replace `/absolute/path/to/beacon.yaml` with the real path on your machine. The
+maintained, install-first guide is [`docs/client-setup.md`](docs/client-setup.md);
+the ready-to-connect configs below are also reproduced there.
 
 ### Claude Desktop
 
@@ -263,10 +290,10 @@ Replace `/absolute/path/to/beacon.yaml` with the real path on your machine.
 `~/.codex/config.toml`:
 
 ```toml
-[mcp.beacon]
+[mcp_servers.beacon]
 command = "beacon"
 
-[mcp.beacon.env]
+[mcp_servers.beacon.env]
 BEACON_MANIFEST_PATH = "/absolute/path/to/beacon.yaml"
 ```
 
@@ -345,19 +372,60 @@ On each tool call, the provider reads from the in-memory index and returns a fro
 
 ---
 
+## Examples
+
+Three small, self-contained example repositories live under
+[`examples/`](examples/README.md), one per project shape:
+
+| Example | Shape |
+| --- | --- |
+| [`examples/library`](examples/library) | A small Python package |
+| [`examples/service`](examples/service) | A long-running background service |
+| [`examples/monorepo-research`](examples/monorepo-research) | A research/analysis monorepo |
+
+Each has a valid `beacon.yaml`, real canonical docs, and meaningful
+concepts/guardrails/build-and-test metadata, and is checked automatically by
+`tests/test_examples.py` for validation, all five provider tools, and clean
+embedded/metadata-only snapshot export. Use the closest match as a starting
+point for your own manifest.
+
+## Versions
+
+Beacon tracks three independent version numbers:
+
+| Name | Value | What it versions |
+| --- | --- | --- |
+| Manifest schema | `0.1` | The `beacon.yaml` shape; stays `0.1` so existing manifests keep loading. |
+| Product | `0.2.0` | The Beacon distribution and its CLI/MCP behavior. |
+| Snapshot schema | `1.0` | The exported snapshot shape (`beacon_snapshot_version`). |
+
+A snapshot records its generator (product) version, the manifest schema version
+it came from, and its own snapshot version separately. The default snapshot
+**embeds** each canonical document's heading-chunk text once; `--metadata-only`
+emits structure and hashes without the text.
+
+---
+
 ## Status
 
-Beacon is experimental. The five tools and their answer contracts are usable now, but the v0.2 product is not finished:
+Beacon is experimental, and this checkout is `0.2.0rc1` development. The v0.2
+local functionality is implemented: `beacon init`, `validate`, `inspect`,
+`export`, and `serve` (plus the no-argument stdio server) are shipped and
+tested, and the maintained examples pass their validation/provider/snapshot
+matrix. Two release gates remain, not missing feature scope:
 
-- The manifest schema may gain new fields in v0.x releases.
-- A `MenhirBeaconProvider` does not yet exist.
-- `validate` and `inspect` are implemented and tested. `init`, `export`, and an
-  explicit `serve` command are not yet shipped. Use the positional
-  `beacon validate PATH` / `beacon inspect PATH` commands and the
-  no-argument stdio server documented above.
-- This checkout is `0.2.0rc1` development. Public PyPI publication is gated on
-  first publishing the `archolith-mcp-framework` dependency; install from source
-  as described under [Install](#install) for now.
+- **Public publication.** `archolith-beacon` is not on the public package index
+  yet because its `archolith-mcp-framework` dependency must be published first.
+  Install from source as described under [Install](#install) for now, and do not
+  treat the public index as available until that dependency is published.
+- **Unaided developer trial.** The 15-minute cold-start claim is a separate
+  acceptance gate to be measured with a developer who did not write the
+  implementation; documentation does not assert that it has passed.
+
+A `MenhirBeaconProvider` is a deferred v0.3 limitation, not evidence that this
+v0.2 scope is unfinished. Beacon is static and offline: no database, no runtime
+network call, no LLM or embedding, no telemetry, and no update check. It reads
+only the manifest and the documents it lists.
 
 Track the product path in
 [`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The
