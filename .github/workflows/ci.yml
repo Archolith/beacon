@@ -110,6 +110,9 @@ jobs:
           bandit -r src -q
           pip-audit --progress-spinner off --skip-editable
 
+      - name: Run negative-control mutation gate
+        run: python scripts/run_mutation_tests.py
+
       - name: Repository cleanliness check
         run: python scripts/check_repo_clean.py .
 
