@@ -21,6 +21,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_ROOT = REPO_ROOT / "src" / "beacon"
 
+RUNTIME_ENV_VARS = {
+    "BEACON_MANIFEST_PATH",
+    "BEACON_DOCS_ROOT",
+    "BEACON_VALIDATE_ON_LOAD",
+    "BEACON_LOG_LEVEL",
+    "BEACON_HOST",
+    "BEACON_PORT",
+    "BEACON_MAX_MANIFEST_BYTES",
+    "BEACON_MAX_DOCUMENTS",
+    "BEACON_MAX_DOCUMENT_BYTES",
+    "BEACON_MAX_TOTAL_DOCUMENT_BYTES",
+    "BEACON_MAX_CHUNKS",
+    "BEACON_MAX_SNAPSHOT_BYTES",
+}
+
 
 @pytest.fixture(scope="module")
 def pyproject() -> dict:
@@ -149,6 +164,28 @@ def test_homepage_url(pyproject: dict) -> None:
 def test_urls_complete(pyproject: dict) -> None:
     urls = pyproject["project"]["urls"]
     assert {"Homepage", "Repository", "Issues"} <= set(urls)
+
+
+def test_release_docs_match_current_rc() -> None:
+    for relative in (
+        ".agent/architecture.md",
+        ".agent/for-review/BEACON-v0.2-UNAIDED-TRIAL-SCORECARD.md",
+    ):
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        assert __version__ in text, relative
+        assert "0.2.0rc1" not in text, relative
+
+
+def test_environment_variable_tables_match_runtime_contract() -> None:
+    sections = {
+        "README.md": "## Configuration",
+        ".agent/architecture.md": "## Config / Environment Variables",
+    }
+    for relative, heading in sections.items():
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        section = text.split(heading, 1)[1].split("\n## ", 1)[0]
+        documented = set(re.findall(r"^\| `(BEACON_[A-Z_]+)`", section, flags=re.MULTILINE))
+        assert documented == RUNTIME_ENV_VARS, relative
 
 
 # ---------------------------------------------------------------------------

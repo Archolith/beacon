@@ -14,7 +14,7 @@
 
 Give the participant only this brief before starting the clock:
 
-> Using only Beacon's public package and public repository documentation, install the `0.2.0rc1` release candidate and set it up for a small repository you understand. Produce and review its manifest, validate it, inspect its project context for a real task, export a snapshot, and connect Beacon to an MCP client. Stop after 15 minutes or at the first blocking step.
+> Using only Beacon's public package and public repository documentation, install the `0.2.0rc2` release candidate and set it up for a small repository you understand. Produce and review its manifest, validate it, inspect its project context for a real task, export a snapshot, and connect Beacon to an MCP client. Stop after 15 minutes or at the first blocking step.
 
 The observer may answer process questions only after the clock stops. Any help needed during the
 clock is recorded as undocumented maintainer knowledge and fails this trial.

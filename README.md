@@ -366,6 +366,17 @@ Any MCP client that accepts a stdio server can use this shape:
 | `BEACON_DOCS_ROOT` | no | directory of manifest | Root for resolving canonical doc paths |
 | `BEACON_VALIDATE_ON_LOAD` | no | `true` | Hard-fail at startup if the manifest has errors |
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `BEACON_HOST` | no | `127.0.0.1` | Reserved runtime transport host; current stdio and `serve-http` paths use stdio or explicit CLI flags |
+| `BEACON_PORT` | no | `8788` | Reserved runtime transport port; current stdio and `serve-http` paths use stdio or explicit CLI flags |
+| `BEACON_MAX_MANIFEST_BYTES` | no | `1048576` | Manifest source byte ceiling |
+| `BEACON_MAX_DOCUMENTS` | no | `256` | Canonical document count ceiling |
+| `BEACON_MAX_DOCUMENT_BYTES` | no | `2097152` | Per-document byte ceiling |
+| `BEACON_MAX_TOTAL_DOCUMENT_BYTES` | no | `20971520` | Aggregate canonical-document byte ceiling |
+| `BEACON_MAX_CHUNKS` | no | `10000` | Total indexed heading-chunk ceiling |
+| `BEACON_MAX_SNAPSHOT_BYTES` | no | `52428800` | Exported/served snapshot byte ceiling |
+
+The six `BEACON_MAX_*` values use the same precedence as their CLI equivalents:
+`CLI override > environment > default`.
 
 ---
 

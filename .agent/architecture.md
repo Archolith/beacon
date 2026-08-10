@@ -52,10 +52,10 @@ structure graph, git history) can be swapped in later without touching the tools
 
 - Distribution: `archolith-beacon`
 - Import package and console command: `beacon`
-- Current release-branch version: `0.2.0rc1`, single-sourced from `beacon.__version__`
+- Current release-branch version: `0.2.0rc2`, single-sourced from `beacon.__version__`
 - Supported interpreters: CPython 3.12, 3.13, and 3.14
 - Runtime framework dependency: `archolith-mcp-framework>=0.2,<0.3`
-- Public installation remains gated until the framework distribution is available from PyPI.
+- `archolith-mcp-framework==0.2.0` is available from PyPI; Beacon RC2 publication remains pending.
 
 ## Package Layout
 
@@ -140,8 +140,8 @@ defaults (addendum §4) describe a small-to-medium repository profile; the six b
 ceilings above are overridable via `BEACON_MAX_*` environment variables, while the YAML
 depth (`32`), parsed-node (`50 000`), and alias (`50`) ceilings and the path-UTF-8-byte
 (`1024`), query-UTF-8-byte (`4096`), search-result (`100`), and initialization-report
-(`5 MiB`) ceilings are fixed for v0.2. The initialization-report ceiling is modelled now and
-will be enforced when `beacon init` lands.
+(`5 MiB`) ceilings are fixed for v0.2. `beacon init` enforces the initialization-report ceiling
+before its atomic JSON report write.
 
 Precedence is `CLI override > environment > default`, exposed reusably through
 `resource_limits_from_env(env)` and `ResourceLimits.apply_overrides(...)`. Every refused

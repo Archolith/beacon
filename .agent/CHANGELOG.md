@@ -12,6 +12,9 @@
   under outbound-socket denial.
 - Reduced snapshot size and internal-plan exposure by emitting `plan` and `*_plan` documents as
   title/path/role/status/hash metadata only; the private local MCP index still reads their bodies.
+- Recorded the first HTTP-only orientation trial: the snapshot successfully oriented a fresh
+  consumer but required ad-hoc local ranking and exposed two documentation-currency defects, now
+  corrected in the architecture/version and README configuration tables.
 - Bumped the release candidate to `0.2.0rc2`; RC1 remains immutable.
 
 ## 2026-08-10 — Future AI answer-broker boundary
