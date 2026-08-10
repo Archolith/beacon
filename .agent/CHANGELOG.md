@@ -10,8 +10,9 @@
   full—using semantic contract names instead of ambiguous size labels.
 - Added source citations and implementation locations for all five dogfood concepts, source
   citations for all four dogfood guardrails, and a CI gate that verifies those references resolve.
-- Kept the public orientation route and companion-index-versus-schema decision open for explicit
-  contract review.
+- Selected `/v1/snapshot/orientation` for the medium-cost representation while preserving
+  `/v1/snapshot` as the backward-compatible full representation; the companion-index-versus-schema
+  decision remains open.
 
 ## 2026-08-10 — Automated Beacon freshness contract roadmap
 

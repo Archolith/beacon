@@ -250,8 +250,9 @@ as `low`, `medium`, and `max`; clients may present those labels as convenience a
 
 The orientation representation is the HTTP counterpart of `beacon export --metadata-only`. It must
 remain static, cacheable, deterministic, and query-free, and discovery must advertise its stable
-route, digest, and exact size. All tiers come from the same startup source set while retaining
-representation-specific hashes.
+route, `/v1/snapshot/orientation`, digest, and exact size. The existing `/v1/snapshot` route remains
+the backward-compatible full representation. All tiers come from the same startup source set while
+retaining representation-specific hashes.
 
 Every retrievable chunk should advertise its exact UTF-8 byte count before a client fetches its body.
 Token estimates are optional and must identify their tokenizer. A versioned index may denormalize a
@@ -555,7 +556,6 @@ agent can use.
   queue.
 - Which Beacon facts may be updated mechanically, which changes trigger conditional LLM review, and
   which semantic or authority changes always require explicit maintainer approval.
-- What stable route names the metadata/orientation representation.
 - Whether chunk parent role/status and byte budgets live in a companion index or a new snapshot
   schema version.
 - Which two non-Menhir repositories become maintained conformance examples.
