@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-10 — Agent-first tiered consumption and dogfood provenance
+
+- Measured the existing metadata-only export against the full HTTP snapshot and recorded tiered
+  discovery, orientation/index, and full-snapshot consumption as the v0.3 direction.
+- Added roadmap requirements for representation byte budgets, per-chunk UTF-8 sizes, provenance
+  completeness, and metadata-first task evaluation without silently changing snapshot 1.0.
+- Defined the tiers as a linked progressive-disclosure chain—discovery, orientation/index, then
+  full—using semantic contract names instead of ambiguous size labels.
+- Added source citations and implementation locations for all five dogfood concepts, source
+  citations for all four dogfood guardrails, and a CI gate that verifies those references resolve.
+- Kept the public orientation route and companion-index-versus-schema decision open for explicit
+  contract review.
+
 ## 2026-08-10 — Automated Beacon freshness contract roadmap
 
 - Added a mandatory automated task-closeout disposition: `updated`, `not_affected`, or

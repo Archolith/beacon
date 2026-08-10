@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
 from beacon import __version__
+from beacon.core.loader import load_beacon_manifest
+from beacon.core.schema import BeaconSource
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -186,6 +189,38 @@ def test_environment_variable_tables_match_runtime_contract() -> None:
         section = text.split(heading, 1)[1].split("\n## ", 1)[0]
         documented = set(re.findall(r"^\| `(BEACON_[A-Z_]+)`", section, flags=re.MULTILINE))
         assert documented == RUNTIME_ENV_VARS, relative
+
+
+def _assert_sources_resolve(sources: Sequence[BeaconSource], record_id: str) -> None:
+    assert sources, f"{record_id} has no sources"
+    for source in sources:
+        relative = Path(source.path)
+        target = REPO_ROOT / relative
+        assert target.is_file(), f"{record_id}: missing source {relative}"
+        line_count = len(target.read_text(encoding="utf-8").splitlines())
+        assert source.line_start is not None, f"{record_id}: {relative} has no start line"
+        assert source.line_end is not None, f"{record_id}: {relative} has no end line"
+        assert 1 <= source.line_start <= source.line_end <= line_count, (
+            f"{record_id}: invalid source range {relative}:"
+            f"{source.line_start}-{source.line_end} (file has {line_count} lines)"
+        )
+
+
+def test_dogfood_concepts_and_guardrails_are_traceable() -> None:
+    manifest = load_beacon_manifest(REPO_ROOT / "beacon.yaml")
+
+    assert manifest.core_concepts
+    for concept in manifest.core_concepts:
+        _assert_sources_resolve(concept.sources, concept.id)
+        assert concept.implementation_locations, f"{concept.id} has no implementation locations"
+        for relative in concept.implementation_locations:
+            assert (REPO_ROOT / relative).is_file(), (
+                f"{concept.id}: missing implementation location {relative}"
+            )
+
+    assert manifest.guardrails
+    for guardrail in manifest.guardrails:
+        _assert_sources_resolve(guardrail.sources, guardrail.id)
 
 
 # ---------------------------------------------------------------------------

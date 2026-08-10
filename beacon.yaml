@@ -61,6 +61,17 @@ core_concepts:
       Projects need a machine-readable front door. A human-authored YAML
       manifest is inspectable, version-controlled, and requires no external
       service.
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/core/loader.py
+      - src/beacon/core/validator.py
+    sources:
+      - type: file
+        title: BeaconManifest typed schema
+        path: src/beacon/core/schema.py
+        line_start: 139
+        line_end: 159
+        status: current
 
   - id: beacon_provider
     name: Beacon Provider
@@ -76,6 +87,16 @@ core_concepts:
       interface.
     related_concepts:
       - beacon_manifest
+    implementation_locations:
+      - src/beacon/provider/base.py
+      - src/beacon/provider/manifest_provider.py
+    sources:
+      - type: file
+        title: BeaconProvider Protocol
+        path: src/beacon/provider/base.py
+        line_start: 27
+        line_end: 59
+        status: current
 
   - id: answer_contract
     name: Answer Contract
@@ -90,6 +111,22 @@ core_concepts:
       answer contract makes every claim traceable and every uncertainty explicit.
     related_concepts:
       - beacon_provider
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/mcp/contracts.py
+    sources:
+      - type: file
+        title: Beacon answer-contract dataclasses
+        path: src/beacon/core/schema.py
+        line_start: 168
+        line_end: 238
+        status: current
+      - type: file
+        title: MCP answer rendering boundary
+        path: src/beacon/mcp/contracts.py
+        line_start: 46
+        line_end: 98
+        status: current
 
   - id: doc_index
     name: Doc Index
@@ -104,6 +141,15 @@ core_concepts:
       Heading-chunked keyword search is fast, honest, and easy to test.
     related_concepts:
       - beacon_manifest
+    implementation_locations:
+      - src/beacon/core/doc_index.py
+    sources:
+      - type: file
+        title: Deterministic Markdown DocIndex
+        path: src/beacon/core/doc_index.py
+        line_start: 68
+        line_end: 145
+        status: current
 
   - id: guardrails
     name: Guardrails
@@ -115,6 +161,23 @@ core_concepts:
     why_it_exists: >
       Agents need structured, machine-readable rules — not just a prose warning
       in a README that may or may not be read.
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/provider/manifest_provider.py
+      - src/beacon/mcp/tools/guardrails.py
+    sources:
+      - type: file
+        title: BeaconGuardrail schema
+        path: src/beacon/core/schema.py
+        line_start: 85
+        line_end: 94
+        status: current
+      - type: file
+        title: Guardrail answer composition
+        path: src/beacon/provider/manifest_provider.py
+        line_start: 254
+        line_end: 275
+        status: current
 
 canonical_docs:
   - path: README.md
@@ -201,6 +264,13 @@ guardrails:
     applies_to:
       - src/beacon/provider/base.py
       - src/beacon/core/schema.py
+    sources:
+      - type: file
+        title: BeaconProvider public protocol
+        path: src/beacon/provider/base.py
+        line_start: 27
+        line_end: 59
+        status: current
 
   - id: no_manifest_schema_change
     scope: manifest_schema
@@ -213,6 +283,13 @@ guardrails:
       - src/beacon/core/loader.py
       - src/beacon/core/schema.py
       - src/beacon/core/validator.py
+    sources:
+      - type: file
+        title: BeaconManifest compatibility boundary
+        path: src/beacon/core/schema.py
+        line_start: 139
+        line_end: 159
+        status: current
 
   - id: no_new_tool_before_docs
     scope: mcp_surface
@@ -224,6 +301,19 @@ guardrails:
     applies_to:
       - src/beacon/mcp/tools/
       - src/beacon/mcp/server.py
+    sources:
+      - type: file
+        title: Five-tool registry
+        path: src/beacon/mcp/tools/__init__.py
+        line_start: 24
+        line_end: 36
+        status: current
+      - type: doc
+        title: Contribution surface policy
+        path: README.md
+        line_start: 462
+        line_end: 468
+        status: current
 
   - id: test_before_commit
     scope: development_process
@@ -234,3 +324,10 @@ guardrails:
     applies_to:
       - tests/
       - src/beacon/
+    sources:
+      - type: doc
+        title: Development test command
+        path: README.md
+        line_start: 470
+        line_end: 480
+        status: current

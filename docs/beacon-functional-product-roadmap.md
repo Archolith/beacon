@@ -233,6 +233,36 @@ contract. Closing-task skills invoke the gate and review its evidence rather tha
 guessing whether Beacon changed. Known Beacon-sensitive changes paired with `not_affected` fail
 closed.
 
+### Tiered static consumption for agents
+
+Agent orientation must not require paying the full-snapshot context cost before the agent knows
+which knowledge is relevant. Static HTTP should expose immutable, precomputed tiers derived from one
+startup source identity:
+
+1. discovery: version, capabilities, available representations, digests, and byte sizes;
+2. orientation/index: manifest knowledge plus document and chunk inventory without chunk bodies; and
+3. full snapshot: the existing embedded corpus for consumers that need all published content.
+
+These tiers form a monotonic progressive-disclosure chain: discovery advertises orientation and
+full, orientation advertises the available full or chunk-body representation, and full remains the
+maximum static context. Public contracts use semantic tier names rather than ambiguous labels such
+as `low`, `medium`, and `max`; clients may present those labels as convenience aliases.
+
+The orientation representation is the HTTP counterpart of `beacon export --metadata-only`. It must
+remain static, cacheable, deterministic, and query-free, and discovery must advertise its stable
+route, digest, and exact size. All tiers come from the same startup source set while retaining
+representation-specific hashes.
+
+Every retrievable chunk should advertise its exact UTF-8 byte count before a client fetches its body.
+Token estimates are optional and must identify their tokenizer. A versioned index may denormalize a
+chunk's parent document role and status to avoid client joins, but this must not silently alter
+snapshot 1.0; use a companion representation or explicit schema evolution.
+
+Evaluation measures bytes and tokens separately for project identification, general orientation,
+concept explanation, and a scoped task. The cheapest question must not cost the full corpus.
+Dogfood Beacons require resolvable sources for every current concept and guardrail, plus
+implementation locations for code-backed concepts.
+
 ### Optional AI answer broker boundary
 
 Beacon may eventually place an AI answer broker between canonical Beacon knowledge and a consumer
@@ -324,7 +354,12 @@ Deliverables:
 - a diff-aware task-closeout freshness checker with `updated`, `not_affected`, and `needs_review`
   receipts, deterministic source/document synchronization checks, and conditional semantic review;
 - wrapup/CI integration that blocks known Beacon-facing drift without requiring a model call for
-  unaffected tasks.
+  unaffected tasks;
+- a stable metadata/orientation HTTP representation derived from the same startup source set as the
+  full snapshot, with its own digest and exact byte size;
+- per-chunk UTF-8 byte budgets and an explicit index/schema decision for denormalized parent role and
+  status; and
+- dogfood and fixture provenance-completeness gates for concepts and guardrails.
 
 Exit gate:
 
@@ -434,9 +469,12 @@ test. Beacon needs project-task evaluation.
 - 100% resolvable citations for high-confidence fixture claims;
 - zero high-confidence answer when required evidence is absent;
 - old manifest and answer-contract compatibility fixtures pass;
-- provider outage/degraded-mode fixtures pass; and
+- provider outage/degraded-mode fixtures pass;
 - every Beacon-sensitive task fixture produces a valid freshness disposition and known drift cannot
   pass as `not_affected`;
+- metadata-first orientation uses materially less context than the full snapshot while still
+  answering identity and concept fixtures with citations;
+- 100% of current dogfood core concepts and guardrails have at least one resolvable source;
 - remote descriptor/proof tampering, challenge replay, snapshot rollback, unexpected key rotation,
   and revocation fixtures fail closed.
 
@@ -489,10 +527,12 @@ Before implementation fans out, create reviewed execution plans for:
 3. repository source/build pipeline and safety exclusions;
 4. task-onboarding evaluation corpus and README-only baseline;
 5. provider composition plus Menhir View boundary;
-6. trust, Hub, federation, remote transport/auth/operations threat model; and
-7. v1 compatibility/versioning policy; and
+6. trust, Hub, federation, remote transport/auth/operations threat model;
+7. v1 compatibility/versioning policy;
 8. automated Beacon freshness/task-closeout contract, diff classifier, deterministic checks,
-   conditional LLM review boundary, wrapup receipt, and CI enforcement.
+   conditional LLM review boundary, wrapup receipt, and CI enforcement; and
+9. tiered static HTTP consumption contract, representation discovery, byte budgeting, provenance
+   completeness, and metadata-first versus full-snapshot evaluation.
 
 The first implementation sprint should combine one user-visible v0.2 improvement with the minimum
 contract work needed for v0.3. Avoid spending a whole milestone on abstractions that no maintainer or
@@ -515,6 +555,9 @@ agent can use.
   queue.
 - Which Beacon facts may be updated mechanically, which changes trigger conditional LLM review, and
   which semantic or authority changes always require explicit maintainer approval.
+- What stable route names the metadata/orientation representation.
+- Whether chunk parent role/status and byte budgets live in a companion index or a new snapshot
+  schema version.
 - Which two non-Menhir repositories become maintained conformance examples.
 
 These decisions should be resolved by executable fixtures and user workflows, not by expanding the
