@@ -159,17 +159,22 @@ Clients that do not speak MCP can use the loopback-only HTTP compatibility surfa
 ```bash
 beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
+curl http://127.0.0.1:8765/v1/snapshot/orientation
 curl http://127.0.0.1:8765/v1/snapshot
 ```
 
-`/beacon.json` is a permanent alias for `/v1/snapshot`; `/healthz` returns redacted readiness
-metadata. The server builds the embedded canonical snapshot once at startup and serves immutable
-bytes with a SHA-256 ETag. It accepts only `127.0.0.1`, sends no CORS or access-log output, and
-refuses to start unless the same publication, path, resource, and secret gates as `beacon export`
-pass. Documents with a `plan` or `*_plan` role are represented by title/path/role/status/hash only;
-their body chunks remain private to the local MCP index. Querying, question submission, remote
-binding, authentication, and AI synthesis are not RC2 capabilities and are advertised as
-unavailable in discovery.
+Start with `/v1/snapshot/orientation`: it retains project and manifest knowledge, citations,
+document hashes, and chunk inventory while omitting chunk bodies. Fetch `/v1/snapshot` only when the
+agent needs the full published corpus; `/beacon.json` is its permanent alias. Discovery descriptor
+1.1 advertises both representations with their exact byte sizes and SHA-256 digests, and `/healthz`
+returns redacted readiness metadata. The server builds the embedded canonical snapshot once at
+startup, derives orientation from that approved in-memory source set, and serves both as immutable
+bytes with independent SHA-256 ETags. It accepts only `127.0.0.1`, sends no CORS or access-log output,
+and the orientation response links to the full representation. The server refuses to start unless
+the same publication, path, resource, and secret gates as `beacon export` pass. Documents with a
+`plan` or `*_plan` role are represented by title/path/role/status/hash only; their body chunks remain
+private to the local MCP index. Querying, question submission, remote binding, authentication, and
+AI synthesis are not RC2 capabilities and are advertised as unavailable in discovery.
 
 ---
 

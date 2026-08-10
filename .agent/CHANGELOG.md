@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-10 — Agent-first HTTP orientation tier
+
+- Added immutable `GET`/`HEAD /v1/snapshot/orientation`, derived in memory from the approved full
+  startup snapshot without rereading repository files.
+- Upgraded discovery to descriptor 1.1 and advertised orientation/full routes, modes, schema
+  versions, independent SHA-256 digests, and exact byte sizes while retaining the legacy `snapshot`
+  discovery entry.
+- Reused full-route ETag, conditional request, loopback, CORS, error-redaction, publication, resource,
+  and secret boundaries for the orientation representation without changing `/v1/snapshot` or its
+  `/beacon.json` alias.
+- Added snapshot derivation, route/header/cache, no-body, source-identity, dogfood provenance, and
+  material-size-reduction tests plus agent-first client documentation.
+
 ## 2026-08-10 — Agent-first tiered consumption and dogfood provenance
 
 - Measured the existing metadata-only export against the full HTTP snapshot and recorded tiered

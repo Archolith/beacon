@@ -45,6 +45,7 @@ structure graph, git history) can be swapped in later without touching the tools
 | MCP framework | archolith_mcp_framework (create_gateway_server) + FastMCP 3.x |
 | YAML parsing | PyYAML ≥6 |
 | Settings | frozen dataclass + from_env() pattern (no Pydantic) |
+| Loopback HTTP | Starlette + Uvicorn; immutable GET/HEAD representations |
 | Tests | pytest + pytest-asyncio |
 | Entry point | `python -m beacon` / `beacon` → `beacon.main:main` |
 
@@ -63,7 +64,8 @@ structure graph, git history) can be swapped in later without touching the tools
 src/beacon/
 ├── __init__.py          single-source package version
 ├── __main__.py          python -m beacon entry
-├── main.py              typer CLI: version / stdio default / validate / inspect
+├── main.py              typer CLI: init / validate / inspect / export / serve / serve-http
+├── http_api.py          immutable discovery, orientation, full snapshot, and health routes
 ├── config/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
@@ -73,6 +75,7 @@ src/beacon/
 │   ├── paths.py         canonical-doc containment boundary + unsafe-path diagnostic
 │   ├── validator.py     validate_beacon_manifest(), require_valid_manifest(), stable diagnostic codes
 │   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
+│   ├── snapshot.py      static snapshot build + in-memory metadata-only derivation
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
 ├── provider/
 │   ├── base.py          @runtime_checkable BeaconProvider Protocol (5 methods)
@@ -115,6 +118,19 @@ framework. Runtime startup therefore performs no update check and emits no FastM
 Expected resource refusals preserve their stable public limit code. Any other tool exception is
 logged server-side and reduced to a generic `internal_error` response so private paths or secrets in
 exception text never cross the MCP boundary.
+
+### Loopback HTTP data flow
+
+`beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
+embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives a
+metadata-only orientation representation from the same approved in-memory value; it never rereads
+project files. Discovery descriptor 1.1 advertises `/v1/snapshot/orientation` and `/v1/snapshot`
+with their independent SHA-256 digests and exact byte sizes. Both representations are immutable for
+the process lifetime, support GET/HEAD plus `If-None-Match`, and use snapshot schema 1.0. The
+orientation tier retains manifest knowledge, citations, document hashes, and chunk inventory while
+omitting every chunk body and linking to the full representation. `/beacon.json` remains
+byte-identical to the full route. The listener is restricted to `127.0.0.1`, has no CORS or access
+logs, and exposes no query capability.
 
 ## Config / Environment Variables
 

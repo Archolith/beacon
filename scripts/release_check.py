@@ -268,11 +268,15 @@ def build_plan(
             ),
             Step(
                 name="http_snapshot",
-                description="real loopback HTTP discovery, health, snapshot, alias, HEAD, ETag, and errors",
+                description=(
+                    "real loopback HTTP discovery, orientation/full snapshots, health, alias, "
+                    "HEAD, ETag, and errors"
+                ),
                 func=lambda: probe_http_snapshot(
                     beacon_cmd,
                     manifest=manifest,
                     expected_snapshot=out_dir / "export-1.json",
+                    expected_orientation=out_dir / "export-meta.json",
                     env=guard_env,
                 ),
             ),
@@ -353,6 +357,7 @@ def probe_http_snapshot(
     *,
     manifest: Path,
     expected_snapshot: Path,
+    expected_orientation: Path,
     env: dict[str, str],
 ) -> None:
     """Start the installed HTTP server and verify its real loopback contract."""
@@ -378,6 +383,8 @@ def probe_http_snapshot(
         base_url, reported_sha = match.groups()
         expected = expected_snapshot.read_bytes()
         expected_sha = hashlib.sha256(expected).hexdigest()
+        orientation_expected = expected_orientation.read_bytes()
+        orientation_sha = hashlib.sha256(orientation_expected).hexdigest()
         if reported_sha != expected_sha:
             raise JourneyError("serve-http startup digest differs from the canonical export")
 
@@ -397,7 +404,43 @@ def probe_http_snapshot(
             raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
+        if descriptor.get("descriptor_version") != "1.1":
+            raise JourneyError("HTTP discovery descriptor version is not 1.1")
+        representations = descriptor.get("representations", {})
+        if representations.get("orientation") != {
+            "url": "/v1/snapshot/orientation",
+            "mode": "metadata_only",
+            "sha256": orientation_sha,
+            "bytes": len(orientation_expected),
+            "schema_version": "1.0",
+        }:
+            raise JourneyError("HTTP discovery orientation representation is wrong")
+        if representations.get("full") != {
+            "url": "/v1/snapshot",
+            "mode": "embedded",
+            "sha256": expected_sha,
+            "bytes": len(expected),
+            "schema_version": "1.0",
+        }:
+            raise JourneyError("HTTP discovery full representation is wrong")
         _assert_no_server_identity(descriptor_headers)
+
+        orientation_body, orientation_headers = _http_request(base_url + "/v1/snapshot/orientation")
+        if orientation_body != orientation_expected:
+            raise JourneyError("HTTP orientation bytes differ from the metadata-only export")
+        if len(orientation_body) >= len(expected):
+            raise JourneyError("HTTP orientation is not smaller than the full snapshot")
+        if orientation_headers.get("x-beacon-snapshot-sha256") != orientation_sha:
+            raise JourneyError("HTTP orientation digest header is wrong")
+        if orientation_headers.get("etag") != f'"{orientation_sha}"':
+            raise JourneyError("HTTP orientation ETag is wrong")
+        if orientation_headers.get("cache-control") != "no-cache":
+            raise JourneyError("HTTP orientation cache policy is wrong")
+        if orientation_headers.get("link") != (
+            '</v1/snapshot>; rel="alternate"; title="full snapshot"'
+        ):
+            raise JourneyError("HTTP orientation does not link to the full snapshot")
+        _assert_no_server_identity(orientation_headers)
 
         snapshot_body, snapshot_headers = _http_request(base_url + "/v1/snapshot")
         alias_body, alias_headers = _http_request(base_url + "/beacon.json")
@@ -420,6 +463,18 @@ def probe_http_snapshot(
             304,
             headers={"If-None-Match": f'"{expected_sha}"'},
         )
+        orientation_head_body, orientation_head_headers = _http_request(
+            base_url + "/v1/snapshot/orientation", method="HEAD"
+        )
+        if orientation_head_body or orientation_head_headers.get("etag") != (
+            orientation_headers.get("etag")
+        ):
+            raise JourneyError("HTTP orientation HEAD response differs from GET")
+        _http_expect_status(
+            base_url + "/v1/snapshot/orientation",
+            304,
+            headers={"If-None-Match": f'"{orientation_sha}"'},
+        )
 
         health_body, health_headers = _http_request(base_url + "/healthz")
         health = json.loads(health_body)
@@ -430,6 +485,7 @@ def probe_http_snapshot(
         _assert_no_server_identity(health_headers)
         _http_expect_status(base_url + "/missing?private=query", 404)
         _http_expect_status(base_url + "/v1/snapshot", 405, method="POST")
+        _http_expect_status(base_url + "/v1/snapshot/orientation", 405, method="POST")
     except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
         raise JourneyError(f"loopback HTTP journey failed ({type(exc).__name__})") from exc
     finally:

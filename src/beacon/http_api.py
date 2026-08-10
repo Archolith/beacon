@@ -2,11 +2,11 @@
 
 Builds a small :class:`starlette.applications.Starlette` ASGI app over an
 already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded
-snapshot bytes are serialized exactly once (via
-:func:`beacon.core.snapshot.snapshot_bytes`) and their SHA-256 is computed once;
-both are retained as immutable state for the life of the app. No source file is
-ever reread and no snapshot is rebuilt after construction, so every request
-serves the same byte-identical payload.
+and derived metadata-only representations are each serialized exactly once
+(via :func:`beacon.core.snapshot.snapshot_bytes`) and their SHA-256 digests are
+computed once. Both are retained as immutable state for the life of the app.
+No source file is ever reread and no snapshot is rebuilt after construction, so
+every request serves byte-identical payloads.
 
 The module owns only the HTTP contract. It does no access logging, no socket
 binding, no Uvicorn configuration, no host validation, and no CLI or network
@@ -15,6 +15,7 @@ work -- those boundaries belong to the caller.
 Routes (GET and HEAD):
 
 * ``/.well-known/archolith-beacon`` -- deterministic discovery document;
+* ``/v1/snapshot/orientation`` -- metadata-only orientation representation;
 * ``/v1/snapshot`` -- the canonical snapshot payload;
 * ``/beacon.json`` -- byte/header-identical alias of ``/v1/snapshot``;
 * ``/healthz`` -- redacted readiness document.
@@ -38,10 +39,15 @@ from starlette.routing import Route
 
 from beacon import __version__
 from beacon.core.canonical_json import dumps_canonical
-from beacon.core.snapshot import CONTENT_EMBEDDED, Snapshot, snapshot_bytes
+from beacon.core.snapshot import (
+    CONTENT_EMBEDDED,
+    Snapshot,
+    metadata_only_snapshot,
+    snapshot_bytes,
+)
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.0"
+_DESCRIPTOR_VERSION = "1.1"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -70,27 +76,41 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     payload = snapshot_bytes(snapshot)
     sha256 = hashlib.sha256(payload).hexdigest()
     etag = f'"{sha256}"'
+    orientation_payload = snapshot_bytes(metadata_only_snapshot(snapshot))
+    orientation_sha256 = hashlib.sha256(orientation_payload).hexdigest()
+    orientation_etag = f'"{orientation_sha256}"'
     schema_version = snapshot.beacon_snapshot_version
 
-    discovery = _discovery_payload(sha256=sha256, schema_version=schema_version)
+    discovery = _discovery_payload(
+        sha256=sha256,
+        byte_count=len(payload),
+        orientation_sha256=orientation_sha256,
+        orientation_byte_count=len(orientation_payload),
+        schema_version=schema_version,
+    )
     discovery_body = dumps_canonical(discovery)
     health = _health_payload(sha256=sha256, schema_version=schema_version)
     health_body = dumps_canonical(health)
 
-    snapshot_headers = {
-        "content-type": "application/json",
-        "content-length": str(len(payload)),
-        "etag": etag,
-        "x-beacon-snapshot-sha256": sha256,
-        "cache-control": "no-cache",
-        "x-content-type-options": "nosniff",
-    }
+    snapshot_headers = _representation_headers(payload, sha256, etag)
+    orientation_headers = _representation_headers(
+        orientation_payload, orientation_sha256, orientation_etag
+    )
+    orientation_headers["link"] = '</v1/snapshot>; rel="alternate"; title="full snapshot"'
 
     async def snapshot_route(request: Request) -> Response:
         return _snapshot_response(request, payload, snapshot_headers, etag)
 
     async def beacon_json_route(request: Request) -> Response:
         return _snapshot_response(request, payload, snapshot_headers, etag)
+
+    async def orientation_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            orientation_payload,
+            orientation_headers,
+            orientation_etag,
+        )
 
     async def discovery_route(request: Request) -> Response:
         return _static_response(
@@ -109,12 +129,14 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     app = Starlette(
         routes=[
             Route("/.well-known/archolith-beacon", discovery_route, methods=["GET", "HEAD"]),
+            Route("/v1/snapshot/orientation", orientation_route, methods=["GET", "HEAD"]),
             Route("/v1/snapshot", snapshot_route, methods=["GET", "HEAD"]),
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
             Route("/healthz", health_route, methods=["GET", "HEAD"]),
         ],
     )
     app.state.beacon_snapshot_sha256 = sha256
+    app.state.beacon_orientation_sha256 = orientation_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
@@ -138,13 +160,7 @@ def _snapshot_response(
     """
     inm = request.headers.get("if-none-match")
     if inm and _etag_matches(inm, etag):
-        reduced = {
-            "etag": etag,
-            "x-beacon-snapshot-sha256": headers["x-beacon-snapshot-sha256"],
-            "cache-control": headers["cache-control"],
-            "x-content-type-options": headers["x-content-type-options"],
-            "content-type": headers["content-type"],
-        }
+        reduced = {key: value for key, value in headers.items() if key != "content-length"}
         return Response(content=b"", status_code=304, headers=reduced)
     body = payload if request.method == "GET" else b""
     return Response(content=body, status_code=200, headers=dict(headers))
@@ -166,6 +182,18 @@ def _json_headers(body: bytes, *, cache_control: str | None = None) -> dict[str,
     if cache_control is not None:
         headers["cache-control"] = cache_control
     return headers
+
+
+def _representation_headers(payload: bytes, sha256: str, etag: str) -> dict[str, str]:
+    """Return immutable-representation headers for a snapshot tier."""
+    return {
+        "content-type": "application/json",
+        "content-length": str(len(payload)),
+        "etag": etag,
+        "x-beacon-snapshot-sha256": sha256,
+        "cache-control": "no-cache",
+        "x-content-type-options": "nosniff",
+    }
 
 
 def _http_exception_handler(request: Request, exc: Exception) -> Response:
@@ -213,7 +241,14 @@ def _unexpected_exception_handler(request: Request, exc: Exception) -> Response:
 # ---------------------------------------------------------------------------
 
 
-def _discovery_payload(*, sha256: str, schema_version: str) -> dict[str, Any]:
+def _discovery_payload(
+    *,
+    sha256: str,
+    byte_count: int,
+    orientation_sha256: str,
+    orientation_byte_count: int,
+    schema_version: str,
+) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document."""
     return {
         "descriptor_version": _DESCRIPTOR_VERSION,
@@ -231,6 +266,22 @@ def _discovery_payload(*, sha256: str, schema_version: str) -> dict[str, Any]:
             "mode": "embedded",
             "sha256": sha256,
             "schema_version": schema_version,
+        },
+        "representations": {
+            "orientation": {
+                "url": "/v1/snapshot/orientation",
+                "mode": "metadata_only",
+                "sha256": orientation_sha256,
+                "bytes": orientation_byte_count,
+                "schema_version": schema_version,
+            },
+            "full": {
+                "url": "/v1/snapshot",
+                "mode": "embedded",
+                "sha256": sha256,
+                "bytes": byte_count,
+                "schema_version": schema_version,
+            },
         },
     }
 

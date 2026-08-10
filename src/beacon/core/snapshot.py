@@ -33,7 +33,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -369,6 +369,29 @@ def build_snapshot(
     )
 
 
+def metadata_only_snapshot(snapshot: Snapshot) -> Snapshot:
+    """Return a metadata-only representation derived from *snapshot* in memory.
+
+    The returned value preserves project, manifest, document, validation,
+    policy, digest, and line-range identity while removing every chunk body.
+    No source path is opened and no security or publication decision is
+    recomputed, so callers can safely precompute multiple representations from
+    one approved startup source set.
+    """
+    _require_content_mode(snapshot.content_mode)
+    if snapshot.content_mode == CONTENT_METADATA_ONLY:
+        return snapshot
+
+    documents = tuple(
+        replace(
+            document,
+            chunks=tuple(replace(chunk, text=None) for chunk in document.chunks),
+        )
+        for document in snapshot.documents
+    )
+    return replace(snapshot, content_mode=CONTENT_METADATA_ONLY, documents=documents)
+
+
 def snapshot_bytes(snapshot: Snapshot, *, byte_ceiling: int | None = None) -> bytes:
     """Serialize *snapshot* to deterministic bounded UTF-8 JSON + one newline.
 
@@ -659,6 +682,7 @@ __all__ = [
     "SnapshotProject",
     "SnapshotValidation",
     "build_snapshot",
+    "metadata_only_snapshot",
     "snapshot_bytes",
     "write_snapshot_atomic",
 ]

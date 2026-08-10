@@ -84,16 +84,20 @@ For a client that does not speak MCP, start the immutable loopback HTTP surface:
 ```bash
 beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
+curl http://127.0.0.1:8765/v1/snapshot/orientation
 curl http://127.0.0.1:8765/v1/snapshot
 ```
 
-The routes are `/.well-known/archolith-beacon`, `/v1/snapshot`, the identical `/beacon.json`
-alias, and `/healthz`. Only `GET` and `HEAD` are supported. Snapshot responses include a SHA-256
-ETag and support `If-None-Match`; the snapshot is built once at startup. The command rejects every
-host except `127.0.0.1`, disables CORS and access logs, and applies the same strict publication and
-secret gates as export. Plan-role documents carry only title/path/role/status/hash in the snapshot;
-their body remains available only through the private local MCP index. Remote access, query, and
-question submission remain disabled.
+Use `/v1/snapshot/orientation` as the inexpensive first read. It contains project/manifest
+knowledge, citations, document hashes, and chunk inventory but no chunk bodies. Use `/v1/snapshot`
+for the full corpus; `/beacon.json` is its identical alias. Discovery descriptor 1.1 advertises both
+representations with exact byte sizes, modes, schema versions, and SHA-256 digests. Only `GET` and
+`HEAD` are supported. Each representation has its own ETag and supports `If-None-Match`; both are
+precomputed from one approved startup source set, and orientation includes an HTTP `Link` to the
+full representation. The command rejects every host except `127.0.0.1`, disables CORS and access
+logs, and applies the same strict publication and secret gates as export. Plan-role documents carry
+only title/path/role/status/hash in the snapshot; their body remains available only through the
+private local MCP index. Remote access, query, and question submission remain disabled.
 
 ---
 

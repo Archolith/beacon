@@ -311,8 +311,8 @@ guardrails:
       - type: doc
         title: Contribution surface policy
         path: README.md
-        line_start: 462
-        line_end: 468
+        line_start: 467
+        line_end: 473
         status: current
 
   - id: test_before_commit
@@ -328,6 +328,6 @@ guardrails:
       - type: doc
         title: Development test command
         path: README.md
-        line_start: 470
-        line_end: 480
+        line_start: 475
+        line_end: 485
         status: current

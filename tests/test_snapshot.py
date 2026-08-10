@@ -40,6 +40,7 @@ from beacon.core.snapshot import (
     SnapshotProject,
     SnapshotValidation,
     build_snapshot,
+    metadata_only_snapshot,
     snapshot_bytes,
     write_snapshot_atomic,
 )
@@ -227,6 +228,31 @@ def test_metadata_only_omits_text_keeps_structure(tmp_path: Path) -> None:
         assert chunk["line_start"] >= 1
         assert chunk["line_end"] >= 1
     assert payload["documents"][0]["source_sha256"]  # hashes still present
+
+
+def test_metadata_only_can_be_derived_without_mutating_embedded_snapshot(tmp_path: Path) -> None:
+    embedded = build_snapshot(_write_project(tmp_path), content_mode=CONTENT_EMBEDDED)
+    orientation = metadata_only_snapshot(embedded)
+
+    assert orientation is not embedded
+    assert orientation.content_mode == CONTENT_METADATA_ONLY
+    assert orientation.manifest == embedded.manifest
+    assert orientation.project == embedded.project
+    assert orientation.validation == embedded.validation
+    assert orientation.policy == embedded.policy
+    assert orientation.documents[0].source_sha256 == embedded.documents[0].source_sha256
+    assert all(
+        chunk.text is None for document in orientation.documents for chunk in document.chunks
+    )
+    assert all(
+        chunk.text is not None for document in embedded.documents for chunk in document.chunks
+    )
+    jsonschema.validate(orientation.to_payload(), _load_schema())
+
+
+def test_metadata_only_derivation_is_idempotent(tmp_path: Path) -> None:
+    metadata = build_snapshot(_write_project(tmp_path), content_mode=CONTENT_METADATA_ONLY)
+    assert metadata_only_snapshot(metadata) is metadata
 
 
 def test_plan_documents_are_title_only_in_embedded_snapshot(tmp_path: Path) -> None:
