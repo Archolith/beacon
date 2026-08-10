@@ -6,7 +6,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from cth_mcp_framework import create_gateway_server, run_server
+from archolith_mcp_framework import create_gateway_server
 
 from beacon.mcp.lifecycle import beacon_lifespan
 from beacon.mcp.tools import register_all_tools

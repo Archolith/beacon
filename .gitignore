@@ -1,0 +1,59 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+
+# Build / distribution / metadata
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor / OS junk
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Generated root/local snapshot artifacts
+*.snapshot.json
+*.snapshot.json.sha256
+
+# Committed example snapshots remain allowed under examples/
+!examples/**/*.snapshot.json
+!examples/**/*.snapshot.json.sha256

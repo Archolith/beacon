@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-09 — Begin v0.2 release-package migration
+
+- `pyproject.toml`, `src/beacon/__init__.py` — changed the distribution to `archolith-beacon`,
+  single-sourced release-candidate version `0.2.0rc1`, declared CPython 3.12–3.14 support, completed
+  package metadata, and migrated the runtime dependency to `archolith-mcp-framework>=0.2,<0.3`.
+- `src/beacon/main.py`, `src/beacon/mcp/server.py` — migrated to the
+  `archolith_mcp_framework` import and added eager `beacon --version` without changing no-argument
+  stdio startup or the five-tool surface.
+- `tests/test_cli.py`, `tests/test_packaging.py` — added version and package-contract coverage.
+- `.gitignore`, `.githooks/pre-push`, `README.md`, `.agent/architecture.md` — added repository
+  hygiene, corrected branch guidance, and documented truthful source installation while both
+  public PyPI distributions remain gated.
+
 ## 2026-08-09 — Lock v0.2 implementation readiness contracts
 
 - `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` — locked stable

@@ -25,6 +25,21 @@ app = typer.Typer(
 
 
 # ---------------------------------------------------------------------------
+# --version
+# ---------------------------------------------------------------------------
+
+
+def _version_callback(*, value: bool) -> None:
+    """Print the Beacon version and exit without starting the MCP server."""
+    if not value:
+        return
+    from beacon import __version__
+
+    typer.echo(f"beacon {__version__}")
+    raise typer.Exit()
+
+
+# ---------------------------------------------------------------------------
 # Default: start the MCP stdio server
 # ---------------------------------------------------------------------------
 
@@ -42,7 +57,16 @@ def _configure_logging(*, include_console: bool = False) -> None:
 
 
 @app.callback(invoke_without_command=True)
-def serve(ctx: typer.Context) -> None:
+def serve(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the Beacon version and exit.",
+        is_eager=True,
+        callback=_version_callback,
+    ),
+) -> None:
     """Start the Beacon MCP stdio server (default when no subcommand is given)."""
     if ctx.invoked_subcommand is not None:
         return
@@ -52,7 +76,7 @@ def serve(ctx: typer.Context) -> None:
     load_dotenv(os.getenv("ENV_FILE") or None)
     _configure_logging(include_console=False)
 
-    from cth_mcp_framework import run_server
+    from archolith_mcp_framework import run_server
 
     from beacon.mcp.server import mcp
 

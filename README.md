@@ -1,7 +1,10 @@
 # Beacon
 
-[![PyPI](https://img.shields.io/pypi/v/archolith-beacon)](https://pypi.org/project/archolith-beacon/)
-[![Python](https://img.shields.io/pypi/pyversions/archolith-beacon)](https://pypi.org/project/archolith-beacon/)
+> **Status: `0.2.0rc1` development checkout.**
+> Public PyPI installation of `archolith-beacon` is not yet available — it is
+> gated on first publishing the `archolith-mcp-framework` distribution. See
+> [Install](#install) for the truthful source-development setup.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Beacon is the missing handshake between software projects and coding agents.**
@@ -24,13 +27,36 @@ Beacon v0 is **manifest-driven**: drop a `beacon.yaml` into your repo, point the
 
 ## Install
 
+> **Public PyPI is currently gated.** This checkout is `0.2.0rc1` development.
+> `archolith-beacon` cannot yet be installed from the public package index
+> because its runtime dependency `archolith-mcp-framework` is not yet published
+> there. Do not expect `pip install archolith-beacon` to work yet.
+
+The distribution name is `archolith-beacon`; the import package is `beacon` and
+the CLI command is `beacon`.
+
+**Source-development setup** (recommended for now). Check out this repository
+and a compatible `archolith-mcp-framework` v0.2.0 release side by side, then
+install the framework first with an editable install so `beacon` resolves it
+from your local checkout:
+
 ```bash
-pip install archolith-beacon
+# 1. Check out the framework release and install it editable (must come first).
+git clone https://github.com/Archolith/archolith-mcp-framework.git
+cd archolith-mcp-framework
+git checkout v0.2.0
+pip install -e .
+
+# 2. Back in this repository, install Beacon editable with dev tooling.
+cd <path-to-this-beacon-checkout>
+pip install -e ".[dev]"
 ```
 
-The package installs as `archolith-beacon` on PyPI; the import name is `beacon` and the CLI command is `beacon`.
+This keeps the dependency pinned to `archolith-mcp-framework>=0.2,<0.3` in the
+package metadata — no Git URL, no private index. Once the framework is
+published, `pip install archolith-beacon` will work as a normal public install.
 
-**Requires Python 3.12+.**
+**Requires Python 3.12, 3.13, or 3.14.**
 
 ---
 
@@ -96,7 +122,14 @@ Fix any reported errors before connecting an agent. Warnings are informational.
 BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon inspect
 ```
 
-**4. Start the MCP server.**
+**4. Check the installed version.**
+
+```bash
+beacon --version
+# beacon 0.2.0rc1
+```
+
+**5. Start the MCP server.**
 
 ```bash
 BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon
@@ -319,7 +352,13 @@ Beacon is **experimental**. The v0 surface (five tools, manifest schema, answer 
 
 - The manifest schema may gain new fields in v0.x releases.
 - A `MenhirBeaconProvider` does not yet exist.
-- PyPI publication is pending — install from source for now.
+- `validate` and `inspect` are implemented and tested. `init`, `export`, and an
+  explicit `serve` command are not yet shipped — use the positional
+  `beacon validate PATH` / `beacon inspect PATH` commands and the
+  no-argument stdio server documented above.
+- This checkout is `0.2.0rc1` development. Public PyPI publication is gated on
+  first publishing the `archolith-mcp-framework` dependency; install from source
+  as described under [Install](#install) for now.
 
 Track the product path in
 [`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The
@@ -337,7 +376,6 @@ The highest-value contributions right now are:
 - Adding example manifests for different project shapes (library, research project, monorepo service).
 - Adding `docs/demo-transcript.md` showing a real agent session.
 - Writing golden-output tests for each MCP tool.
-- Implementing the `beacon validate` and `beacon inspect` CLI subcommands.
 
 **Do not** add tools or expand the manifest schema until the existing five tools are well-documented and easy to connect. The interface should be obvious before it grows.
 

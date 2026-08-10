@@ -1,29 +1,67 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "beacon"
-version = "0.1.0"
+name = "archolith-beacon"
+dynamic = ["version"]
 description = "Self-describing, machine-readable project knowledge surface for coding agents."
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Archolith" },
+]
+maintainers = [
+    { name = "Archolith" },
+]
+keywords = [
+    "mcp",
+    "coding-agent",
+    "agent",
+    "project-knowledge",
+    "manifest",
+    "documentation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "cth-mcp-framework>=0.1.0",
-    "fastmcp>=3.2.4,<4",
-    "pydantic>=2.0,<3",
+    "archolith-mcp-framework>=0.2,<0.3",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
     "typer>=0.12,<1",
 ]
 
-[project.scripts]
-beacon = "beacon.main:main"
+[project.urls]
+Homepage = "https://github.com/Archolith/beacon"
+Repository = "https://github.com/Archolith/beacon"
+Issues = "https://github.com/Archolith/beacon/issues"
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
+    "build>=1.2",
+    "twine>=6",
+    "jsonschema>=4.20",
 ]
+
+[project.scripts]
+beacon = "beacon.main:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "beacon.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

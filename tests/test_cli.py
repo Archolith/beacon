@@ -1,8 +1,10 @@
-"""Offline tests for the Beacon CLI — validate and inspect subcommands."""
+"""Offline tests for the Beacon CLI — validate, inspect, and --version subcommands."""
 
 from __future__ import annotations
 
+import sys
 import textwrap
+import unittest.mock as mock
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,41 @@ from typer.testing import CliRunner
 from beacon.main import app
 
 runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# beacon --version
+# ---------------------------------------------------------------------------
+
+
+class TestVersion:
+    def test_version_prints_exact_string(self) -> None:
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert result.output == "beacon 0.2.0rc1\n"
+
+    def test_version_does_not_start_server(self) -> None:
+        """--version is eager and must never reach the MCP stdio startup path.
+
+        If the callback's startup branch ran, it would import
+        ``archolith_mcp_framework`` and ``beacon.mcp.server``. Replacing those
+        modules with ``None`` in ``sys.modules`` turns any such import into an
+        ImportError, so a clean run proves neither was touched.
+        """
+        blocked = {
+            "archolith_mcp_framework": None,
+            "beacon.mcp.server": None,
+        }
+        with mock.patch.dict(sys.modules, blocked):
+            result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert result.output == "beacon 0.2.0rc1\n"
+
+    def test_version_prints_no_startup_text(self) -> None:
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "MCP" not in result.output
+        assert "pid=" not in result.output
 
 
 # ---------------------------------------------------------------------------

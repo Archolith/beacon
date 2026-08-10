@@ -18,7 +18,7 @@ structure graph, git history) can be swapped in later without touching the tools
 ```
 ┌────────────────────────────────────────────────┐
 │  MCP Server (stdio)                            │
-│  cth_mcp_framework gateway                     │
+│  archolith_mcp_framework gateway               │
 │  5 tools · all readonly · all always_visible   │
 ├────────────────────────────────────────────────┤
 │  Beacon Tools                                  │
@@ -42,19 +42,28 @@ structure graph, git history) can be swapped in later without touching the tools
 | Layer | Technology |
 |-------|-----------|
 | Language | Python 3.12+ |
-| MCP framework | cth_mcp_framework (create_gateway_server) + fastmcp ≥3.2.4 |
+| MCP framework | archolith_mcp_framework (create_gateway_server) + FastMCP 3.x |
 | YAML parsing | PyYAML ≥6 |
 | Settings | frozen dataclass + from_env() pattern (no Pydantic) |
 | Tests | pytest + pytest-asyncio |
-| Entry point | `python -m beacon` → `beacon.main:main` |
+| Entry point | `python -m beacon` / `beacon` → `beacon.main:main` |
+
+## Distribution
+
+- Distribution: `archolith-beacon`
+- Import package and console command: `beacon`
+- Current release-branch version: `0.2.0rc1`, single-sourced from `beacon.__version__`
+- Supported interpreters: CPython 3.12, 3.13, and 3.14
+- Runtime framework dependency: `archolith-mcp-framework>=0.2,<0.3`
+- Public installation remains gated until the framework distribution is available from PyPI.
 
 ## Package Layout
 
 ```
 src/beacon/
-├── __init__.py          version
+├── __init__.py          single-source package version
 ├── __main__.py          python -m beacon entry
-├── main.py              typer CLI: serve (default) / validate / inspect subcommands
+├── main.py              typer CLI: version / stdio default / validate / inspect
 ├── config/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
@@ -110,10 +119,11 @@ tool call:
 
 ## CLI
 
-`src/beacon/main.py` is a `typer` app with one default action and two subcommands:
+`src/beacon/main.py` is a `typer` app with one eager option, one default action, and two subcommands:
 
 | Command | Purpose |
 |---------|---------|
+| `beacon --version` | Prints the single-source package version without loading a manifest or importing/starting the MCP server. |
 | `beacon` (no subcommand) | Starts the MCP stdio server — loads `.env` via `ENV_FILE`, configures logging, calls `run_server(mcp)`. |
 | `beacon validate PATH` | Loads and validates a `beacon.yaml`; exits 0 with 0 errors, exits 1 on parse failure or any error-level issue. Warnings print but don't fail the exit code. |
 | `beacon inspect PATH` | Loads a manifest, validates it (hard-fails on errors), then calls all five `ManifestBeaconProvider` methods directly and prints a human-readable summary of each — a local smoke test before wiring an MCP client. |
