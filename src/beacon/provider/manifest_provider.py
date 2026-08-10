@@ -11,11 +11,18 @@ so an agent can tell current knowledge from experimental or uncertain.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from beacon.core.doc_index import DocChunk, DocIndex
 from beacon.core.loader import load_beacon_manifest
+from beacon.core.limits import (
+    LIMIT_QUERY_BYTES,
+    LIMIT_RESULT_LIMIT,
+    LIMIT_INVALID_VALUE,
+    LimitError,
+    ResourceLimits,
+)
 from beacon.core.schema import (
     AgentOnboarding,
     BeaconConcept,
@@ -37,20 +44,29 @@ class ManifestBeaconProvider:
     manifest: BeaconManifest
     doc_index: DocIndex
     docs_root: Path
+    limits: ResourceLimits = field(default_factory=ResourceLimits)
 
     # -- construction --------------------------------------------------------
 
     @classmethod
     def from_paths(
-        cls, *, manifest_path: str | Path, docs_root: str | Path, validate: bool = True
+        cls,
+        *,
+        manifest_path: str | Path,
+        docs_root: str | Path,
+        validate: bool = True,
+        limits: ResourceLimits | None = None,
     ) -> "ManifestBeaconProvider":
         """Load + (optionally) validate a manifest and build the doc index."""
-        manifest = load_beacon_manifest(manifest_path)
+        active = limits if limits is not None else ResourceLimits()
+        manifest = load_beacon_manifest(manifest_path, limits=active)
         root = Path(docs_root)
         if validate:
             require_valid_manifest(manifest, docs_root=root)
-        doc_index = DocIndex.from_docs(manifest.canonical_docs, docs_root=root)
-        return cls(manifest=manifest, doc_index=doc_index, docs_root=root)
+        doc_index = DocIndex.from_docs(
+            manifest.canonical_docs, docs_root=root, limits=active
+        )
+        return cls(manifest=manifest, doc_index=doc_index, docs_root=root, limits=active)
 
     @classmethod
     def from_settings(cls, settings: "object") -> "ManifestBeaconProvider":
@@ -59,6 +75,7 @@ class ManifestBeaconProvider:
             manifest_path=getattr(settings, "manifest_path"),
             docs_root=getattr(settings, "docs_root"),
             validate=getattr(settings, "validate_on_load", True),
+            limits=getattr(settings, "limits", None),
         )
 
     # -- capabilities --------------------------------------------------------
@@ -88,6 +105,7 @@ class ManifestBeaconProvider:
         self, *, task_hint: str = "", risk_tolerance: str = "low"
     ) -> AgentOnboarding:
         m = self.manifest
+        self._check_query(task_hint, "task_hint")
         guidance = m.agent_guidance
         relevant_files: list[str] = []
         concepts: list[str] = []
@@ -131,6 +149,8 @@ class ManifestBeaconProvider:
         limit: int = 8,
     ) -> SearchResult:
         m = self.manifest
+        self._check_query(query, "query")
+        self._check_result_limit(limit)
         wanted = set(source_types)
         hits: list[SearchHit] = []
         sources: list[BeaconSource] = []
@@ -201,6 +221,7 @@ class ManifestBeaconProvider:
 
     def explain_concept(self, *, concept: str, depth: str = "technical") -> ConceptExplanation:
         m = self.manifest
+        self._check_query(concept, "concept")
         found = m.concept_by_id(concept)
         if found is None:
             # Fall back to fuzzy match then doc search.
@@ -239,6 +260,7 @@ class ManifestBeaconProvider:
 
     def guardrails(self, *, task_hint: str = "") -> GuardrailResponse:
         m = self.manifest
+        self._check_query(task_hint, "task_hint")
         selected = (
             _guardrails_matching(m, task_hint) if task_hint else list(m.guardrails)
         )
@@ -264,6 +286,38 @@ class ManifestBeaconProvider:
             sources=tuple(_dedupe_sources(sources)),
             next_actions=("run the required checks before committing",),
         )
+
+    # -- limit enforcement --------------------------------------------------
+
+    def _check_query(self, text: str, field: str) -> None:
+        """Refuse free-text input whose UTF-8 size exceeds the query ceiling."""
+        size = len(text.encode("utf-8"))
+        if size > self.limits.query_bytes:
+            raise LimitError(
+                LIMIT_QUERY_BYTES,
+                "resource limit exceeded: "
+                f"{LIMIT_QUERY_BYTES} (field={field}, limit={self.limits.query_bytes}, "
+                f"actual={size})",
+                limit="query_bytes",
+                limit_value=self.limits.query_bytes,
+            )
+
+    def _check_result_limit(self, limit: int) -> None:
+        """Refuse a requested result limit above the non-overridable ceiling."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise LimitError(
+                LIMIT_INVALID_VALUE,
+                "invalid result limit: expected a non-negative integer",
+                limit="result_limit",
+            )
+        if limit > self.limits.result_limit:
+            raise LimitError(
+                LIMIT_RESULT_LIMIT,
+                "resource limit exceeded: "
+                f"{LIMIT_RESULT_LIMIT} (limit={self.limits.result_limit}, actual={limit})",
+                limit="result_limit",
+                limit_value=self.limits.result_limit,
+            )
 
 
 # ---------------------------------------------------------------------------

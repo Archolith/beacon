@@ -52,12 +52,25 @@ async def beacon_lifespan(app: "FastMCP[object]") -> AsyncIterator[dict[str, obj
             manifest_path=settings.manifest_path,
             docs_root=settings.resolved_docs_root(),
             validate=settings.validate_on_load,
+            limits=settings.limits,
         )
     except Exception as exc:
         _diag(f"FATAL: could not load manifest — {exc}")
         raise
 
     _provider = provider
+    limits = provider.limits
+    _diag(
+        "Effective limits — "
+        f"manifest_bytes={limits.manifest_bytes} documents={limits.documents} "
+        f"document_bytes={limits.document_bytes} "
+        f"total_document_bytes={limits.total_document_bytes} chunks={limits.chunks} "
+        f"snapshot_bytes={limits.snapshot_bytes} yaml_depth={limits.yaml_depth} "
+        f"yaml_nodes={limits.yaml_nodes} yaml_aliases={limits.yaml_aliases} "
+        f"path_bytes={limits.path_bytes} query_bytes={limits.query_bytes} "
+        f"result_limit={limits.result_limit} "
+        f"init_report_bytes={limits.init_report_bytes}"
+    )
     chunk_count = len(provider.doc_index.chunks)
     concept_count = len(provider.manifest.core_concepts)
     _diag(

@@ -68,7 +68,8 @@ src/beacon/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
 │   ├── schema.py        BeaconManifest + all answer-contract frozen dataclasses
-│   ├── loader.py        load_beacon_manifest(path) → BeaconManifest (PyYAML)
+│   ├── limits.py        frozen ResourceLimits model + stable limit error codes
+│   ├── loader.py        load_beacon_manifest(path) → BeaconManifest (bounded PyYAML)
 │   ├── validator.py     validate_beacon_manifest(), require_valid_manifest()
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
 ├── provider/
@@ -116,6 +117,42 @@ tool call:
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level |
 | `BEACON_HOST` | no | `127.0.0.1` | Remote transport host (stdio ignores) |
 | `BEACON_PORT` | no | `8788` | Remote transport port (stdio ignores) |
+| `BEACON_MAX_MANIFEST_BYTES` | no | `1048576` | Manifest source byte ceiling |
+| `BEACON_MAX_DOCUMENTS` | no | `256` | Canonical document count ceiling |
+| `BEACON_MAX_DOCUMENT_BYTES` | no | `2097152` | One canonical document byte ceiling |
+| `BEACON_MAX_TOTAL_DOCUMENT_BYTES` | no | `20971520` | Aggregate canonical doc byte ceiling |
+| `BEACON_MAX_CHUNKS` | no | `10000` | Total heading chunk ceiling |
+| `BEACON_MAX_SNAPSHOT_BYTES` | no | `52428800` | Snapshot output byte ceiling (export) |
+
+## Resource Limits
+
+`beacon.core.limits.ResourceLimits` is the frozen, immutable ceiling model. Its standard
+defaults (addendum §4) describe a small-to-medium repository profile; the six byte/count
+ceilings above are overridable via `BEACON_MAX_*` environment variables, while the YAML
+depth (`32`), parsed-node (`50 000`), and alias (`50`) ceilings and the path-UTF-8-byte
+(`1024`), query-UTF-8-byte (`4096`), search-result (`100`), and initialization-report
+(`5 MiB`) ceilings are fixed for v0.2. The initialization-report ceiling is modelled now and
+will be enforced when `beacon init` lands.
+
+Precedence is `CLI override > environment > default`, exposed reusably through
+`resource_limits_from_env(env)` and `ResourceLimits.apply_overrides(...)`. Every refused
+value carries a stable, non-secret diagnostic `code` (e.g. `limit_manifest_bytes`,
+`limit_yaml_depth`, `limit_documents`, `limit_query_bytes`) and never embeds document
+content or secret values. Override values that are negative, non-integer, or overflowing are
+rejected with `limit_invalid_value` rather than truncated.
+
+The bounded readers enforce ceilings at the earliest existing boundary:
+
+- `core/loader.py` — checks manifest source bytes *before* decoding, then enforces YAML
+  depth/node/alias caps via a bounded `yaml.SafeLoader` subclass.
+- `core/doc_index.py` — enforces canonical-document count, per-document bytes, aggregate
+  document bytes, relative-path UTF-8 bytes, and total heading-chunk count.
+- `provider/manifest_provider.py` — enforces query/task-hint UTF-8 bytes and the search
+  result-limit ceiling on free-text tool inputs.
+
+`BeaconSettings` carries a `limits` profile so server startup honours environment overrides;
+`ManifestBeaconProvider` threads it into the loader and doc index. Valid inputs and existing
+manifest 0.1 behavior are unchanged.
 
 ## CLI
 

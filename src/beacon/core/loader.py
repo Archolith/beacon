@@ -13,6 +13,17 @@ from typing import Any
 
 import yaml
 
+from beacon.core.limits import (
+    LIMIT_DOCUMENTS,
+    LIMIT_MANIFEST_BYTES,
+    LIMIT_PATH_BYTES,
+    LIMIT_YAML_ALIASES,
+    LIMIT_YAML_DEPTH,
+    LIMIT_YAML_NODES,
+    LimitError,
+    ResourceLimits,
+    read_bytes_bounded,
+)
 from beacon.core.schema import (
     BeaconAgentGuidance,
     BeaconBuildTest,
@@ -30,22 +41,118 @@ class ManifestError(ValueError):
     """Raised when a manifest cannot be parsed into the typed schema."""
 
 
-def load_beacon_manifest(path: str | Path) -> BeaconManifest:
+class _BoundedSafeLoader(yaml.SafeLoader):
+    """A ``SafeLoader`` that refuses excessive depth, node, and alias counts.
+
+    Ceilings come from a :class:`~beacon.core.limits.ResourceLimits` instance so
+    the manifest parser cannot be forced into unbounded recursion or expansion.
+    """
+
+    def __init__(self, stream: Any, *, limits: ResourceLimits) -> None:
+        super().__init__(stream)
+        self._limits = limits
+        self._node_count = 0
+        self._depth = 0
+        self._alias_count = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:  # noqa: ANN401
+        if self.check_event(yaml.events.AliasEvent):
+            self._alias_count += 1
+            if self._alias_count > self._limits.yaml_aliases:
+                _raise_yaml_limit(LIMIT_YAML_ALIASES, self._limits.yaml_aliases)
+        self._node_count += 1
+        if self._node_count > self._limits.yaml_nodes:
+            _raise_yaml_limit(LIMIT_YAML_NODES, self._limits.yaml_nodes)
+        return super().compose_node(parent, index)
+
+    def compose_sequence_node(self, anchor: Any) -> Any:  # noqa: ANN401
+        self._depth += 1
+        if self._depth > self._limits.yaml_depth:
+            _raise_yaml_limit(LIMIT_YAML_DEPTH, self._limits.yaml_depth)
+        try:
+            return super().compose_sequence_node(anchor)
+        finally:
+            self._depth -= 1
+
+    def compose_mapping_node(self, anchor: Any) -> Any:  # noqa: ANN401
+        self._depth += 1
+        if self._depth > self._limits.yaml_depth:
+            _raise_yaml_limit(LIMIT_YAML_DEPTH, self._limits.yaml_depth)
+        try:
+            return super().compose_mapping_node(anchor)
+        finally:
+            self._depth -= 1
+
+
+def _raise_yaml_limit(code: str, ceiling: int) -> None:
+    raise LimitError(
+        code,
+        f"resource limit exceeded: {code} (limit={ceiling})",
+        limit=code,
+        limit_value=ceiling,
+    )
+
+
+def load_beacon_manifest(
+    path: str | Path, *, limits: ResourceLimits | None = None
+) -> BeaconManifest:
     """Load and parse a ``beacon.yaml`` file into a :class:`BeaconManifest`.
 
     Raises :class:`ManifestError` if the file is missing, is not a mapping, or
-    has a structurally invalid shape.
+    has a structurally invalid shape. Raises :class:`LimitError` if the manifest
+    source exceeds ``limits.manifest_bytes`` or the YAML exceeds the depth,
+    node, or alias ceilings. Byte ceilings are checked *before* decoding so a
+    large file is refused without parsing.
     """
+    active = limits if limits is not None else ResourceLimits()
     manifest_path = Path(path)
     if not manifest_path.is_file():
         raise ManifestError(f"manifest not found: {manifest_path}")
+    raw_bytes = read_bytes_bounded(
+        manifest_path,
+        ceiling=active.manifest_bytes,
+        code=LIMIT_MANIFEST_BYTES,
+        field="manifest_bytes",
+    )
     try:
-        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ManifestError(
+            f"invalid UTF-8 in {manifest_path}: {exc}"
+        ) from exc
+    try:
+        raw = yaml.load(text, Loader=lambda s: _BoundedSafeLoader(s, limits=active))
     except yaml.YAMLError as exc:  # pragma: no cover - passthrough detail
         raise ManifestError(f"invalid YAML in {manifest_path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise ManifestError(f"manifest root must be a mapping, got {type(raw).__name__}")
-    return parse_manifest(raw)
+    manifest = parse_manifest(raw)
+    _enforce_manifest_limits(manifest, active)
+    return manifest
+
+
+def _enforce_manifest_limits(
+    manifest: BeaconManifest, limits: ResourceLimits
+) -> None:
+    """Refuse bounded manifest fields before validation performs filesystem work."""
+    if len(manifest.canonical_docs) > limits.documents:
+        raise LimitError(
+            LIMIT_DOCUMENTS,
+            f"resource limit exceeded: {LIMIT_DOCUMENTS} "
+            f"(limit={limits.documents}, actual={len(manifest.canonical_docs)})",
+            limit="documents",
+            limit_value=limits.documents,
+        )
+    for doc in manifest.canonical_docs:
+        path_size = len(doc.path.encode("utf-8"))
+        if path_size > limits.path_bytes:
+            raise LimitError(
+                LIMIT_PATH_BYTES,
+                f"resource limit exceeded: {LIMIT_PATH_BYTES} "
+                f"(limit={limits.path_bytes}, actual={path_size})",
+                limit="path_bytes",
+                limit_value=limits.path_bytes,
+            )
 
 
 def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:

@@ -239,3 +239,21 @@ sorted keys, and a `datetime.isoformat()` fallback.
 
 `CONFIDENCE_LEVELS` (schema.py):
 `low`, `medium`, `high`
+
+---
+
+## Resource Limits
+
+Defined in `src/beacon/core/limits.py`. `ResourceLimits` is a frozen dataclass with the six
+overridable ceilings (`manifest_bytes`, `documents`, `document_bytes`,
+`total_document_bytes`, `chunks`, `snapshot_bytes`) plus seven fixed ceilings
+(`yaml_depth`, `yaml_nodes`, `yaml_aliases`, `path_bytes`, `query_bytes`, `result_limit`,
+`init_report_bytes`).
+
+- `resource_limits_from_env(env=None)` — defaults plus `BEACON_MAX_*` environment overrides.
+- `ResourceLimits.apply_overrides(mapping, where=...)` — returns a new instance with explicit
+  (e.g. CLI) overrides applied last (highest precedence).
+- `LimitError` — carries a stable non-secret `code` (e.g. `limit_manifest_bytes`,
+  `limit_yaml_nodes`, `limit_query_bytes`) and never embeds document content or secrets.
+- Invalid override values (negative, non-integer, overflowing) raise `LimitError` with
+  code `limit_invalid_value` instead of being silently truncated.

@@ -1,5 +1,33 @@
 # Changelog — beacon
 
+## 2026-08-09 — Shared resource-limits model and bounded readers
+
+- `src/beacon/core/limits.py` — added the frozen immutable `ResourceLimits` model with the
+  addendum's exact standard defaults: six overridable ceilings
+  (`manifest_bytes`/`documents`/`document_bytes`/`total_document_bytes`/`chunks`/`snapshot_bytes`)
+  and seven fixed ceilings (`yaml_depth`/`yaml_nodes`/`yaml_aliases`/`path_bytes`/
+  `query_bytes`/`result_limit`/`init_report_bytes`). Added stable non-secret diagnostic codes,
+  `LimitError`, and
+  `resource_limits_from_env()` + `apply_overrides()` for `CLI > environment > default`
+  precedence. Invalid override values (negative, non-integer, overflow) are rejected with
+  `limit_invalid_value` rather than truncated.
+- `src/beacon/core/loader.py` — `load_beacon_manifest` now checks manifest source bytes
+  *before* decoding (raises `limit_manifest_bytes`) and parses through a bounded
+  `yaml.SafeLoader` subclass that refuses excessive YAML depth, node, and alias counts.
+- `src/beacon/core/doc_index.py` — `DocIndex.from_docs` now enforces canonical-document
+  count, per-document bytes, aggregate document bytes, relative-path UTF-8 bytes, and total
+  heading-chunk count, raising the corresponding stable limit codes.
+- `src/beacon/provider/manifest_provider.py` — the provider now carries a `limits` profile and
+  enforces query/task-hint/concept UTF-8 bytes (`limit_query_bytes`) and the search
+  result-limit ceiling (`limit_result_limit`).
+- `src/beacon/config/settings.py` — `BeaconSettings` now exposes a frozen `limits` profile
+  populated from `BEACON_MAX_*` environment variables at startup.
+- `tests/test_limits.py` — added focused positive/negative tests covering every enforced
+  boundary, pre-decode byte refusal, precedence, invalid overrides, aggregate accounting,
+  no-leaked-content, and valid-input compatibility.
+- `.agent/architecture.md`, `.agent/data_models.md` — documented the resource-limits model,
+  bounded readers, and the six new `BEACON_MAX_*` environment variables.
+
 ## 2026-08-09 — Begin v0.2 release-package migration
 
 - `pyproject.toml`, `src/beacon/__init__.py` — changed the distribution to `archolith-beacon`,
