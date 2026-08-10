@@ -147,6 +147,11 @@ canonical_docs:
     status: current
     title: Beacon v0.2 publishable static product execution plan
 
+  - path: .agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md
+    role: implementation_plan
+    status: current
+    title: Beacon v0.2 implementation readiness and executable contract addendum
+
   - path: .agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md
     role: architecture_plan
     status: current

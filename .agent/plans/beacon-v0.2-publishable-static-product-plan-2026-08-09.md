@@ -7,6 +7,7 @@
 **Starting commit:** `77ad631`
 **Target release:** `0.2.0`
 **Release decisions approved:** 2026-08-09
+**Implementation addendum:** `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`
 
 ## 1. Outcome
 
@@ -91,6 +92,8 @@ These decisions keep v0.2 small and prevent v0.3 architecture from leaking into 
     must install and run in a clean environment.
 11. **Approved release contracts:** the package, platform, review-report, snapshot, CLI envelope,
     overwrite, and release-workflow decisions in section 10 are implementation requirements.
+12. **Readiness contract:** MCP baseline, resource limits, acknowledgement policy, secret blocking,
+    privacy, executable schemas, and release-candidate order follow the implementation addendum.
 
 ## 4. Supported maintainer journey
 
@@ -620,3 +623,14 @@ by beginning every later architecture layer.
 
 These decisions are locked for v0.2. Changing one requires updating its fixtures, command examples,
 acceptance checks, and this plan before implementation diverges.
+
+## 11. Implementation readiness contract
+
+The normative implementation details and executable JSON Schema fixtures live in
+`.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`. Implementation begins
+with that addendum's dependency/protocol gate, bounded readers, diagnostic policy, and schemas.
+
+The addendum keeps v0.2 on stable FastMCP 3.x/stdio, defines the supported small-to-medium resource
+profile, allows reasoned acknowledgement only for absent tests/guardrails, blocks high-confidence
+secrets unless explicitly recorded, guarantees offline/telemetry-free runtime behavior, and fixes
+the framework → Beacon RC → Beacon final publication sequence.

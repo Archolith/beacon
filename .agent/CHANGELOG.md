@@ -1,5 +1,17 @@
 # Changelog — beacon
 
+## 2026-08-09 — Lock v0.2 implementation readiness contracts
+
+- `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` — locked stable
+  FastMCP 3.x/stdio for v0.2, conservative configurable repository limits, explicit
+  absent-test/guardrail acknowledgements, high-confidence secret blocking/overrides, an
+  offline/telemetry-free runtime promise, public release order, and PyPI-access verification.
+- `docs/schemas/beacon-*-1.0.schema.json` — added Draft 2020-12 machine contracts for the shared
+  CLI envelope, initialization report, and canonical static snapshot.
+- `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`,
+  `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — linked and indexed
+  the readiness addendum as normative v0.2 implementation guidance.
+
 ## 2026-08-09 — Define the Archolith Hub and federated trust product
 
 - `.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` — locked the approved hybrid
