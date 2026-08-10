@@ -36,6 +36,7 @@ ACKNOWLEDGEABLE_CODES = frozenset({"test_command_missing", "guardrails_missing"}
 
 #: Minimum length of an acknowledgement reason (after trimming).
 MIN_ACKNOWLEDGEMENT_REASON_LENGTH = 10
+MAX_ACKNOWLEDGEMENT_REASON_LENGTH = 1024
 
 #: Stable acknowledgement error codes (input/user errors).
 ACK_MALFORMED = "ack_malformed"
@@ -44,6 +45,7 @@ ACK_UNALLOWLISTED_CODE = "ack_unallowlisted_code"
 ACK_DUPLICATE = "ack_duplicate"
 ACK_REASON_EMPTY = "ack_reason_empty"
 ACK_REASON_SHORT = "ack_reason_short"
+ACK_REASON_LONG = "ack_reason_long"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,12 @@ def parse_acknowledgement(raw: str) -> Acknowledgement:
             ACK_REASON_SHORT,
             f"acknowledgement reason for {code} must be at least "
             f"{MIN_ACKNOWLEDGEMENT_REASON_LENGTH} characters",
+        )
+    if len(reason) > MAX_ACKNOWLEDGEMENT_REASON_LENGTH:
+        raise AcknowledgementError(
+            ACK_REASON_LONG,
+            f"acknowledgement reason for {code} must not exceed "
+            f"{MAX_ACKNOWLEDGEMENT_REASON_LENGTH} characters",
         )
     return Acknowledgement(code=code, reason=reason)
 
@@ -187,12 +195,14 @@ __all__ = [
     "ACK_MALFORMED",
     "ACK_REASON_EMPTY",
     "ACK_REASON_SHORT",
+    "ACK_REASON_LONG",
     "ACK_UNALLOWLISTED_CODE",
     "ACK_UNKNOWN_CODE",
     "ACKNOWLEDGEABLE_CODES",
     "Acknowledgement",
     "AcknowledgementError",
     "MIN_ACKNOWLEDGEMENT_REASON_LENGTH",
+    "MAX_ACKNOWLEDGEMENT_REASON_LENGTH",
     "PolicyEvaluation",
     "evaluate_policy",
     "parse_acknowledgement",

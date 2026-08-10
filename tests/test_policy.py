@@ -8,10 +8,12 @@ from beacon.core.policy import (
     ACK_DUPLICATE,
     ACK_MALFORMED,
     ACK_REASON_EMPTY,
+    ACK_REASON_LONG,
     ACK_REASON_SHORT,
     ACK_UNALLOWLISTED_CODE,
     ACK_UNKNOWN_CODE,
     ACKNOWLEDGEABLE_CODES,
+    MAX_ACKNOWLEDGEMENT_REASON_LENGTH,
     Acknowledgement,
     AcknowledgementError,
     evaluate_policy,
@@ -113,6 +115,13 @@ def test_empty_reason() -> None:
 
 def test_reason_too_short() -> None:
     _assert_ack_error("test_command_missing=too short", ACK_REASON_SHORT)
+
+
+def test_reason_too_long() -> None:
+    _assert_ack_error(
+        f"test_command_missing={'x' * (MAX_ACKNOWLEDGEMENT_REASON_LENGTH + 1)}",
+        ACK_REASON_LONG,
+    )
 
 
 def test_duplicate_detected_via_collection() -> None:
