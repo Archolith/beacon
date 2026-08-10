@@ -457,6 +457,16 @@ python -m pytest tests/ -x --tb=short
 
 All tests run offline. They do not require Neo4j, a network connection, or an external service.
 
+The negative-control mutation gate deliberately breaks four release-critical
+behaviors in temporary package copies and requires the focused tests to fail:
+
+```bash
+python scripts/run_mutation_tests.py
+```
+
+The command succeeds only when every mutant is caught. The real checkout is not
+modified.
+
 ---
 
 ## License

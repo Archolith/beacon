@@ -1,5 +1,13 @@
 # Changelog — beacon
 
+## 2026-08-10 — Negative-control mutation gate
+
+- Added a deterministic mutation runner covering known-token detection, strict-warning
+  enforcement, manifest export collision protection, and exact-five MCP tool registration.
+- Each mutant runs against a temporary package copy and is accepted only when its focused pytest
+  test exits with `TESTS_FAILED`; collection and infrastructure failures cannot count as kills.
+- Added contract tests for the runner and wired the four-mutant gate into the CI quality job.
+
 ## 2026-08-10 — WP4 examples and documentation
 
 - Added three maintained, self-contained example repositories under `examples/` — `library` (a small
