@@ -7,8 +7,8 @@
 **Plan / Ticket:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-publishable-static-product-plan-2026-08-09.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\plans\beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`
 **Worktree:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0`
 **Branch:** `release/v0.2.0`
-**Commits:** `0cc63c550374937cbc2433f63fd3fdd649ddb110`, `8fe10c534b83f4f8f984f50568f7588f9c9b8a9d`, `04ebfc6df71c6503cebed60ea26088d53d9ea060`, `4bca71d9466cde17325dc76891df4b6fed8447f7`, `8459f106179610b2795128b1ffa59064ff7fd27e`, `215ad0d562524d57c2955d6f9abfc78346470e04`, `ca6dc9ecf5ea64c95a860e86a8e9374176060838`, `270fc459b14a24e1ccabd122a723687ffcba7792`, `7a593314200d1c1f5f1b2cec520e47a2584947d4`, `ff9fb8d2e77dcabd8b893a4b44842cf895b11356`, `766a3d8a601943589af7b82a5a14611d8e609ecc`, `9961285630771203a0289b211ab5445c4644026d`, `bf3af836d8fd8d1137ab71245e7956462b0c9ad6`
-**Verification Scope:** committed implementation range `0cc63c550374937cbc2433f63fd3fdd649ddb110^..bf3af836d8fd8d1137ab71245e7956462b0c9ad6`; clean `release/v0.2.0` worktree; locally built `C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-wheel-audit\beacon-accepted\archolith_beacon-0.2.0rc1-py3-none-any.whl` (SHA-256 `5934293e7461943bc36264848e7401d9a56cb66971209d5892e7ef490bfa7962`, 91,086 bytes)
+**Commits:** `0cc63c550374937cbc2433f63fd3fdd649ddb110`, `8fe10c534b83f4f8f984f50568f7588f9c9b8a9d`, `04ebfc6df71c6503cebed60ea26088d53d9ea060`, `4bca71d9466cde17325dc76891df4b6fed8447f7`, `8459f106179610b2795128b1ffa59064ff7fd27e`, `215ad0d562524d57c2955d6f9abfc78346470e04`, `ca6dc9ecf5ea64c95a860e86a8e9374176060838`, `270fc459b14a24e1ccabd122a723687ffcba7792`, `7a593314200d1c1f5f1b2cec520e47a2584947d4`, `ff9fb8d2e77dcabd8b893a4b44842cf895b11356`, `766a3d8a601943589af7b82a5a14611d8e609ecc`, `9961285630771203a0289b211ab5445c4644026d`, `bf3af836d8fd8d1137ab71245e7956462b0c9ad6`, `137219f398e9e5f67a23f6c56c6b3f77bb5d0a8f`, `8f35b9d2fc0a7515b8d164ddb4dbc86858b4d97c`
+**Verification Scope:** committed implementation range `0cc63c550374937cbc2433f63fd3fdd649ddb110^..8f35b9d2fc0a7515b8d164ddb4dbc86858b4d97c`; clean `release/v0.2.0` worktree; locally built `C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-finish\beacon\archolith_beacon-0.2.0rc1-py3-none-any.whl` (SHA-256 `a21bee03933e8d94b0bf810d76ae8799002c29fabf40d755e4ae79eea2786954`, 91,222 bytes)
 **Docs Updated:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\README.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\client-setup.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\docs\demo-transcript.md`; `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\examples\README.md` and the three maintained example trees
 **Changelog Updated:** `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\CHANGELOG.md`
 
@@ -20,14 +20,14 @@ The two v0.2 plans were checked backwards from their release gates. The local st
 
 ## Summary
 
-Beacon now has a functional v0.2 release-candidate loop rather than only a tool slice. It adds deterministic repository discovery and safe initialization, a versioned CLI result envelope, strict policy acknowledgements, bounded canonical snapshots, high-confidence secret blocking, full `init`/`validate`/`inspect`/`export`/`serve` CLI integration, three maintained examples, client setup documentation, cross-platform CI/release definitions, and an installed-wheel release journey. Independent review caught and fixed the migrated gateway exposing two extra meta-tools; the installed server now advertises and calls exactly the frozen five Beacon tools while retaining Archolith for server execution. The final local wheel passed the full scripted product journey, typing, lint, security, schema, package, wheel-content, dependency-consistency, and vulnerability gates. Public-index publication, remote CI execution, and the unaided-human trial remain open.
+Beacon now has a functional v0.2 release-candidate loop rather than only a tool slice. It adds deterministic repository discovery and safe initialization, a versioned CLI result envelope, strict policy acknowledgements, bounded canonical snapshots, high-confidence secret blocking, full `init`/`validate`/`inspect`/`export`/`serve` CLI integration, three maintained examples, client setup documentation, cross-platform CI/release definitions, and an installed-wheel release journey. Independent review caught and fixed the migrated gateway exposing two extra meta-tools; the installed server now advertises and calls exactly the frozen five Beacon tools while retaining Archolith for server execution. A deterministic negative-control mutation gate additionally proves that focused tests fail when token detection, strict-warning enforcement, manifest overwrite protection, or MCP tool registration is deliberately broken. The final local wheel passed the full scripted product journey, typing, lint, security, schema, package, wheel-content, dependency-consistency, and vulnerability gates. Public-index publication and the unaided-human trial remain open; remote CI is handled after this local closeout is committed.
 
 ## Files Changed
 
 | File | Why |
 |------|-----|
-| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\CHANGELOG.md` | Records the v0.2 examples and documentation work. |
-| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.github\workflows\ci.yml` | Adds the 3-OS/3-Python test matrix and quality/package gates. |
+| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.agent\CHANGELOG.md` | Records the v0.2 implementation, documentation, and mutation gate. |
+| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.github\workflows\ci.yml` | Adds the 3-OS/3-Python test matrix, quality/package gates, and negative-control mutations. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.github\workflows\release.yml` | Adds tagged build verification, trusted PyPI publication, checksums, and GitHub release creation. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\.gitignore` | Ignores bounded local build, CI, environment, and snapshot scratch. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\README.md` | Documents the implemented product loop, examples, versions, clients, and honest publication state. |
@@ -48,6 +48,7 @@ Beacon now has a functional v0.2 release-candidate loop rather than only a tool 
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\pyproject.toml` | Declares release dependencies, including direct FastMCP use for the exact-five server. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\scripts\check_repo_clean.py` | Adds a cross-platform cleanliness gate. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\scripts\release_check.py` | Adds the clean installed-wheel product journey and socket-denial audit. |
+| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\scripts\run_mutation_tests.py` | Applies four deliberate regressions in temporary package copies and requires focused pytest failures. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\scripts\write_sha256sums.py` | Adds deterministic external distribution checksums. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\src\beacon\core\canonical_json.py` | Adds bounded canonical JSON encoding and atomic writing. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\src\beacon\core\cli_result.py` | Defines the versioned CLI envelope and diagnostics. |
@@ -74,6 +75,7 @@ Beacon now has a functional v0.2 release-candidate loop rather than only a tool 
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_init_core.py` | Tests discovery, init determinism, paths, reports, and overwrite rules. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_mcp_contracts.py` | Tests non-leaking errors and exact five-tool registration. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_mcp_stdio.py` | Tests exact-five black-box stdio calls under socket denial. |
+| `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_mutation_runner.py` | Tests mutation definitions, source anchors, selection, and checkout isolation. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_packaging.py` | Tests package metadata and direct runtime dependencies. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_policy.py` | Tests bounded acknowledgement behavior. |
 | `C:\Users\thron\IdeaProjects\.agent\worktrees\beacon-v0.2-wp0\tests\test_release_check.py` | Tests the release-journey planner, checkers, and failure normalization. |
@@ -83,21 +85,22 @@ Beacon now has a functional v0.2 release-candidate loop rather than only a tool 
 
 ## Verification
 
-- `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest -p no:cacheprovider -q` — `PASS` — 567 passed, 8 skipped; the skips were one source-environment framework integration and Windows symlink-privilege cases, both covered by the accepted wheel journey or CI matrix.
+- `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest -p no:cacheprovider -q` — `PASS` — 572 passed, 8 skipped; the skips were one source-environment framework integration and Windows symlink-privilege cases, both covered by the accepted wheel journey or CI matrix.
 - `python -m ruff check src tests scripts` — `PASS` — all checks passed.
-- `python -m ruff format --check src tests scripts` — `PASS` — 54 files already formatted.
+- `python -m ruff format --check src tests scripts` — `PASS` — 56 files already formatted.
 - `mypy --no-incremental src` from the clean audit environment — `PASS` — no issues in 33 source files.
 - `bandit -r src -q` from the clean audit environment — `PASS` — no findings; one existing targeted B506 suppression was reported as a warning.
 - `validate-pyproject pyproject.toml` — `PASS` — valid file.
-- `python -m twine check C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-wheel-audit\beacon-accepted\archolith_beacon-0.2.0rc1-py3-none-any.whl` — `PASS`.
-- `check-wheel-contents C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-wheel-audit\beacon-accepted\archolith_beacon-0.2.0rc1-py3-none-any.whl` — `PASS` — wheel contents OK.
+- `python -m twine check C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-finish\beacon\archolith_beacon-0.2.0rc1-py3-none-any.whl` — `PASS`.
+- `check-wheel-contents C:\Users\thron\Documents\Codex\2026-08-09\c-users-thron-documents-codex-2026\work\beacon-v02-finish\beacon\archolith_beacon-0.2.0rc1-py3-none-any.whl` — `PASS` — wheel contents OK.
 - `pip check` in the clean audit environment — `PASS` — no broken requirements.
 - `pip-audit --progress-spinner off` in the clean audit environment — `PASS` — no known vulnerabilities; the two unpublished local Archolith distributions were skipped by name.
-- `python scripts/release_check.py --framework-wheel <local-v0.2.0-wheel> --beacon-wheel <accepted-rc1-wheel>` — `PASS` — framework-first clean install, version/help, init/report, review edit, strict JSON validate, exact five-payload inspect, deterministic embedded export, metadata-only export, exact-five real stdio enumeration/calls, and no socket-guard marker.
+- `python scripts/release_check.py --framework-wheel <local-v0.2.0-wheel> --beacon-wheel <current-HEAD-rc1-wheel>` — `PASS` — completed in 67.42 seconds: framework-first clean install, version/help, init/report, review edit, strict JSON validate, exact five-payload inspect, deterministic embedded export, metadata-only export, exact-five real stdio enumeration/calls, and no socket-guard marker.
+- `python scripts/run_mutation_tests.py` — `PASS` — 4 of 4 deliberate mutants killed; each focused pytest invocation exited with `TESTS_FAILED` as required.
 - `python scripts/check_repo_clean.py .` — `PASS` — clean repository after implementation commits.
 - `gh repo view Archolith/beacon ...` and `gh repo view Archolith/archolith-mcp-framework ...` — `PASS` — both repositories report `PUBLIC`.
 - Public-index install of `archolith-mcp-framework==0.2.0` and `archolith-beacon==0.2.0rc1` — `NOT RUN` — both PyPI project JSON endpoints currently return 404.
-- GitHub Actions 3-OS/3-Python matrix on these commits — `NOT RUN` — workflows are committed locally but this branch was not pushed in this run.
+- GitHub Actions 3-OS/3-Python matrix on these commits — `NOT RUN` in local verification — requires the committed branch to be pushed; remote status is checked separately after closeout.
 - Genuinely unaided developer trial — `NOT RUN` — requires an external participant; the scripted maintainer journey passed.
 - `artifact_validate(artifact_type="wrapups", ...)` — `NOT RUN` — no artifact validator tool is available in this Codex environment; status therefore remains below `READY FOR REVIEW`.
 
@@ -124,14 +127,14 @@ Beacon now has a functional v0.2 release-candidate loop rather than only a tool 
 ## Risks / Gaps
 
 1. Neither Archolith distribution exists on PyPI yet, so a public-index-only installation cannot pass today.
-2. The 3-by-3 GitHub Actions matrix has been reviewed and locally parsed but has not executed against these unpushed commits.
+2. The 3-by-3 GitHub Actions matrix must pass on the pushed release branch; its result is tracked separately from this local artifact verification.
 3. No external developer has completed the required genuinely unaided trial.
 4. Windows symlink-adversarial tests skip when the local account lacks symlink privilege; CI on Unix runners is expected to execute them.
 5. Mechanical wrapup validation was unavailable, which prevents an honest `READY FOR REVIEW` status under the wrapup skills.
 
 ## Follow-Up Tasks
 
-1. Push `release/v0.2.0` and require the full CI matrix to pass.
+1. Require the pushed `release/v0.2.0` branch and draft pull request checks to pass before tagging.
 2. Publish and public-index-smoke `archolith-mcp-framework==0.2.0`, then publish/TestPyPI-smoke `archolith-beacon==0.2.0rc1` through the committed trusted-publishing workflow.
 3. Run one unaided developer trial from a fresh machine/account and record the scorecard and any blocking step.
 4. After those gates pass, bump and publish final `archolith-beacon==0.2.0` without changing manifest schema `0.1`.
@@ -139,4 +142,4 @@ Beacon now has a functional v0.2 release-candidate loop rather than only a tool 
 ## Notes
 
 - DeepSeek (`archolith/deepseek-v4-flash`) performed bounded implementation work through the harness; Codex retained architecture, diff review, integration, commits, and independent acceptance auditing.
-- No branch was pushed and no package was published in this run.
+- No package was published and no release tag was created in this run.
