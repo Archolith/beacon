@@ -42,6 +42,7 @@ audiences:
 
 current_focus:
   - manifest-driven MCP tools (v0, shipped)
+  - functional product roadmap from local publishing through an operable v1
   - CLI validation and inspection commands
   - demo transcript and client setup docs
   - example manifests for different project shapes
@@ -135,6 +136,11 @@ canonical_docs:
     role: reference
     status: current
     title: All schema types, answer-contract types, and serialization
+
+  - path: docs/beacon-functional-product-roadmap.md
+    role: product_roadmap
+    status: current
+    title: Canonical functional-product roadmap from v0 to v1
 
 agent_guidance:
   read_first:

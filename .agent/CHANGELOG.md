@@ -1,5 +1,16 @@
 # Changelog — beacon
 
+## 2026-08-09 — Define the functional Beacon product roadmap
+
+- `docs/beacon-functional-product-roadmap.md` — added the canonical roadmap from the shipped static
+  v0 through publishable static, repository-aware, dynamic/temporal, operable remote, and stable v1
+  releases. Defined users, product workflows, architecture, trust gates, project-task evaluation,
+  Menhir/full-500 boundaries, workstreams, and open decisions.
+- `docs/beacon-mcp-roadmap.md` — narrowed to the interface-level history/backlog and linked the
+  canonical product roadmap so the two documents do not compete.
+- `README.md`, `beacon.yaml` — made the product roadmap discoverable to people and through Beacon's
+  own canonical document index.
+
 ## 2026-08-07 — Doc sweep: fix stale CLI description, fill in code conventions
 
 - `.agent/architecture.md` — Package Layout's `main.py` row still described the pre-CLI
