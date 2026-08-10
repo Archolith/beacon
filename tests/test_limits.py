@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,11 +11,10 @@ import pytest
 import yaml
 
 from beacon.core.doc_index import DocIndex
-from beacon.core.loader import load_beacon_manifest
 from beacon.core.limits import (
     LIMIT_CHUNKS,
-    LIMIT_DOCUMENTS,
     LIMIT_DOCUMENT_BYTES,
+    LIMIT_DOCUMENTS,
     LIMIT_INVALID_VALUE,
     LIMIT_MANIFEST_BYTES,
     LIMIT_PATH_BYTES,
@@ -28,6 +28,7 @@ from beacon.core.limits import (
     ResourceLimits,
     resource_limits_from_env,
 )
+from beacon.core.loader import load_beacon_manifest
 from beacon.core.schema import BeaconDoc
 from beacon.provider.manifest_provider import ManifestBeaconProvider
 
@@ -92,7 +93,7 @@ def test_standard_defaults_exact() -> None:
 
 
 def test_defaults_are_frozen() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         ResourceLimits().manifest_bytes = 999  # type: ignore[misc]
 
 
@@ -204,7 +205,7 @@ def test_yaml_depth_exceeded(tmp_path: Path) -> None:
 
 def test_yaml_nodes_exceeded(tmp_path: Path) -> None:
     p = tmp_path / "beacon.yaml"
-    p.write_text(yaml.dump({"k%d" % i: {"v": i} for i in range(200)}), encoding="utf-8")
+    p.write_text(yaml.dump({f"k{i}": {"v": i} for i in range(200)}), encoding="utf-8")
     limits = ResourceLimits(yaml_nodes=20)
     with pytest.raises(LimitError) as excinfo:
         load_beacon_manifest(p, limits=limits)
@@ -213,9 +214,7 @@ def test_yaml_nodes_exceeded(tmp_path: Path) -> None:
 
 def test_yaml_aliases_exceeded(tmp_path: Path) -> None:
     p = tmp_path / "beacon.yaml"
-    p.write_text(
-        "a: &x {k: v}\nb: *x\nc: *x\nd: *x\n", encoding="utf-8"
-    )
+    p.write_text("a: &x {k: v}\nb: *x\nc: *x\nd: *x\n", encoding="utf-8")
     limits = ResourceLimits(yaml_aliases=2)
     with pytest.raises(LimitError) as excinfo:
         load_beacon_manifest(p, limits=limits)
@@ -245,9 +244,7 @@ def test_document_bytes_exceeded(tmp_path: Path) -> None:
     (tmp_path / "big.md").write_text("# Big\n\n" + "x" * 5000, encoding="utf-8")
     docs = [BeaconDoc(path="big.md")]
     with pytest.raises(LimitError) as excinfo:
-        DocIndex.from_docs(
-            docs, docs_root=tmp_path, limits=ResourceLimits(document_bytes=100)
-        )
+        DocIndex.from_docs(docs, docs_root=tmp_path, limits=ResourceLimits(document_bytes=100))
     assert excinfo.value.code == LIMIT_DOCUMENT_BYTES
 
 
@@ -332,9 +329,7 @@ def test_errors_never_leak_content_or_env(tmp_path: Path, monkeypatch: pytest.Mo
     (tmp_path / "secret.md").write_text("SUPER_SECRET_TOKEN_XYZ\n", encoding="utf-8")
     docs = [BeaconDoc(path="secret.md")]
     try:
-        DocIndex.from_docs(
-            docs, docs_root=tmp_path, limits=ResourceLimits(document_bytes=5)
-        )
+        DocIndex.from_docs(docs, docs_root=tmp_path, limits=ResourceLimits(document_bytes=5))
     except LimitError as exc:
         assert "SUPER_SECRET_TOKEN" not in str(exc)
         assert "TOKEN" not in str(exc)
@@ -378,9 +373,7 @@ async def test_lifespan_threads_and_logs_effective_limits(
     provider = SimpleNamespace(
         limits=limits,
         doc_index=SimpleNamespace(chunks=()),
-        manifest=SimpleNamespace(
-            core_concepts=(), project=SimpleNamespace(name="test-project")
-        ),
+        manifest=SimpleNamespace(core_concepts=(), project=SimpleNamespace(name="test-project")),
     )
 
     monkeypatch.setattr(lifecycle.BeaconSettings, "from_env", lambda: settings)

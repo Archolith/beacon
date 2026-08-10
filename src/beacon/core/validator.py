@@ -23,6 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from beacon.core.paths import (
+    CODE_UNSAFE_CANONICAL_PATH,
+    UnsafeCanonicalPath,
+    is_unsafe_path,
+    resolve_canonical_path,
+)
 from beacon.core.schema import (
     ANSWER_STATUSES,  # noqa: F401  (re-exported convenience)
     KNOWLEDGE_STATUSES,
@@ -61,6 +67,7 @@ VALIDATION_CODES = frozenset(
         CODE_CANONICAL_DOCS_MISSING,
         CODE_CANONICAL_DOC_DUPLICATE,
         CODE_CANONICAL_DOC_MISSING_FILE,
+        CODE_UNSAFE_CANONICAL_PATH,
         CODE_CONCEPT_ID_DUPLICATE,
         CODE_CONCEPT_DEFINITION_MISSING,
         CODE_RELATED_CONCEPT_UNKNOWN,
@@ -162,9 +169,7 @@ def validate_beacon_manifest(
         )
     if not manifest.beacon_version.strip():
         issues.append(
-            ValidationIssue(
-                "error", "beacon_version", "is required", CODE_BEACON_VERSION_MISSING
-            )
+            ValidationIssue("error", "beacon_version", "is required", CODE_BEACON_VERSION_MISSING)
         )
     # publication warning: project.status is the controlled "unknown" vocabulary
     if manifest.project.status.strip().lower() == "unknown":
@@ -176,6 +181,7 @@ def validate_beacon_manifest(
                 CODE_PROJECT_STATUS_UNKNOWN,
             )
         )
+    _check_status(issues, "project.status", manifest.project.status)
     # publication warning: no stated purpose
     if not manifest.purpose.one_sentence.strip():
         issues.append(
@@ -201,21 +207,45 @@ def validate_beacon_manifest(
                 ValidationIssue(
                     "warning",
                     "canonical_docs",
-                    f"duplicate path: {doc.path}",
+                    "duplicate canonical path",
                     CODE_CANONICAL_DOC_DUPLICATE,
                 )
             )
         seen_doc_paths.add(doc.path)
         _check_status(issues, f"canonical_docs[{doc.path}].status", doc.status)
-        if root is not None and not (root / doc.path).exists():
+        if is_unsafe_path(doc.path):
+            # Unsafe regardless of whether a docs_root is provided: never
+            # echo the offending path into the diagnostic.
             issues.append(
                 ValidationIssue(
                     "error",
-                    f"canonical_docs[{doc.path}]",
-                    f"path does not exist under docs_root {root}",
-                    CODE_CANONICAL_DOC_MISSING_FILE,
+                    "canonical_docs[]",
+                    "unsafe canonical path",
+                    CODE_UNSAFE_CANONICAL_PATH,
                 )
             )
+        elif root is not None:
+            try:
+                target = resolve_canonical_path(root, doc.path)
+            except UnsafeCanonicalPath:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "canonical_docs[]",
+                        "unsafe canonical path",
+                        CODE_UNSAFE_CANONICAL_PATH,
+                    )
+                )
+            else:
+                if not target.is_file():
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            f"canonical_docs[{doc.path}]",
+                            f"path does not exist under docs_root {root}",
+                            CODE_CANONICAL_DOC_MISSING_FILE,
+                        )
+                    )
 
     # --- concepts -----------------------------------------------------------
     concept_ids: set[str] = set()
@@ -241,6 +271,8 @@ def validate_beacon_manifest(
                 )
             )
         _check_status(issues, f"core_concepts[{concept.id}].status", concept.status)
+        for source in concept.sources:
+            _check_status(issues, f"core_concepts[{concept.id}].sources[].status", source.status)
     # related-id references resolve against known concept ids
     for concept in manifest.core_concepts:
         for related in concept.related_concepts:
@@ -277,6 +309,8 @@ def validate_beacon_manifest(
                     CODE_GUARDRAIL_SEVERITY_INVALID,
                 )
             )
+        for source in guard.sources:
+            _check_status(issues, f"guardrails[{guard.id}].sources[].status", source.status)
     # publication warning: no guardrail declared
     if not manifest.guardrails:
         issues.append(

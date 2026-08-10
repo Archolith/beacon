@@ -21,8 +21,8 @@ input/user errors (``AcknowledgementError`` with a stable code).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from beacon.core.validator import (
     PUBLICATION_WARNING_CODES,
@@ -75,20 +75,14 @@ def parse_acknowledgement(raw: str) -> Acknowledgement:
     """
     value = raw.strip()
     if not value or "=" not in value:
-        raise AcknowledgementError(
-            ACK_MALFORMED, "acknowledgement must be in CODE=REASON form"
-        )
+        raise AcknowledgementError(ACK_MALFORMED, "acknowledgement must be in CODE=REASON form")
     code, _, reason = value.partition("=")
     code = code.strip()
     reason = reason.strip()
     if not code:
-        raise AcknowledgementError(
-            ACK_MALFORMED, "acknowledgement code must not be empty"
-        )
+        raise AcknowledgementError(ACK_MALFORMED, "acknowledgement code must not be empty")
     if code not in VALIDATION_CODES:
-        raise AcknowledgementError(
-            ACK_UNKNOWN_CODE, f"unknown acknowledgement code: {code}"
-        )
+        raise AcknowledgementError(ACK_UNKNOWN_CODE, f"unknown acknowledgement code: {code}")
     if code not in ACKNOWLEDGEABLE_CODES:
         raise AcknowledgementError(
             ACK_UNALLOWLISTED_CODE,
@@ -119,9 +113,7 @@ def parse_acknowledgements(raws: Iterable[str]) -> tuple[Acknowledgement, ...]:
     for raw in raws:
         ack = parse_acknowledgement(raw)
         if ack.code in seen:
-            raise AcknowledgementError(
-                ACK_DUPLICATE, f"duplicate acknowledgement code: {ack.code}"
-            )
+            raise AcknowledgementError(ACK_DUPLICATE, f"duplicate acknowledgement code: {ack.code}")
         seen.add(ack.code)
         parsed.append(ack)
     return tuple(parsed)
@@ -166,9 +158,7 @@ def evaluate_policy(
     original severity/code/where/message. Results preserve the report's
     deterministic warning ordering.
     """
-    validated_acks = parse_acknowledgements(
-        f"{ack.code}={ack.reason}" for ack in acknowledgements
-    )
+    validated_acks = parse_acknowledgements(f"{ack.code}={ack.reason}" for ack in acknowledgements)
     ack_by_code = {ack.code: ack for ack in validated_acks}
     errors = report.errors
     servable = not errors

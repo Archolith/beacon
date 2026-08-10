@@ -90,7 +90,9 @@ def test_no_direct_url_dependencies(pyproject: dict) -> None:
 
 
 def test_runtime_dependencies_complete(pyproject: dict) -> None:
-    names = {dep.split(">=")[0].split("<")[0].lower() for dep in pyproject["project"]["dependencies"]}
+    names = {
+        dep.split(">=")[0].split("<")[0].lower() for dep in pyproject["project"]["dependencies"]
+    }
     assert {"archolith-mcp-framework", "pyyaml", "python-dotenv", "typer"} <= names
 
 
@@ -146,9 +148,7 @@ def test_no_legacy_framework_import_in_source() -> None:
 
 
 def test_framework_import_present_in_executable_source() -> None:
-    sources = {
-        path.read_text(encoding="utf-8") for path in _package_python_sources()
-    }
+    sources = {path.read_text(encoding="utf-8") for path in _package_python_sources()}
     assert any("archolith_mcp_framework" in text for text in sources)
 
 

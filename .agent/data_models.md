@@ -33,7 +33,7 @@ Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by 
 | `name` | `str` | Required — validator errors if empty |
 | `tagline` | `str` | One-line pitch |
 | `description` | `str` | Required — validator errors if empty |
-| `status` | `str` | `experimental` \| `current` \| `stable` \| … |
+| `status` | `str` | Controlled knowledge status; defaults to `experimental` |
 | `repository` | `str` | URL or empty |
 | `primary_language` | `str` | |
 | `license` | `str` | |
@@ -55,7 +55,7 @@ Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by 
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `path` | `str` | Relative to `BEACON_DOCS_ROOT` — validator checks existence |
+| `path` | `str` | Relative to `BEACON_DOCS_ROOT`; absolute, parent-traversing, and symlink-escaping paths are rejected before reads |
 | `role` | `str` | `entrypoint` \| `architecture` \| `reference` \| `backlog` \| … |
 | `status` | `str` | Knowledge status |
 | `title` | `str` | Human title |
@@ -81,8 +81,8 @@ Traceable reference backing a claim. Used in both manifest types and answer resp
 | `title` | `str` | Human-readable label |
 | `path` | `str` | Relative file path |
 | `url` | `str` | URL if applicable |
-| `line_start` | `int \| None` | 1-based start line |
-| `line_end` | `int \| None` | 1-based end line |
+| `line_start` | `int \| None` | Positive, 1-based start line |
+| `line_end` | `int \| None` | Positive end line; cannot precede `line_start` |
 | `status` | `str` | Knowledge status at citation point |
 
 ### BeaconAgentGuidance
@@ -233,6 +233,15 @@ sorted keys, and a `datetime.isoformat()` fallback.
 
 `KNOWLEDGE_STATUSES` (validator.py) — valid values for manifest `status` fields:
 `current`, `experimental`, `planned`, `superseded`, `disputed`, `unknown`
+
+The same vocabulary is checked on project, canonical-document, concept, and nested source status
+fields. Explicit YAML `null` is not an alias for an omitted field: wrong scalar/container types
+raise `ManifestError` during parsing.
+
+Canonical document resolution is centralized in `core.paths.resolve_canonical_path()`. It returns
+an absolute resolved path only when the target remains under the resolved docs root; otherwise it
+raises `UnsafeCanonicalPath` with code `unsafe_canonical_path` and no target-path or file-content
+detail.
 
 `ANSWER_STATUSES` (schema.py) — valid values for answer `status` fields:
 `current`, `experimental`, `uncertain`, `mixed`

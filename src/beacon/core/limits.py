@@ -17,9 +17,10 @@ embeds document contents or secret environment values.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 #: A byte is a byte; MiB = 1048576, KiB = 1024.
 _MIB = 1024 * 1024
@@ -108,7 +109,7 @@ class ResourceLimits:
 
     def apply_overrides(
         self, overrides: Mapping[str, Any], *, where: str = "override"
-    ) -> "ResourceLimits":
+    ) -> ResourceLimits:
         """Return a copy with the given overridable fields replaced.
 
         *overrides* keys are field names (e.g. ``"documents"``) and values are

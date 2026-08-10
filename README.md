@@ -20,7 +20,8 @@ agent can then ask:
 
 Beacon returns structured answers with source citations instead of handing the agent a pile of raw text.
 
-The current release is manifest-driven. It reads `beacon.yaml` and the documents listed there. It does not need an external service, database, or runtime LLM call.
+The current release is manifest-driven. It reads `beacon.yaml` and the documents listed there. It
+does not need an external service, database, runtime LLM call, telemetry, or update check.
 
 ---
 
@@ -148,8 +149,9 @@ Returns a structured summary: project description, problem statement, current st
 
 ```
 Inputs:
-  audience: "agent" | "developer" | "researcher" (default: "agent")
-  depth:    "brief" | "full" (default: "brief")
+  audience: "new_contributor" | "coding_agent" | "researcher" | "maintainer"
+            (default: "coding_agent")
+  depth:    "short" | "standard" | "deep" (default: "standard")
 ```
 
 ### `beacon_agent_onboarding`
@@ -173,7 +175,7 @@ Keyword search across docs, concepts, and guardrails. Every result carries a sta
 ```
 Inputs:
   query:        search string
-  source_types: list of "doc" | "concept" | "guardrail" (default: all)
+  source_types: list of "docs" | "concepts" | "guardrails" (default: all)
   limit:        max results (default: 8)
 ```
 
@@ -186,7 +188,7 @@ Looks up a project-specific term by id or name. Returns the definition, motivati
 ```
 Inputs:
   concept: concept id or display name
-  depth:   "brief" | "full" (default: "brief")
+  depth:   "simple" | "technical" | "implementation" (default: "technical")
 ```
 
 ### `beacon_guardrails`

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import textwrap
+import types
 import unittest.mock as mock
 from pathlib import Path
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from beacon.main import app
@@ -49,6 +50,63 @@ class TestVersion:
         assert result.exit_code == 0
         assert "MCP" not in result.output
         assert "pid=" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Runtime privacy — FastMCP env forced before the framework runner executes
+# ---------------------------------------------------------------------------
+
+
+def test_serve_forces_fastmcp_privacy_before_framework(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str | None] = {}
+    fake_dotenv = types.ModuleType("dotenv")
+    fake_dotenv.load_dotenv = lambda path=None: None
+    fake_framework = types.ModuleType("archolith_mcp_framework")
+
+    def fake_run_server(mcp: object) -> None:
+        captured["check"] = os.environ.get("FASTMCP_CHECK_FOR_UPDATES")
+        captured["banner"] = os.environ.get("FASTMCP_SHOW_SERVER_BANNER")
+
+    fake_framework.run_server = fake_run_server
+    fake_server = types.ModuleType("beacon.mcp.server")
+    fake_server.mcp = object()
+
+    with mock.patch.dict(
+        sys.modules,
+        {
+            "dotenv": fake_dotenv,
+            "archolith_mcp_framework": fake_framework,
+            "beacon.mcp.server": fake_server,
+        },
+    ):
+        result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    # The framework runner must observe the privacy values already set.
+    assert captured.get("check") == "off"
+    assert captured.get("banner") == "false"
+
+
+def test_configure_utf8_stdio_reconfigures_both_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encodings: list[str] = []
+
+    class _FakeStream:
+        def reconfigure(self, **kwargs: object) -> None:
+            encodings.append(str(kwargs.get("encoding")))
+
+    fake_out = _FakeStream()
+    fake_err = _FakeStream()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "stdout", fake_out)
+    monkeypatch.setattr(sys, "stderr", fake_err)
+    from beacon.main import _configure_utf8_stdio
+
+    _configure_utf8_stdio()
+    assert encodings == ["utf-8", "utf-8"]
 
 
 # ---------------------------------------------------------------------------

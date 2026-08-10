@@ -6,13 +6,12 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
-from beacon.core.loader import parse_manifest
+from beacon.config.settings import BeaconSettings
 from beacon.core.doc_index import DocIndex
+from beacon.core.loader import parse_manifest
 from beacon.core.schema import BeaconDoc
 from beacon.provider.manifest_provider import ManifestBeaconProvider
-
 
 SAMPLE_MD = textwrap.dedent("""\
     # Architecture
@@ -86,6 +85,22 @@ MANIFEST_RAW = {
         }
     ],
 }
+
+
+def test_from_settings_defaults_docs_root_to_manifest_parent(tmp_path: Path) -> None:
+    doc = tmp_path / "arch.md"
+    doc.write_text(SAMPLE_MD, encoding="utf-8")
+    import yaml
+
+    manifest_path = tmp_path / "beacon.yaml"
+    manifest_path.write_text(yaml.safe_dump(MANIFEST_RAW), encoding="utf-8")
+
+    provider = ManifestBeaconProvider.from_settings(
+        BeaconSettings(manifest_path=str(manifest_path))
+    )
+
+    assert provider.docs_root == tmp_path
+    assert provider.doc_index.chunks
 
 
 @pytest.fixture()
@@ -207,9 +222,7 @@ def test_explain_unknown_concept_low_confidence(provider: ManifestBeaconProvider
 
 def test_explain_concept_experimental_flagged(provider: ManifestBeaconProvider) -> None:
     result = provider.explain_concept(concept="chronostratum")
-    assert "experimental" in result.status or any(
-        "experimental" in a for a in result.next_actions
-    )
+    assert "experimental" in result.status or any("experimental" in a for a in result.next_actions)
 
 
 # ---------------------------------------------------------------------------

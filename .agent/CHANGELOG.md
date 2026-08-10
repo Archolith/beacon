@@ -1,5 +1,23 @@
 # Changelog — beacon
 
+## 2026-08-09 — Release-readiness audit and trust-boundary hardening
+
+- Added one canonical-document path resolver used by validation and indexing. Absolute POSIX,
+  Windows-drive, and UNC paths, parent traversal, resolution failures, and symlink escapes are
+  rejected with the stable non-secret `unsafe_canonical_path` code before any document is read.
+- Made manifest parsing type-strict: explicit `null`, non-string text/list members, booleans or
+  non-positive source line numbers, and inverted line ranges now raise `ManifestError` rather than
+  being coerced or leaking raw conversion errors. Project, document, concept, and nested source
+  statuses use the same controlled vocabulary.
+- Forced FastMCP update checks and the server banner off after dotenv loading and before framework
+  import. Unexpected MCP tool failures now return a generic `internal_error`; stable resource-limit
+  refusals remain visible without exposing private exception text.
+- Added a real stdio MCP regression test that lists and calls all five tools under an outbound-socket
+  guard, plus path, parsing, provider-default, privacy-order, Windows-stdio, and error-redaction tests.
+- Expanded CI to the full Linux/macOS/Windows × Python 3.12/3.13/3.14 matrix and added lint,
+  formatting, type, Bandit, dependency, and wheel-content gates. The audited wheel passed the full
+  tests on Python 3.12, 3.13, and 3.14.
+
 ## 2026-08-09 — Public GitHub project infrastructure
 
 - Added SHA-pinned cross-platform CI for Python 3.12–3.14, package validation, installed-wheel

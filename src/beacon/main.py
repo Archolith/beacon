@@ -56,6 +56,24 @@ def _configure_logging(*, include_console: bool = False) -> None:
     )
 
 
+def _configure_utf8_stdio() -> None:
+    """Reconfigure stdout and stderr to UTF-8 on Windows.
+
+    Windows consoles default to the ANSI code page (e.g. ``cp1252``) which cannot
+    encode Beacon's status symbols; forcing UTF-8 keeps output correct on both
+    streams regardless of the user's locale.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):  # pragma: no cover - defensive
+                pass
+
+
 @app.callback(invoke_without_command=True)
 def serve(
     ctx: typer.Context,
@@ -74,6 +92,11 @@ def serve(
     from dotenv import load_dotenv
 
     load_dotenv(os.getenv("ENV_FILE") or None)
+    # Force FastMCP privacy before the framework runner imports/executes:
+    # never check for updates on a programmatic runner, never print the banner.
+    os.environ["FASTMCP_CHECK_FOR_UPDATES"] = "off"
+    os.environ["FASTMCP_SHOW_SERVER_BANNER"] = "false"
+    _configure_utf8_stdio()
     _configure_logging(include_console=False)
 
     from archolith_mcp_framework import run_server
@@ -116,14 +139,12 @@ def validate(
         manifest = load_beacon_manifest(path)
     except ManifestError as exc:
         typer.echo(f"✗  Parse error: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     report = validate_beacon_manifest(manifest, docs_root=path.parent)
 
     if report.errors:
-        typer.echo(
-            f"✗  {len(report.errors)} error(s), {len(report.warnings)} warning(s)\n"
-        )
+        typer.echo(f"✗  {len(report.errors)} error(s), {len(report.warnings)} warning(s)\n")
         for issue in report.errors:
             typer.echo(f"  ✗  {issue.where}: {issue.message}")
         for issue in report.warnings:
@@ -168,14 +189,12 @@ def inspect(
         manifest = load_beacon_manifest(path)
     except ManifestError as exc:
         typer.echo(f"✗  Parse error: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     docs_root = path.parent
     report = validate_beacon_manifest(manifest, docs_root=docs_root)
     if report.errors:
-        typer.echo(
-            f"✗  Manifest has {len(report.errors)} error(s) — run 'beacon validate' to fix:"
-        )
+        typer.echo(f"✗  Manifest has {len(report.errors)} error(s) — run 'beacon validate' to fix:")
         for issue in report.errors:
             typer.echo(f"  ✗  {issue.where}: {issue.message}")
         raise typer.Exit(1)
@@ -258,8 +277,7 @@ def inspect(
 
     if report.warnings:
         typer.echo(
-            f"\n  ⚠  {len(report.warnings)} manifest warning(s)"
-            " — run 'beacon validate' for details"
+            f"\n  ⚠  {len(report.warnings)} manifest warning(s) — run 'beacon validate' for details"
         )
 
     typer.echo("\n✓  Inspect complete. 5 tools responded.")
@@ -298,8 +316,7 @@ def _join(items: tuple[str, ...] | list[str]) -> str:
 
 def main() -> None:
     # Ensure UTF-8 output on Windows (cp1252 can't encode the status symbols).
-    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    _configure_utf8_stdio()
     app()
 
 

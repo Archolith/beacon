@@ -17,14 +17,15 @@ from pathlib import Path
 
 from beacon.core.limits import (
     LIMIT_CHUNKS,
-    LIMIT_DOCUMENTS,
     LIMIT_DOCUMENT_BYTES,
+    LIMIT_DOCUMENTS,
     LIMIT_PATH_BYTES,
     LIMIT_TOTAL_DOCUMENT_BYTES,
     LimitError,
     ResourceLimits,
     read_bytes_bounded,
 )
+from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconDoc, BeaconSource
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -77,7 +78,7 @@ class DocIndex:
         *,
         docs_root: str | Path,
         limits: ResourceLimits | None = None,
-    ) -> "DocIndex":
+    ) -> DocIndex:
         root = Path(docs_root)
         active = limits if limits is not None else ResourceLimits()
         if len(docs) > active.documents:
@@ -101,7 +102,7 @@ class DocIndex:
                     limit="path_bytes",
                     limit_value=active.path_bytes,
                 )
-            target = root / doc.path
+            target = resolve_canonical_path(root, doc.path)
             if not target.is_file():
                 # Missing docs are a validator concern; index what exists.
                 continue
@@ -136,8 +137,7 @@ class DocIndex:
             if len(chunks) + len(doc_chunks) > active.chunks:
                 raise LimitError(
                     LIMIT_CHUNKS,
-                    "resource limit exceeded: "
-                    f"{LIMIT_CHUNKS} (limit={active.chunks})",
+                    f"resource limit exceeded: {LIMIT_CHUNKS} (limit={active.chunks})",
                     limit="chunks",
                     limit_value=active.chunks,
                 )

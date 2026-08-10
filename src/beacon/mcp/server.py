@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import os
 
-from dotenv import load_dotenv
 from archolith_mcp_framework import create_gateway_server
+from dotenv import load_dotenv
 
 from beacon.mcp.lifecycle import beacon_lifespan
 from beacon.mcp.tools import register_all_tools

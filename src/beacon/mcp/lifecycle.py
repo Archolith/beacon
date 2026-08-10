@@ -30,9 +30,7 @@ _provider: ManifestBeaconProvider | None = None
 def get_provider() -> ManifestBeaconProvider:
     """Return the active provider; raises ``RuntimeError`` if not initialised."""
     if _provider is None:
-        raise RuntimeError(
-            "Beacon provider is not initialised. Is the MCP server running?"
-        )
+        raise RuntimeError("Beacon provider is not initialised. Is the MCP server running?")
     return _provider
 
 
@@ -41,7 +39,7 @@ def _diag(msg: str) -> None:
 
 
 @asynccontextmanager
-async def beacon_lifespan(app: "FastMCP[object]") -> AsyncIterator[dict[str, object]]:  # noqa: ANN401
+async def beacon_lifespan(app: FastMCP[object]) -> AsyncIterator[dict[str, object]]:  # noqa: ANN401
     global _provider  # noqa: PLW0603
 
     settings = BeaconSettings.from_env()

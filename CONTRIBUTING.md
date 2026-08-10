@@ -20,17 +20,24 @@ from PyPI, install the tagged framework source first:
 ```text
 git clone --branch v0.2.0 https://github.com/Archolith/archolith-mcp-framework.git ../archolith-mcp-framework
 python -m pip install ../archolith-mcp-framework
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,audit]"
 ```
 
 Run the core checks:
 
 ```text
 python -m pytest -p no:cacheprovider -q
+ruff check src tests
+ruff format --check src tests
+mypy --no-incremental src
+bandit -r src -q
+pip-audit --progress-spinner off --skip-editable
+validate-pyproject pyproject.toml
 python -m beacon validate beacon.yaml
 python -m beacon inspect beacon.yaml
 python -m build
 python -m twine check dist/*
+check-wheel-contents dist/*.whl
 ```
 
 ## Pull requests

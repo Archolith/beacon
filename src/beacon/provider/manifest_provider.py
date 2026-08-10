@@ -14,15 +14,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from beacon.config.settings import BeaconSettings
 from beacon.core.doc_index import DocChunk, DocIndex
-from beacon.core.loader import load_beacon_manifest
 from beacon.core.limits import (
+    LIMIT_INVALID_VALUE,
     LIMIT_QUERY_BYTES,
     LIMIT_RESULT_LIMIT,
-    LIMIT_INVALID_VALUE,
     LimitError,
     ResourceLimits,
 )
+from beacon.core.loader import load_beacon_manifest
 from beacon.core.schema import (
     AgentOnboarding,
     BeaconConcept,
@@ -56,26 +57,24 @@ class ManifestBeaconProvider:
         docs_root: str | Path,
         validate: bool = True,
         limits: ResourceLimits | None = None,
-    ) -> "ManifestBeaconProvider":
+    ) -> ManifestBeaconProvider:
         """Load + (optionally) validate a manifest and build the doc index."""
         active = limits if limits is not None else ResourceLimits()
         manifest = load_beacon_manifest(manifest_path, limits=active)
         root = Path(docs_root)
         if validate:
             require_valid_manifest(manifest, docs_root=root)
-        doc_index = DocIndex.from_docs(
-            manifest.canonical_docs, docs_root=root, limits=active
-        )
+        doc_index = DocIndex.from_docs(manifest.canonical_docs, docs_root=root, limits=active)
         return cls(manifest=manifest, doc_index=doc_index, docs_root=root, limits=active)
 
     @classmethod
-    def from_settings(cls, settings: "object") -> "ManifestBeaconProvider":
+    def from_settings(cls, settings: BeaconSettings) -> ManifestBeaconProvider:
         """Build from a settings object exposing ``manifest_path``/``docs_root``."""
         return cls.from_paths(
-            manifest_path=getattr(settings, "manifest_path"),
-            docs_root=getattr(settings, "docs_root"),
-            validate=getattr(settings, "validate_on_load", True),
-            limits=getattr(settings, "limits", None),
+            manifest_path=settings.manifest_path,
+            docs_root=settings.resolved_docs_root(),
+            validate=settings.validate_on_load,
+            limits=settings.limits,
         )
 
     # -- capabilities --------------------------------------------------------
@@ -119,12 +118,8 @@ class ManifestBeaconProvider:
         if not concepts:
             concepts = _dedupe(c.name for c in m.core_concepts[:5])
 
-        commands = tuple(
-            cmd for cmd in (m.build_and_test.setup, m.build_and_test.test) if cmd
-        )
-        orientation = (
-            m.purpose.one_sentence or m.project.description
-        )
+        commands = tuple(cmd for cmd in (m.build_and_test.setup, m.build_and_test.test) if cmd)
+        orientation = m.purpose.one_sentence or m.project.description
         if task_hint:
             orientation = f"For '{task_hint}': {orientation}".strip()
         return AgentOnboarding(
@@ -214,9 +209,7 @@ class ManifestBeaconProvider:
             status=_aggregate_status(statuses) if hits else "uncertain",
             confidence=_confidence(len(hits)),
             sources=tuple(_dedupe_sources(sources)),
-            next_actions=(
-                ("read the top-cited doc section",) if hits else ("broaden the query",)
-            ),
+            next_actions=(("read the top-cited doc section",) if hits else ("broaden the query",)),
         )
 
     def explain_concept(self, *, concept: str, depth: str = "technical") -> ConceptExplanation:
@@ -261,18 +254,12 @@ class ManifestBeaconProvider:
     def guardrails(self, *, task_hint: str = "") -> GuardrailResponse:
         m = self.manifest
         self._check_query(task_hint, "task_hint")
-        selected = (
-            _guardrails_matching(m, task_hint) if task_hint else list(m.guardrails)
-        )
+        selected = _guardrails_matching(m, task_hint) if task_hint else list(m.guardrails)
         if not selected:
             selected = list(m.guardrails)
         rules = tuple(f"[{g.severity}] {g.rule}" for g in selected)
-        risky = _dedupe(
-            applies for g in selected for applies in g.applies_to
-        )
-        checks = tuple(
-            cmd for cmd in (m.build_and_test.test, m.build_and_test.benchmark) if cmd
-        )
+        risky = _dedupe(applies for g in selected for applies in g.applies_to)
+        checks = tuple(cmd for cmd in (m.build_and_test.test, m.build_and_test.benchmark) if cmd)
         sources = [s for g in selected for s in g.sources]
         # Global "avoid without review" list reinforces task-specific rules.
         avoid = m.agent_guidance.avoid_without_review

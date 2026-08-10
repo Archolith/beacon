@@ -36,6 +36,8 @@ from beacon.core.schema import (
     BeaconSource,
 )
 
+_MISSING = object()
+
 
 class ManifestError(ValueError):
     """Raised when a manifest cannot be parsed into the typed schema."""
@@ -117,11 +119,12 @@ def load_beacon_manifest(
     try:
         text = raw_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ManifestError(
-            f"invalid UTF-8 in {manifest_path}: {exc}"
-        ) from exc
+        raise ManifestError(f"invalid UTF-8 in {manifest_path}: {exc}") from exc
     try:
-        raw = yaml.load(text, Loader=lambda s: _BoundedSafeLoader(s, limits=active))
+        # _BoundedSafeLoader subclasses yaml.SafeLoader, so this yaml.load call
+        # never uses the unsafe DefaultLoader; the explicit Loader also enforces
+        # the depth/node/alias ceilings. nosec B506: safe loader guaranteed.
+        raw = yaml.load(text, Loader=lambda s: _BoundedSafeLoader(s, limits=active))  # nosec B506
     except yaml.YAMLError as exc:  # pragma: no cover - passthrough detail
         raise ManifestError(f"invalid YAML in {manifest_path}: {exc}") from exc
     if not isinstance(raw, dict):
@@ -131,9 +134,7 @@ def load_beacon_manifest(
     return manifest
 
 
-def _enforce_manifest_limits(
-    manifest: BeaconManifest, limits: ResourceLimits
-) -> None:
+def _enforce_manifest_limits(manifest: BeaconManifest, limits: ResourceLimits) -> None:
     """Refuse bounded manifest fields before validation performs filesystem work."""
     if len(manifest.canonical_docs) > limits.documents:
         raise LimitError(
@@ -157,27 +158,38 @@ def _enforce_manifest_limits(
 
 def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
     """Parse an already-loaded mapping into a :class:`BeaconManifest`."""
-    project = _parse_project(_as_map(raw.get("project"), "project"))
+    project = _parse_project(_as_map(raw.get("project", _MISSING), "project"))
     return BeaconManifest(
-        beacon_version=str(raw.get("beacon_version", "0.1")),
+        beacon_version=_opt_str(raw.get("beacon_version", _MISSING), "beacon_version", "0.1"),
         project=project,
-        purpose=_parse_purpose(_as_map(raw.get("purpose"), "purpose", optional=True)),
-        audiences=_str_tuple(raw.get("audiences")),
-        current_focus=_str_tuple(raw.get("current_focus")),
+        purpose=_parse_purpose(_as_map(raw.get("purpose", _MISSING), "purpose", optional=True)),
+        audiences=_str_tuple(raw.get("audiences", _MISSING)),
+        current_focus=_str_tuple(raw.get("current_focus", _MISSING)),
         core_concepts=tuple(
-            _parse_concept(item) for item in _as_list(raw.get("core_concepts"), "core_concepts")
+            _parse_concept(item)
+            for item in _as_list(raw.get("core_concepts", _MISSING), "core_concepts")
         ),
         canonical_docs=tuple(
-            _parse_doc(item) for item in _as_list(raw.get("canonical_docs"), "canonical_docs")
+            _parse_doc(item)
+            for item in _as_list(raw.get("canonical_docs", _MISSING), "canonical_docs")
         ),
         agent_guidance=_parse_guidance(
-            _as_map(raw.get("agent_guidance"), "agent_guidance", optional=True)
+            _as_map(
+                raw.get("agent_guidance", _MISSING),
+                "agent_guidance",
+                optional=True,
+            )
         ),
         build_and_test=_parse_build_test(
-            _as_map(raw.get("build_and_test"), "build_and_test", optional=True)
+            _as_map(
+                raw.get("build_and_test", _MISSING),
+                "build_and_test",
+                optional=True,
+            )
         ),
         guardrails=tuple(
-            _parse_guardrail(item) for item in _as_list(raw.get("guardrails"), "guardrails")
+            _parse_guardrail(item)
+            for item in _as_list(raw.get("guardrails", _MISSING), "guardrails")
         ),
     )
 
@@ -189,21 +201,23 @@ def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
 
 def _parse_project(data: dict[str, Any]) -> BeaconProjectInfo:
     return BeaconProjectInfo(
-        name=str(data.get("name", "")),
-        tagline=str(data.get("tagline", "")),
-        description=_collapse(data.get("description", "")),
-        status=str(data.get("status", "experimental")),
-        repository=str(data.get("repository", "")),
-        primary_language=str(data.get("primary_language", "")),
-        license=str(data.get("license", "")),
+        name=_opt_str(data.get("name", _MISSING), "project.name"),
+        tagline=_opt_str(data.get("tagline", _MISSING), "project.tagline"),
+        description=_collapse(data.get("description", _MISSING), "project.description"),
+        status=_opt_str(data.get("status", _MISSING), "project.status", "experimental"),
+        repository=_opt_str(data.get("repository", _MISSING), "project.repository"),
+        primary_language=_opt_str(
+            data.get("primary_language", _MISSING), "project.primary_language"
+        ),
+        license=_opt_str(data.get("license", _MISSING), "project.license"),
     )
 
 
 def _parse_purpose(data: dict[str, Any]) -> BeaconPurpose:
     return BeaconPurpose(
-        one_sentence=_collapse(data.get("one_sentence", "")),
-        problem=_collapse(data.get("problem", "")),
-        non_goals=_str_tuple(data.get("non_goals")),
+        one_sentence=_collapse(data.get("one_sentence", _MISSING), "purpose.one_sentence"),
+        problem=_collapse(data.get("problem", _MISSING), "purpose.problem"),
+        non_goals=_str_tuple(data.get("non_goals", _MISSING)),
     )
 
 
@@ -211,15 +225,19 @@ def _parse_concept(item: Any) -> BeaconConcept:
     data = _as_map(item, "core_concepts[]")
     if "id" not in data:
         raise ManifestError("each core_concepts entry needs an 'id'")
+    concept_id = _opt_str(data["id"], "core_concepts[].id")
+    definition = data["description"] if "description" in data else data.get("definition", _MISSING)
     return BeaconConcept(
-        id=str(data["id"]),
-        name=str(data.get("name", data["id"])),
-        definition=_collapse(data.get("description", data.get("definition", ""))),
-        why_it_exists=_collapse(data.get("why_it_exists", "")),
-        status=str(data.get("status", "current")),
-        related_concepts=_str_tuple(data.get("related_concepts")),
-        implementation_locations=_str_tuple(data.get("implementation_locations")),
-        sources=_parse_sources(data.get("sources")),
+        id=concept_id,
+        name=_opt_str(data.get("name", _MISSING), "core_concepts[].name", concept_id),
+        definition=_collapse(definition, "core_concepts[].definition"),
+        why_it_exists=_collapse(
+            data.get("why_it_exists", _MISSING), "core_concepts[].why_it_exists"
+        ),
+        status=_opt_str(data.get("status", _MISSING), "core_concepts[].status", "current"),
+        related_concepts=_str_tuple(data.get("related_concepts", _MISSING)),
+        implementation_locations=_str_tuple(data.get("implementation_locations", _MISSING)),
+        sources=_parse_sources(data.get("sources", _MISSING)),
     )
 
 
@@ -228,10 +246,10 @@ def _parse_doc(item: Any) -> BeaconDoc:
     if "path" not in data:
         raise ManifestError("each canonical_docs entry needs a 'path'")
     return BeaconDoc(
-        path=str(data["path"]),
-        role=str(data.get("role", "")),
-        status=str(data.get("status", "current")),
-        title=str(data.get("title", "")),
+        path=_opt_str(data["path"], "canonical_docs[].path"),
+        role=_opt_str(data.get("role", _MISSING), "canonical_docs[].role"),
+        status=_opt_str(data.get("status", _MISSING), "canonical_docs[].status", "current"),
+        title=_opt_str(data.get("title", _MISSING), "canonical_docs[].title"),
     )
 
 
@@ -240,49 +258,55 @@ def _parse_guardrail(item: Any) -> BeaconGuardrail:
     if "id" not in data:
         raise ManifestError("each guardrails entry needs an 'id'")
     return BeaconGuardrail(
-        id=str(data["id"]),
-        rule=_collapse(data.get("rule", "")),
-        scope=str(data.get("scope", "")),
-        severity=str(data.get("severity", "medium")),
-        applies_to=_str_tuple(data.get("applies_to")),
-        sources=_parse_sources(data.get("sources")),
+        id=_opt_str(data["id"], "guardrails[].id"),
+        rule=_collapse(data.get("rule", _MISSING), "guardrails[].rule"),
+        scope=_opt_str(data.get("scope", _MISSING), "guardrails[].scope"),
+        severity=_opt_str(data.get("severity", _MISSING), "guardrails[].severity", "medium"),
+        applies_to=_str_tuple(data.get("applies_to", _MISSING)),
+        sources=_parse_sources(data.get("sources", _MISSING)),
     )
 
 
 def _parse_guidance(data: dict[str, Any]) -> BeaconAgentGuidance:
     return BeaconAgentGuidance(
-        read_first=_str_tuple(data.get("read_first")),
-        safe_first_tasks=_str_tuple(data.get("safe_first_tasks")),
+        read_first=_str_tuple(data.get("read_first", _MISSING)),
+        safe_first_tasks=_str_tuple(data.get("safe_first_tasks", _MISSING)),
         avoid_without_review=_str_tuple(
-            data.get("avoid_without_review", data.get("avoid_without_maintainer_review"))
+            data["avoid_without_review"]
+            if "avoid_without_review" in data
+            else data.get("avoid_without_maintainer_review", _MISSING)
         ),
-        expected_behavior=_str_tuple(data.get("expected_behavior")),
+        expected_behavior=_str_tuple(data.get("expected_behavior", _MISSING)),
     )
 
 
 def _parse_build_test(data: dict[str, Any]) -> BeaconBuildTest:
     return BeaconBuildTest(
-        setup=str(data.get("setup", "")),
-        test=str(data.get("test", "")),
-        benchmark=str(data.get("benchmark", "")),
+        setup=_opt_str(data.get("setup", _MISSING), "build_and_test.setup"),
+        test=_opt_str(data.get("test", _MISSING), "build_and_test.test"),
+        benchmark=_opt_str(data.get("benchmark", _MISSING), "build_and_test.benchmark"),
     )
 
 
 def _parse_sources(value: Any) -> tuple[BeaconSource, ...]:
-    if value is None:
+    if value is _MISSING:
         return ()
     sources: list[BeaconSource] = []
     for item in _as_list(value, "sources"):
         data = _as_map(item, "sources[]")
+        line_start = _opt_line(data.get("line_start", _MISSING), "sources[].line_start")
+        line_end = _opt_line(data.get("line_end", _MISSING), "sources[].line_end")
+        if line_start is not None and line_end is not None and line_end < line_start:
+            raise ManifestError("sources[].line_end must not precede line_start")
         sources.append(
             BeaconSource(
-                type=str(data.get("type", "doc")),
-                title=str(data.get("title", "")),
-                path=str(data.get("path", "")),
-                url=str(data.get("url", "")),
-                line_start=_opt_int(data.get("line_start")),
-                line_end=_opt_int(data.get("line_end")),
-                status=str(data.get("status", "current")),
+                type=_opt_str(data.get("type", _MISSING), "sources[].type", "doc"),
+                title=_opt_str(data.get("title", _MISSING), "sources[].title"),
+                path=_opt_str(data.get("path", _MISSING), "sources[].path"),
+                url=_opt_str(data.get("url", _MISSING), "sources[].url"),
+                line_start=line_start,
+                line_end=line_end,
+                status=_opt_str(data.get("status", _MISSING), "sources[].status", "current"),
             )
         )
     return tuple(sources)
@@ -294,7 +318,7 @@ def _parse_sources(value: Any) -> tuple[BeaconSource, ...]:
 
 
 def _as_map(value: Any, where: str, *, optional: bool = False) -> dict[str, Any]:
-    if value is None:
+    if value is _MISSING:
         if optional:
             return {}
         raise ManifestError(f"missing required mapping: {where}")
@@ -304,7 +328,7 @@ def _as_map(value: Any, where: str, *, optional: bool = False) -> dict[str, Any]
 
 
 def _as_list(value: Any, where: str) -> list[Any]:
-    if value is None:
+    if value is _MISSING:
         return []
     if not isinstance(value, list):
         raise ManifestError(f"{where} must be a list, got {type(value).__name__}")
@@ -312,21 +336,45 @@ def _as_list(value: Any, where: str) -> list[Any]:
 
 
 def _str_tuple(value: Any) -> tuple[str, ...]:
-    if value is None:
+    if value is _MISSING:
         return ()
     if isinstance(value, str):
         return (value,)
     if isinstance(value, (list, tuple)):
-        return tuple(str(item) for item in value)
+        if not all(isinstance(item, str) for item in value):
+            raise ManifestError("expected a list of strings, got a non-string element")
+        return tuple(value)
     raise ManifestError(f"expected a string or list of strings, got {type(value).__name__}")
 
 
-def _collapse(value: Any) -> str:
-    """Collapse YAML block-scalar whitespace into a single trimmed string."""
-    return " ".join(str(value).split())
+def _opt_str(value: Any, field: str, default: str = "") -> str:
+    """Require *value* to be a string when present; otherwise use *default*."""
+    if value is _MISSING:
+        return default
+    if not isinstance(value, str):
+        raise ManifestError(f"{field} must be a string, got {type(value).__name__}")
+    return value
 
 
-def _opt_int(value: Any) -> int | None:
-    if value is None or value == "":
+def _collapse(value: Any, field: str) -> str:
+    """Collapse YAML block-scalar whitespace into a single trimmed string.
+
+    *value* must be a string when present. A missing field yields an empty
+    string; an explicit YAML ``null`` is malformed.
+    """
+    if value is _MISSING:
+        return ""
+    if not isinstance(value, str):
+        raise ManifestError(f"{field} must be a string, got {type(value).__name__}")
+    return " ".join(value.split())
+
+
+def _opt_line(value: Any, field: str) -> int | None:
+    """Require *value* to be a positive integer when present (never a bool)."""
+    if value is _MISSING:
         return None
-    return int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ManifestError(f"{field} must be a positive integer")
+    if value <= 0:
+        raise ManifestError(f"{field} must be a positive integer")
+    return value

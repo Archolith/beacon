@@ -70,6 +70,7 @@ src/beacon/
 │   ├── schema.py        BeaconManifest + all answer-contract frozen dataclasses
 │   ├── limits.py        frozen ResourceLimits model + stable limit error codes
 │   ├── loader.py        load_beacon_manifest(path) → BeaconManifest (bounded PyYAML)
+│   ├── paths.py         canonical-doc containment boundary + unsafe-path diagnostic
 │   ├── validator.py     validate_beacon_manifest(), require_valid_manifest(), stable diagnostic codes
 │   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
@@ -107,6 +108,13 @@ tool call:
     → returns frozen answer-contract dataclass
     → render_json(to_payload(result)) → JSON string to client
 ```
+
+The stdio entry point loads dotenv first, then forces
+`FASTMCP_CHECK_FOR_UPDATES=off` and `FASTMCP_SHOW_SERVER_BANNER=false` before importing the
+framework. Runtime startup therefore performs no update check and emits no FastMCP banner.
+Expected resource refusals preserve their stable public limit code. Any other tool exception is
+logged server-side and reduced to a generic `internal_error` response so private paths or secrets in
+exception text never cross the MCP boundary.
 
 ## Config / Environment Variables
 
@@ -147,7 +155,8 @@ The bounded readers enforce ceilings at the earliest existing boundary:
 - `core/loader.py` — checks manifest source bytes *before* decoding, then enforces YAML
   depth/node/alias caps via a bounded `yaml.SafeLoader` subclass.
 - `core/doc_index.py` — enforces canonical-document count, per-document bytes, aggregate
-  document bytes, relative-path UTF-8 bytes, and total heading-chunk count.
+  document bytes, relative-path UTF-8 bytes, canonical-path containment, and total heading-chunk
+  count. Containment is enforced even when semantic validation is disabled.
 - `provider/manifest_provider.py` — enforces query/task-hint UTF-8 bytes and the search
   result-limit ceiling on free-text tool inputs.
 
@@ -239,6 +248,7 @@ Top-level sections:
 - duplicate concept ids (error)
 - duplicate guardrail ids (error)
 - dangling canonical doc paths when `docs_root` is provided (error)
+- absolute/traversing canonical paths and symlink escapes (error; `unsafe_canonical_path`)
 - unknown status vocabulary (warning)
 - concept referencing unknown related id (warning)
 - missing `build_and_test.test` command (warning)
@@ -252,6 +262,11 @@ acknowledgeable absent-test (`test_command_missing`) and absent-guardrail
 `canonical_doc_duplicate`. Error findings keep error severity and their own stable codes.
 
 `require_valid_manifest()` raises `ManifestValidationError` on any error — used at startup.
+
+The loader is type-strict. Missing optional fields receive their documented defaults, while an
+explicit YAML `null` or another wrong scalar/container type is malformed and raises
+`ManifestError`. Source line numbers must be positive integers and `line_end` cannot precede
+`line_start`.
 
 ### Serving/publication policy and acknowledgement
 

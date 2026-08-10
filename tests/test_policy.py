@@ -19,9 +19,7 @@ from beacon.core.policy import (
     parse_acknowledgements,
 )
 from beacon.core.validator import (
-    CODE_GUARDRAIL_SEVERITY_INVALID,
     CODE_GUARDRAILS_MISSING,
-    CODE_PURPOSE_MISSING,
     CODE_TEST_COMMAND_MISSING,
     PUBLICATION_WARNING_CODES,
     ValidationIssue,
@@ -43,9 +41,7 @@ def _report(**overrides: object) -> ValidationReport:
         "project": {"name": "x", "description": "desc", "status": "experimental"},
         "purpose": {"one_sentence": "a purpose for the fixture"},
         "canonical_docs": [{"path": "README.md", "status": "current"}],
-        "core_concepts": [
-            {"id": "c", "name": "C", "status": "current", "description": "def"}
-        ],
+        "core_concepts": [{"id": "c", "name": "C", "status": "current", "description": "def"}],
     }
     raw.update(overrides)
     return validate_beacon_manifest(parse_manifest(raw))
