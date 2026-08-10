@@ -76,6 +76,7 @@ src/beacon/
 │   ├── validator.py     validate_beacon_manifest(), require_valid_manifest(), stable diagnostic codes
 │   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
 │   ├── snapshot.py      static snapshot build + in-memory metadata-only derivation
+│   ├── chunk_resources.py  versioned chunk index, stable IDs, budgets, static resources
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
 ├── provider/
 │   ├── base.py          @runtime_checkable BeaconProvider Protocol (5 methods)
@@ -124,14 +125,17 @@ exception text never cross the MCP boundary.
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
 embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value; it
-never rereads project files. Discovery descriptor 1.2 advertises `/v1/snapshot/identity`,
+never rereads project files. Discovery descriptor 1.3 advertises `/v1/snapshot/identity`,
 `/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
 All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
 and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
 orientation adds manifest knowledge, citations, document hashes, and chunk inventory without chunk
 bodies. Each lighter tier links to the next. `/beacon.json` remains byte-identical to the full route.
-The listener is restricted to `127.0.0.1`, has no CORS or access logs, and exposes no query
-capability.
+The versioned `/v1/chunks` companion index adds stable location-derived IDs, parent role/status,
+exact text/response byte costs, resource hashes, and individual `/v1/chunks/{id}` retrieval without
+changing snapshot 1.0. Index and resource bytes are bounded, precomputed, independently cacheable,
+and tied to the full snapshot digest. The listener is restricted to `127.0.0.1`, has no CORS or
+access logs, and exposes no free-text query capability.
 
 ## Config / Environment Variables
 

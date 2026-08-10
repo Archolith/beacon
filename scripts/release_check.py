@@ -269,8 +269,8 @@ def build_plan(
             Step(
                 name="http_snapshot",
                 description=(
-                    "real loopback HTTP discovery, identity/orientation/full snapshots, health, "
-                    "alias, HEAD, ETag, and errors"
+                    "real loopback HTTP discovery, identity/orientation/full snapshots, indexed "
+                    "chunks, health, alias, HEAD, ETag, and errors"
                 ),
                 func=lambda: probe_http_snapshot(
                     beacon_cmd,
@@ -409,6 +409,7 @@ def probe_http_snapshot(
             raise JourneyError("HTTP discovery has the wrong scope or authentication mode")
         capabilities = descriptor.get("capabilities")
         if capabilities != {
+            "chunks": True,
             "mcp_http": False,
             "query": False,
             "question_submission": False,
@@ -417,8 +418,8 @@ def probe_http_snapshot(
             raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.2":
-            raise JourneyError("HTTP discovery descriptor version is not 1.2")
+        if descriptor.get("descriptor_version") != "1.3":
+            raise JourneyError("HTTP discovery descriptor version is not 1.3")
         representations = descriptor.get("representations", {})
         if representations.get("identity") != {
             "url": "/v1/snapshot/identity",
@@ -444,6 +445,46 @@ def probe_http_snapshot(
             "schema_version": "1.0",
         }:
             raise JourneyError("HTTP discovery full representation is wrong")
+
+        chunk_index_body, chunk_index_headers = _http_request(base_url + "/v1/chunks")
+        chunk_index_sha = hashlib.sha256(chunk_index_body).hexdigest()
+        chunk_index = json.loads(chunk_index_body)
+        if descriptor.get("resources", {}).get("chunks") != {
+            "index_url": "/v1/chunks",
+            "item_url_template": "/v1/chunks/{id}",
+            "version": "1.0",
+            "count": chunk_index.get("count"),
+            "sha256": chunk_index_sha,
+            "bytes": len(chunk_index_body),
+        }:
+            raise JourneyError("HTTP discovery chunk-index resource is wrong")
+        if chunk_index.get("snapshot", {}).get("sha256") != expected_sha:
+            raise JourneyError("HTTP chunk index does not identify the full snapshot")
+        entries = [
+            chunk
+            for document in chunk_index.get("documents", [])
+            for chunk in document.get("chunks", [])
+        ]
+        if not entries or chunk_index.get("count") != len(entries):
+            raise JourneyError("HTTP chunk index is empty or has the wrong count")
+        if chunk_index_headers.get("x-beacon-chunk-index-sha256") != chunk_index_sha:
+            raise JourneyError("HTTP chunk-index digest header is wrong")
+        _assert_no_server_identity(chunk_index_headers)
+
+        chunk_entry = entries[0]
+        chunk_url = chunk_index["item_url_template"].replace("{id}", chunk_entry["id"])
+        chunk_body, chunk_headers = _http_request(base_url + chunk_url)
+        if len(chunk_body) != chunk_entry.get("bytes"):
+            raise JourneyError("HTTP chunk response byte budget is wrong")
+        chunk_sha = hashlib.sha256(chunk_body).hexdigest()
+        chunk = json.loads(chunk_body)
+        if len(chunk.get("text", "").encode("utf-8")) != chunk_entry.get("text_bytes"):
+            raise JourneyError("HTTP chunk text byte budget is wrong")
+        if not chunk_entry.get("parent_role") or not chunk_entry.get("parent_status"):
+            raise JourneyError("HTTP chunk index omits parent role or status")
+        if chunk_headers.get("x-beacon-chunk-sha256") != chunk_sha:
+            raise JourneyError("HTTP chunk digest header is wrong")
+        _assert_no_server_identity(chunk_headers)
         _assert_no_server_identity(descriptor_headers)
 
         identity_body, identity_headers = _http_request(base_url + "/v1/snapshot/identity")
@@ -521,6 +562,26 @@ def probe_http_snapshot(
             304,
             headers={"If-None-Match": f'"{identity_sha}"'},
         )
+        chunk_index_head_body, chunk_index_head_headers = _http_request(
+            base_url + "/v1/chunks", method="HEAD"
+        )
+        if chunk_index_head_body or chunk_index_head_headers.get("etag") != (
+            chunk_index_headers.get("etag")
+        ):
+            raise JourneyError("HTTP chunk-index HEAD response differs from GET")
+        _http_expect_status(
+            base_url + "/v1/chunks",
+            304,
+            headers={"If-None-Match": chunk_index_headers["etag"]},
+        )
+        chunk_head_body, chunk_head_headers = _http_request(base_url + chunk_url, method="HEAD")
+        if chunk_head_body or chunk_head_headers.get("etag") != chunk_headers.get("etag"):
+            raise JourneyError("HTTP chunk HEAD response differs from GET")
+        _http_expect_status(
+            base_url + chunk_url,
+            304,
+            headers={"If-None-Match": chunk_headers["etag"]},
+        )
 
         health_body, health_headers = _http_request(base_url + "/healthz")
         health = json.loads(health_body)
@@ -533,6 +594,8 @@ def probe_http_snapshot(
         _http_expect_status(base_url + "/v1/snapshot", 405, method="POST")
         _http_expect_status(base_url + "/v1/snapshot/orientation", 405, method="POST")
         _http_expect_status(base_url + "/v1/snapshot/identity", 405, method="POST")
+        _http_expect_status(base_url + "/v1/chunks", 405, method="POST")
+        _http_expect_status(base_url + "/v1/chunks/not-a-real-id?private=query", 404)
     except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
         raise JourneyError(f"loopback HTTP journey failed ({type(exc).__name__})") from exc
     finally:

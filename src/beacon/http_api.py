@@ -4,7 +4,8 @@ Builds a small :class:`starlette.applications.Starlette` ASGI app over an
 already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded,
 orientation, and identity representations are each serialized exactly once
 (via :func:`beacon.core.snapshot.snapshot_bytes`) and their SHA-256 digests are
-computed once. Both are retained as immutable state for the life of the app.
+computed once. Chunk index and resource responses are also precomputed. All are
+retained as immutable state for the life of the app.
 No source file is ever reread and no snapshot is rebuilt after construction, so
 every request serves byte-identical payloads.
 
@@ -19,6 +20,8 @@ Routes (GET and HEAD):
 * ``/v1/snapshot/orientation`` -- metadata-only orientation representation;
 * ``/v1/snapshot`` -- the canonical snapshot payload;
 * ``/beacon.json`` -- byte/header-identical alias of ``/v1/snapshot``;
+* ``/v1/chunks`` -- companion chunk index with byte budgets;
+* ``/v1/chunks/{id}`` -- one immutable published chunk resource;
 * ``/healthz`` -- redacted readiness document.
 
 All response bodies are canonical compact JSON ending in exactly one newline.
@@ -40,6 +43,7 @@ from starlette.routing import Route
 
 from beacon import __version__
 from beacon.core.canonical_json import dumps_canonical
+from beacon.core.chunk_resources import CHUNK_INDEX_VERSION, build_chunk_catalog
 from beacon.core.snapshot import (
     CONTENT_EMBEDDED,
     Snapshot,
@@ -49,7 +53,7 @@ from beacon.core.snapshot import (
 )
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.2"
+_DESCRIPTOR_VERSION = "1.3"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -84,6 +88,8 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     identity_payload = snapshot_bytes(identity_snapshot(snapshot))
     identity_sha256 = hashlib.sha256(identity_payload).hexdigest()
     identity_etag = f'"{identity_sha256}"'
+    chunk_catalog = build_chunk_catalog(snapshot, snapshot_sha256=sha256)
+    chunk_index_etag = f'"{chunk_catalog.index_sha256}"'
     schema_version = snapshot.beacon_snapshot_version
 
     discovery = _discovery_payload(
@@ -93,6 +99,9 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         orientation_byte_count=len(orientation_payload),
         identity_sha256=identity_sha256,
         identity_byte_count=len(identity_payload),
+        chunk_index_sha256=chunk_catalog.index_sha256,
+        chunk_index_byte_count=len(chunk_catalog.index_body),
+        chunk_count=len(chunk_catalog.resources),
         schema_version=schema_version,
     )
     discovery_body = dumps_canonical(discovery)
@@ -108,6 +117,28 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     identity_headers["link"] = (
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
     )
+    chunk_index_headers = _representation_headers(
+        chunk_catalog.index_body,
+        chunk_catalog.index_sha256,
+        chunk_index_etag,
+        digest_header="x-beacon-chunk-index-sha256",
+    )
+    chunk_index_headers["x-beacon-snapshot-sha256"] = sha256
+    chunk_index_headers["link"] = (
+        '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
+    chunk_resources: dict[str, tuple[bytes, dict[str, str], str]] = {}
+    for resource in chunk_catalog.resources:
+        resource_etag = f'"{resource.sha256}"'
+        resource_headers = _representation_headers(
+            resource.body,
+            resource.sha256,
+            resource_etag,
+            digest_header="x-beacon-chunk-sha256",
+        )
+        resource_headers["x-beacon-snapshot-sha256"] = sha256
+        resource_headers["link"] = '</v1/chunks>; rel="index"; title="chunk index"'
+        chunk_resources[resource.id] = (resource.body, resource_headers, resource_etag)
 
     async def snapshot_route(request: Request) -> Response:
         return _snapshot_response(request, payload, snapshot_headers, etag)
@@ -131,6 +162,21 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             identity_etag,
         )
 
+    async def chunk_index_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            chunk_catalog.index_body,
+            chunk_index_headers,
+            chunk_index_etag,
+        )
+
+    async def chunk_resource_route(request: Request) -> Response:
+        resource = chunk_resources.get(request.path_params["chunk_id"])
+        if resource is None:
+            raise HTTPException(status_code=404)
+        body, headers, resource_etag = resource
+        return _snapshot_response(request, body, headers, resource_etag)
+
     async def discovery_route(request: Request) -> Response:
         return _static_response(
             request.method,
@@ -152,12 +198,15 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             Route("/v1/snapshot/orientation", orientation_route, methods=["GET", "HEAD"]),
             Route("/v1/snapshot", snapshot_route, methods=["GET", "HEAD"]),
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
+            Route("/v1/chunks", chunk_index_route, methods=["GET", "HEAD"]),
+            Route("/v1/chunks/{chunk_id:str}", chunk_resource_route, methods=["GET", "HEAD"]),
             Route("/healthz", health_route, methods=["GET", "HEAD"]),
         ],
     )
     app.state.beacon_snapshot_sha256 = sha256
     app.state.beacon_orientation_sha256 = orientation_sha256
     app.state.beacon_identity_sha256 = identity_sha256
+    app.state.beacon_chunk_index_sha256 = chunk_catalog.index_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
@@ -205,13 +254,19 @@ def _json_headers(body: bytes, *, cache_control: str | None = None) -> dict[str,
     return headers
 
 
-def _representation_headers(payload: bytes, sha256: str, etag: str) -> dict[str, str]:
+def _representation_headers(
+    payload: bytes,
+    sha256: str,
+    etag: str,
+    *,
+    digest_header: str = "x-beacon-snapshot-sha256",
+) -> dict[str, str]:
     """Return immutable-representation headers for a snapshot tier."""
     return {
         "content-type": "application/json",
         "content-length": str(len(payload)),
         "etag": etag,
-        "x-beacon-snapshot-sha256": sha256,
+        digest_header: sha256,
         "cache-control": "no-cache",
         "x-content-type-options": "nosniff",
     }
@@ -270,6 +325,9 @@ def _discovery_payload(
     orientation_byte_count: int,
     identity_sha256: str,
     identity_byte_count: int,
+    chunk_index_sha256: str,
+    chunk_index_byte_count: int,
+    chunk_count: int,
     schema_version: str,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document."""
@@ -280,6 +338,7 @@ def _discovery_payload(
         "authentication": _AUTHENTICATION,
         "capabilities": {
             "snapshot": True,
+            "chunks": True,
             "query": False,
             "question_submission": False,
             "mcp_http": False,
@@ -312,6 +371,16 @@ def _discovery_payload(
                 "bytes": byte_count,
                 "schema_version": schema_version,
             },
+        },
+        "resources": {
+            "chunks": {
+                "index_url": "/v1/chunks",
+                "item_url_template": "/v1/chunks/{id}",
+                "version": CHUNK_INDEX_VERSION,
+                "count": chunk_count,
+                "sha256": chunk_index_sha256,
+                "bytes": chunk_index_byte_count,
+            }
         },
     }
 

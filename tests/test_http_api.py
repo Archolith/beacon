@@ -150,6 +150,7 @@ def test_exact_route_set_get(client: TestClient, payload: bytes, sha256: str) ->
         "/v1/snapshot/orientation",
         "/v1/snapshot",
         "/beacon.json",
+        "/v1/chunks",
         "/healthz",
     ):
         response = client.get(path)
@@ -415,13 +416,15 @@ def test_discovery_fields(
         "capabilities",
         "snapshot",
         "representations",
+        "resources",
     }
-    assert body["descriptor_version"] == "1.2"
+    assert body["descriptor_version"] == "1.3"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"
     assert body["capabilities"] == {
         "snapshot": True,
+        "chunks": True,
         "query": False,
         "question_submission": False,
         "mcp_http": False,
@@ -455,6 +458,91 @@ def test_discovery_fields(
             "schema_version": SNAPSHOT_VERSION,
         },
     }
+    chunk_index = client.get("/v1/chunks")
+    assert body["resources"] == {
+        "chunks": {
+            "index_url": "/v1/chunks",
+            "item_url_template": "/v1/chunks/{id}",
+            "version": "1.0",
+            "count": 1,
+            "sha256": hashlib.sha256(chunk_index.content).hexdigest(),
+            "bytes": len(chunk_index.content),
+        }
+    }
+
+
+def test_chunk_index_and_resource_are_budgeted_and_retrievable(client: TestClient) -> None:
+    index_response = client.get("/v1/chunks")
+    assert index_response.status_code == 200
+    index = index_response.json()
+    assert index["chunk_index_version"] == "1.0"
+    assert index["item_url_template"] == "/v1/chunks/{id}"
+    assert index["count"] == 1
+    document = index["documents"][0]
+    entry = document["chunks"][0]
+    assert entry["parent_role"] == "entrypoint"
+    assert entry["parent_status"] == "current"
+    assert entry["text_bytes"] == len(DOC_TEXT.encode("utf-8"))
+
+    resource_url = index["item_url_template"].replace("{id}", entry["id"])
+    resource_response = client.get(resource_url)
+    assert resource_response.status_code == 200
+    assert len(resource_response.content) == entry["bytes"]
+    resource_sha = hashlib.sha256(resource_response.content).hexdigest()
+    assert resource_response.headers["x-beacon-chunk-sha256"] == resource_sha
+    resource = resource_response.json()
+    assert resource["id"] == entry["id"]
+    assert resource["document"]["path"] == document["path"]
+    assert resource["document"]["role"] == entry["parent_role"]
+    assert resource["document"]["status"] == entry["parent_status"]
+    assert resource["text_bytes"] == entry["text_bytes"]
+    assert resource["text"] == DOC_TEXT
+
+
+def test_chunk_index_and_resource_headers_support_head_and_etag(client: TestClient) -> None:
+    index_get = client.get("/v1/chunks")
+    index_head = client.head("/v1/chunks")
+    assert index_head.content == b""
+    assert index_head.headers["content-length"] == index_get.headers["content-length"]
+    assert index_head.headers["etag"] == index_get.headers["etag"]
+    assert (
+        index_get.headers["x-beacon-chunk-index-sha256"]
+        == hashlib.sha256(index_get.content).hexdigest()
+    )
+    assert (
+        client.get("/v1/chunks", headers={"If-None-Match": index_get.headers["etag"]}).status_code
+        == 304
+    )
+
+    index = index_get.json()
+    entry = index["documents"][0]["chunks"][0]
+    resource_url = index["item_url_template"].replace("{id}", entry["id"])
+    resource_get = client.get(resource_url)
+    resource_head = client.head(resource_url)
+    assert resource_head.content == b""
+    assert resource_head.headers["content-length"] == resource_get.headers["content-length"]
+    assert resource_head.headers["etag"] == resource_get.headers["etag"]
+    assert (
+        resource_get.headers["x-beacon-chunk-sha256"]
+        == hashlib.sha256(resource_get.content).hexdigest()
+    )
+    assert (
+        resource_get.headers["x-beacon-snapshot-sha256"] == index_get.json()["snapshot"]["sha256"]
+    )
+    assert (
+        client.get(
+            resource_url, headers={"If-None-Match": resource_get.headers["etag"]}
+        ).status_code
+        == 304
+    )
+
+
+def test_unknown_chunk_id_is_redacted_404(client: TestClient) -> None:
+    response = client.get("/v1/chunks/private-secret-id?token=do-not-echo")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert "private-secret-id" not in response.text
+    assert "do-not-echo" not in response.text
 
 
 def test_discovery_canonical_newline(client: TestClient) -> None:
@@ -499,6 +587,7 @@ def test_unsupported_method_405(client: TestClient) -> None:
             "/v1/snapshot/identity",
             "/v1/snapshot/orientation",
             "/v1/snapshot",
+            "/v1/chunks",
             "/healthz",
         ):
             response = client.request(method, path)
@@ -525,6 +614,7 @@ def test_no_cors_headers(client: TestClient) -> None:
             "/v1/snapshot/identity",
             "/v1/snapshot/orientation",
             "/v1/snapshot",
+            "/v1/chunks",
             "/healthz",
             "/nope",
         ):
@@ -572,6 +662,8 @@ def test_query_strings_do_not_echo(client: TestClient, payload: bytes) -> None:
     assert client.get("/v1/snapshot/orientation?secret=leak").content == orientation_plain
     identity_plain = client.get("/v1/snapshot/identity").content
     assert client.get("/v1/snapshot/identity?secret=leak").content == identity_plain
+    chunk_index_plain = client.get("/v1/chunks").content
+    assert client.get("/v1/chunks?secret=leak").content == chunk_index_plain
 
 
 def test_no_project_text_outside_snapshot_routes(client: TestClient) -> None:
@@ -580,6 +672,7 @@ def test_no_project_text_outside_snapshot_routes(client: TestClient) -> None:
         "/.well-known/archolith-beacon",
         "/v1/snapshot/identity",
         "/v1/snapshot/orientation",
+        "/v1/chunks",
         "/healthz",
         "/nope",
     ):
@@ -620,6 +713,7 @@ def test_dogfood_orientation_is_materially_smaller_and_traceable() -> None:
         full = test_client.get("/v1/snapshot")
         orientation = test_client.get("/v1/snapshot/orientation")
         identity = test_client.get("/v1/snapshot/identity")
+        chunk_index = test_client.get("/v1/chunks")
 
     assert len(orientation.content) <= len(full.content) / 2
     assert len(identity.content) <= len(orientation.content) / 5
@@ -631,6 +725,13 @@ def test_dogfood_orientation_is_materially_smaller_and_traceable() -> None:
         "current_focus",
     }
     assert identity_body["documents"] == []
+    chunk_body = chunk_index.json()
+    assert chunk_body["count"] > 0
+    chunk_entries = [item for doc in chunk_body["documents"] for item in doc["chunks"]]
+    assert len(chunk_entries) == chunk_body["count"]
+    assert all(item["text_bytes"] > 0 for item in chunk_entries)
+    assert all(item["parent_role"] for item in chunk_entries)
+    assert all(item["parent_status"] for item in chunk_entries)
     body = orientation.json()
     assert body["project"]["name"] == "beacon"
     concept = next(

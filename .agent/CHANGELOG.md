@@ -1,5 +1,15 @@
 # Changelog — beacon
 
+## 2026-08-10 — Selective static chunk retrieval
+
+- Added versioned `/v1/chunks` and `/v1/chunks/{id}` companion contracts without changing snapshot
+  1.0, with published Draft 2020-12 JSON Schemas for both response shapes.
+- Added stable location-derived chunk IDs, inlined parent role/status, exact UTF-8 text and canonical
+  response byte costs, response SHA-256, snapshot lineage, and individual ETag/HEAD/304 support.
+- Upgraded discovery to descriptor 1.3 with chunk capability and index count/URL/size/digest, while
+  retaining identity/orientation/full representations and all existing loopback/security boundaries.
+- Extended source, hostile-input, dogfood, schema, and installed-wheel journey coverage.
+
 ## 2026-08-10 — Minimal HTTP identity tier
 
 - Added immutable `GET`/`HEAD /v1/snapshot/identity` with project, purpose, audiences, and current

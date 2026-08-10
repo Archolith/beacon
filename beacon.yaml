@@ -42,6 +42,7 @@ audiences:
 
 current_focus:
   - manifest-driven MCP tools (v0, shipped)
+  - agent-first static HTTP tiers and selective chunk retrieval
   - functional product roadmap from local publishing through an operable v1
   - CLI validation and inspection commands
   - demo transcript and client setup docs
@@ -143,12 +144,19 @@ core_concepts:
       - beacon_manifest
     implementation_locations:
       - src/beacon/core/doc_index.py
+      - src/beacon/core/chunk_resources.py
     sources:
       - type: file
         title: Deterministic Markdown DocIndex
         path: src/beacon/core/doc_index.py
         line_start: 68
         line_end: 145
+        status: current
+      - type: file
+        title: Static chunk companion index and resources
+        path: src/beacon/core/chunk_resources.py
+        line_start: 40
+        line_end: 130
         status: current
 
   - id: guardrails
@@ -311,8 +319,8 @@ guardrails:
       - type: doc
         title: Contribution surface policy
         path: README.md
-        line_start: 469
-        line_end: 475
+        line_start: 473
+        line_end: 479
         status: current
 
   - id: test_before_commit
@@ -328,6 +336,6 @@ guardrails:
       - type: doc
         title: Development test command
         path: README.md
-        line_start: 477
-        line_end: 487
+        line_start: 481
+        line_end: 491
         status: current
