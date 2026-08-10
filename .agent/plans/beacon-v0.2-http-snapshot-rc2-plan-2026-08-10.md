@@ -37,6 +37,15 @@ Beacon's deterministic snapshot, publication-policy, privacy, or future trust bo
 - A future AI answer broker may synthesize only into validated Beacon-shaped responses with source
   snapshot identity and citations; raw model output never crosses the boundary.
 
+## Approved additive RC2 companions
+
+The snapshot and manifest contracts remain frozen at snapshot `1.0` and manifest `0.1`. Additive
+HTTP companions now include identity/orientation representations, selective chunk/concept/guardrail
+resources, and `/v1/status`. Descriptor `1.5` advertises their exact bytes, digests, and routes.
+Status is precomputed once and separates optional source-cited `project_state` declarations from
+startup-observed Git/source evidence; it is explicitly unsigned and self-reported, not live refresh
+or remote attestation.
+
 ## Acceptance matrix
 
 | Boundary | Required proof |

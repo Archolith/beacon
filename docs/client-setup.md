@@ -85,6 +85,7 @@ For a client that does not speak MCP, start the immutable loopback HTTP surface:
 beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
 curl http://127.0.0.1:8765/v1/snapshot/identity
+curl http://127.0.0.1:8765/v1/status
 curl http://127.0.0.1:8765/v1/snapshot/orientation
 curl http://127.0.0.1:8765/v1/concepts
 curl http://127.0.0.1:8765/v1/guardrails
@@ -92,10 +93,15 @@ curl http://127.0.0.1:8765/v1/chunks
 curl http://127.0.0.1:8765/v1/snapshot
 ```
 
-Use `/v1/snapshot/identity` as the cheapest project read, then
+Use `/v1/snapshot/identity` as the cheapest project read, then `/v1/status` for the single declared
+active-work item, recent completions, blockers, pending decisions, startup Git evidence, and source
+freshness comparisons. Status is immutable for the process: `observed_at` says when the checks ran,
+and source changes after startup require a restart. Its trust block says `self_reported` and
+`signed: false`; a remote consumer still needs an independent repository comparison or future signed
+attestation. Continue to
 `/v1/snapshot/orientation` when concepts, guardrails, citations, or document inventory are needed.
 Use `/v1/snapshot` for the full corpus; `/beacon.json` is its identical alias. Discovery descriptor
-1.4 advertises three companion catalogs. `/v1/concepts` and `/v1/guardrails` let a client select and
+1.5 advertises status and three companion catalogs. `/v1/concepts` and `/v1/guardrails` let a client select and
 retrieve one complete source-cited manifest record through an opaque resource ID. `/v1/chunks`
 supports selective body retrieval; each entry carries
 a stable location-derived ID, parent role/status, exact UTF-8 text bytes, exact response bytes, and

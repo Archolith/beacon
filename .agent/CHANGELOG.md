@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-10 — Verified project-status companion
+
+- Added optional source-cited `project_state` declarations with exactly zero or one active work item,
+  bounded recent-completion/blocker/decision lists, strict typing, path safety, and publication
+  warnings for unsourced state.
+- Added immutable `GET|HEAD /v1/status` with snapshot lineage, startup Git commit/branch/dirty
+  evidence, per-source freshness comparisons, observation time, ETag/304 support, and an explicit
+  unsigned self-reported trust statement.
+- Upgraded discovery to descriptor 1.5 with exact status bytes and digest while preserving manifest
+  0.1, snapshot 1.0, the five MCP tools, loopback-only operation, and no outbound network.
+- Made `project_state` maintenance part of task closeout and recorded the remaining orientation,
+  automation, refresh, and signed-trust work in the product roadmap.
+
 ## 2026-08-10 — Targeted static concept and guardrail retrieval
 
 - Added versioned concept and guardrail companion indexes plus individually addressable immutable

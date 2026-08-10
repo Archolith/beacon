@@ -125,13 +125,16 @@ exception text never cross the MCP boundary.
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
 embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
-identity and metadata-only orientation representations from the same approved in-memory value; it
-never rereads project files. Discovery descriptor 1.4 advertises `/v1/snapshot/identity`,
+identity and metadata-only orientation representations from the same approved in-memory value.
+Before binding, the CLI separately captures bounded Git and source-digest evidence for the immutable
+status companion. Discovery descriptor 1.5 advertises `/v1/snapshot/identity`, `/v1/status`,
 `/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
 All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
 and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
 orientation adds manifest knowledge, citations, document hashes, and chunk inventory without chunk
-bodies. Each lighter tier links to the next. `/beacon.json` remains byte-identical to the full route.
+bodies. Status separates source-cited maintainer declarations from startup-observed evidence and
+states that it is unsigned and self-reported. Each lighter tier links forward. `/beacon.json`
+remains byte-identical to the full route.
 The versioned `/v1/chunks` companion index adds stable location-derived IDs, parent role/status,
 exact text/response byte costs, resource hashes, and individual `/v1/chunks/{id}` retrieval without
 changing snapshot 1.0. Index and resource bytes are bounded, precomputed, independently cacheable,
@@ -259,11 +262,18 @@ Top-level sections:
 | `purpose` | one_sentence, problem, non_goals |
 | `audiences` | list of target user types |
 | `current_focus` | active work areas |
+| `project_state` | optional source-cited active work, recent completions, blockers, and pending decisions |
 | `core_concepts` | id, name, definition, why_it_exists, status, related_concepts |
 | `canonical_docs` | path, role, status, title — resolved against BEACON_DOCS_ROOT |
 | `agent_guidance` | read_first, safe_first_tasks, avoid_without_review |
 | `build_and_test` | setup, test, benchmark commands |
 | `guardrails` | id, rule, scope, severity, applies_to |
+
+The loopback HTTP companion `/v1/status` keeps this declared state separate from startup-observed
+evidence. At process start Beacon compares the approved manifest and canonical-document digests,
+records Git commit/branch/dirty state when Git is available, and timestamps that observation. The
+payload is immutable until restart and explicitly remains self-reported and unsigned; remote trust
+and signed attestation are later protocol layers.
 
 ## Validation
 

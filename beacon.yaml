@@ -49,6 +49,54 @@ current_focus:
   - example manifests for different project shapes
   - golden-output tests for each tool
 
+project_state:
+  active_work:
+    title: Bounded architecture summaries for HTTP orientation
+    summary: >
+      Turn the metadata-only orientation tier from a precise table of contents into a bounded
+      transfer of essential architecture and data-flow knowledge without forcing full-snapshot
+      retrieval.
+    next_step: >
+      Define the summary authoring, provenance, and byte-budget contract before adding summary
+      bodies to the orientation representation.
+    sources:
+      - type: doc
+        title: Functional product roadmap
+        path: docs/beacon-functional-product-roadmap.md
+        status: current
+  recently_completed:
+    - title: Verified project-status HTTP companion
+      summary: >
+        Added a source-cited declared-state model and immutable startup evidence for Git and source
+        freshness, with explicit self-reported trust semantics.
+      next_step: Restart the dogfood server from the committed tree and inspect the live payload.
+      sources:
+        - type: file
+          title: Status resource implementation
+          path: src/beacon/core/status.py
+          status: current
+  blockers:
+    - title: Genuinely unaided developer trial remains outstanding
+      summary: >
+        The external cold-start trial is still required before the v0.2 release gate can be closed.
+      next_step: Recruit an unaided participant and record the maintained scorecard.
+      sources:
+        - type: doc
+          title: Public release status
+          path: README.md
+          status: current
+  pending_decisions:
+    - title: Orientation summary authoring and byte budget
+      summary: >
+        Decide which summaries are human-authored, mechanically extracted, or conditionally
+        synthesized, and cap their cost before changing the orientation tier.
+      next_step: Write and review the companion contract before implementation.
+      sources:
+        - type: doc
+          title: Functional product roadmap
+          path: docs/beacon-functional-product-roadmap.md
+          status: current
+
 core_concepts:
   - id: beacon_manifest
     name: Beacon Manifest

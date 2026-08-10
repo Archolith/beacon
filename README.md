@@ -160,6 +160,7 @@ Clients that do not speak MCP can use the loopback-only HTTP compatibility surfa
 beacon serve-http --manifest beacon.yaml
 curl http://127.0.0.1:8765/.well-known/archolith-beacon
 curl http://127.0.0.1:8765/v1/snapshot/identity
+curl http://127.0.0.1:8765/v1/status
 curl http://127.0.0.1:8765/v1/snapshot/orientation
 curl http://127.0.0.1:8765/v1/concepts
 curl http://127.0.0.1:8765/v1/guardrails
@@ -167,14 +168,19 @@ curl http://127.0.0.1:8765/v1/chunks
 curl http://127.0.0.1:8765/v1/snapshot
 ```
 
-Start with `/v1/snapshot/identity` for the project, purpose, audiences, and current focus. Move to
+Start with `/v1/snapshot/identity` for the project, purpose, audiences, and current focus, then read
+`/v1/status` to see one explicit active-work item, recent completions, blockers, pending decisions,
+and startup evidence. The status resource separates maintainer-declared claims from the branch,
+commit, dirty flag, and source-digest comparisons observed when the server started. It also labels
+that unsigned evidence as self-reported; it is not a live watcher or a remote trust proof. Move to
 `/v1/snapshot/orientation` for concepts, guardrails, citations, document hashes, and chunk inventory
 without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full published corpus;
 `/beacon.json` is its permanent alias. To avoid fetching full, inspect `/v1/chunks`: each entry has a
 stable ID, parent document role/status, exact UTF-8 text bytes, exact response bytes, and a shared URL
 template for retrieving only that chunk. Each retrieved resource has its own SHA-256/ETag. Discovery
-descriptor 1.4 also advertises `/v1/concepts` and `/v1/guardrails`: each is a cheap selector index
-whose opaque resource IDs retrieve one complete source-cited manifest record without making its
+descriptor 1.5 also advertises the status resource plus `/v1/concepts` and `/v1/guardrails`. Each
+knowledge catalog is a cheap selector index whose opaque resource IDs retrieve one complete
+source-cited manifest record without making its
 logical ID part of the URL. All three companion indexes publish exact byte sizes and digests;
 `/healthz` returns redacted readiness metadata. The
 server builds the embedded canonical snapshot once at startup, derives every lighter representation

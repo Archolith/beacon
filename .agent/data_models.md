@@ -23,8 +23,21 @@ Top-level container. One per loaded manifest.
 | `agent_guidance` | `BeaconAgentGuidance` | Read order, safe tasks, avoid list |
 | `build_and_test` | `BeaconBuildTest` | Setup/test/benchmark commands |
 | `guardrails` | `tuple[BeaconGuardrail, ...]` | How not to break the project |
+| `project_state` | `BeaconProjectState` | Optional source-cited current-work state |
 
 Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by id or name.
+
+### BeaconProjectState and BeaconStateItem
+
+`BeaconProjectState` has zero or one `active_work` item plus bounded tuples for
+`recently_completed`, `blockers`, and `pending_decisions`. Each `BeaconStateItem` carries `title`,
+`summary`, `next_step`, and source citations. The whole section is optional-with-defaults, preserving
+existing manifest `0.1` inputs. When an item is present without a citation, strict publication emits
+the blocking `project_state_sources_missing` warning.
+
+HTTP `/v1/status` publishes these declared values beside a separate immutable startup observation:
+snapshot lineage, Git commit/branch/dirty state when available, source digest comparisons, and
+observation time. Status companion schema `1.0` does not change snapshot schema `1.0`.
 
 ### BeaconProjectInfo
 
