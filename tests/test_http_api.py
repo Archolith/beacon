@@ -26,6 +26,7 @@ from beacon.core.snapshot import (
     metadata_only_snapshot,
     snapshot_bytes,
 )
+from beacon.core.status import RepositoryEvidence, StatusObservation
 from beacon.http_api import create_http_app
 
 #: A distinct body fragment that must only ever appear on snapshot routes.
@@ -184,6 +185,7 @@ def test_exact_route_set_get(client: TestClient, payload: bytes, sha256: str) ->
         "/v1/snapshot/orientation",
         "/v1/snapshot",
         "/beacon.json",
+        "/v1/status",
         "/v1/chunks",
         "/v1/concepts",
         "/v1/guardrails",
@@ -283,7 +285,41 @@ def test_identity_headers(
     assert response.headers["etag"] == identity_etag
     assert response.headers["x-beacon-snapshot-sha256"] == identity_sha256
     assert response.headers["link"] == (
+        '</v1/status>; rel="status"; title="project status", '
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
+
+
+def test_status_separates_declared_state_from_observed_evidence(snapshot: Snapshot) -> None:
+    observation = StatusObservation(
+        mode="startup",
+        observed_at="2026-08-10T19:00:00Z",
+        repository=RepositoryEvidence(
+            state="observed",
+            commit="a" * 40,
+            branch="release/v0.2.0",
+            dirty=False,
+        ),
+        sources=(),
+    )
+    with TestClient(create_http_app(snapshot, status_observation=observation)) as test_client:
+        response = test_client.get("/v1/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["beacon_status_version"] == "1.0"
+    assert body["snapshot"]["sha256"] == response.headers["x-beacon-snapshot-sha256"]
+    assert body["declared"] == {
+        "active_work": None,
+        "recently_completed": [],
+        "blockers": [],
+        "pending_decisions": [],
+    }
+    assert body["observed"]["repository"]["commit"] == "a" * 40
+    assert body["trust"]["assertion"] == "self_reported"
+    assert body["trust"]["signed"] is False
+    assert (
+        response.headers["x-beacon-status-sha256"] == hashlib.sha256(response.content).hexdigest()
     )
 
 
@@ -299,6 +335,7 @@ def test_app_retains_snapshot_metadata(snapshot: Snapshot, sha256: str) -> None:
         == hashlib.sha256(snapshot_bytes(identity_snapshot(snapshot))).hexdigest()
     )
     assert app.state.beacon_snapshot_schema_version == SNAPSHOT_VERSION
+    assert len(app.state.beacon_status_sha256) == 64
 
 
 def test_metadata_only_snapshot_is_rejected() -> None:
@@ -333,6 +370,28 @@ def test_get_and_head_identity_equivalent_headers(client: TestClient) -> None:
     assert head_response.content == b""
     for header in ("content-length", "etag", "content-type", "x-beacon-snapshot-sha256", "link"):
         assert head_response.headers[header] == get_response.headers[header]
+
+
+def test_get_and_head_status_support_etag(client: TestClient) -> None:
+    get_response = client.get("/v1/status")
+    head_response = client.head("/v1/status")
+    assert head_response.status_code == 200
+    assert head_response.content == b""
+    for header in (
+        "content-length",
+        "etag",
+        "content-type",
+        "x-beacon-status-sha256",
+        "x-beacon-snapshot-sha256",
+        "link",
+    ):
+        assert head_response.headers[header] == get_response.headers[header]
+    assert (
+        client.get(
+            "/v1/status", headers={"If-None-Match": get_response.headers["etag"]}
+        ).status_code
+        == 304
+    )
 
 
 def test_get_and_head_health(client: TestClient) -> None:
@@ -420,6 +479,7 @@ def test_identity_if_none_match_uses_its_own_etag(
     matched = client.get("/v1/snapshot/identity", headers={"If-None-Match": identity_etag})
     assert matched.status_code == 304
     assert matched.headers["link"] == (
+        '</v1/status>; rel="status"; title="project status", '
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
     )
     other_tier = client.get("/v1/snapshot/identity", headers={"If-None-Match": orientation_etag})
@@ -454,7 +514,7 @@ def test_discovery_fields(
         "representations",
         "resources",
     }
-    assert body["descriptor_version"] == "1.4"
+    assert body["descriptor_version"] == "1.5"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"
@@ -463,6 +523,7 @@ def test_discovery_fields(
         "chunks": True,
         "concepts": True,
         "guardrails": True,
+        "status": True,
         "query": False,
         "question_submission": False,
         "mcp_http": False,
@@ -499,7 +560,14 @@ def test_discovery_fields(
     chunk_index = client.get("/v1/chunks")
     concept_index = client.get("/v1/concepts")
     guardrail_index = client.get("/v1/guardrails")
+    status = client.get("/v1/status")
     assert body["resources"] == {
+        "status": {
+            "url": "/v1/status",
+            "version": "1.0",
+            "sha256": hashlib.sha256(status.content).hexdigest(),
+            "bytes": len(status.content),
+        },
         "chunks": {
             "index_url": "/v1/chunks",
             "item_url_template": "/v1/chunks/{id}",
@@ -749,6 +817,7 @@ def test_unsupported_method_405(client: TestClient) -> None:
             "/v1/snapshot/identity",
             "/v1/snapshot/orientation",
             "/v1/snapshot",
+            "/v1/status",
             "/v1/chunks",
             "/v1/concepts",
             "/v1/guardrails",
@@ -778,6 +847,7 @@ def test_no_cors_headers(client: TestClient) -> None:
             "/v1/snapshot/identity",
             "/v1/snapshot/orientation",
             "/v1/snapshot",
+            "/v1/status",
             "/v1/chunks",
             "/v1/concepts",
             "/v1/guardrails",
@@ -828,6 +898,8 @@ def test_query_strings_do_not_echo(client: TestClient, payload: bytes) -> None:
     assert client.get("/v1/snapshot/orientation?secret=leak").content == orientation_plain
     identity_plain = client.get("/v1/snapshot/identity").content
     assert client.get("/v1/snapshot/identity?secret=leak").content == identity_plain
+    status_plain = client.get("/v1/status").content
+    assert client.get("/v1/status?secret=leak").content == status_plain
     chunk_index_plain = client.get("/v1/chunks").content
     assert client.get("/v1/chunks?secret=leak").content == chunk_index_plain
     concept_index_plain = client.get("/v1/concepts").content
@@ -842,6 +914,7 @@ def test_no_project_text_outside_snapshot_routes(client: TestClient) -> None:
         "/.well-known/archolith-beacon",
         "/v1/snapshot/identity",
         "/v1/snapshot/orientation",
+        "/v1/status",
         "/v1/chunks",
         "/v1/concepts",
         "/v1/guardrails",
@@ -876,6 +949,7 @@ def test_immutable_after_source_file_changes(tmp_path) -> None:
         assert original_text not in test_client.get("/.well-known/archolith-beacon").text
         assert original_text not in test_client.get("/v1/snapshot/identity").text
         assert original_text not in test_client.get("/v1/snapshot/orientation").text
+        assert original_text not in test_client.get("/v1/status").text
         assert absolute not in test_client.get("/v1/snapshot").text
 
 

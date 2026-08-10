@@ -20,6 +20,7 @@ Routes (GET and HEAD):
 * ``/v1/snapshot/orientation`` -- metadata-only orientation representation;
 * ``/v1/snapshot`` -- the canonical snapshot payload;
 * ``/beacon.json`` -- byte/header-identical alias of ``/v1/snapshot``;
+* ``/v1/status`` -- declared work state plus startup-observed evidence;
 * ``/v1/chunks`` -- companion chunk index with byte budgets;
 * ``/v1/chunks/{id}`` -- one immutable published chunk resource;
 * ``/v1/concepts`` / ``/v1/concepts/{id}`` -- concept index and resources;
@@ -58,9 +59,10 @@ from beacon.core.snapshot import (
     metadata_only_snapshot,
     snapshot_bytes,
 )
+from beacon.core.status import STATUS_VERSION, StatusObservation, build_status_payload
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.4"
+_DESCRIPTOR_VERSION = "1.5"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -75,7 +77,11 @@ _SCOPE = "loopback"
 _AUTHENTICATION = "none"
 
 
-def create_http_app(snapshot: Snapshot) -> Starlette:
+def create_http_app(
+    snapshot: Snapshot,
+    *,
+    status_observation: StatusObservation | None = None,
+) -> Starlette:
     """Return a Starlette app serving an immutable view of *snapshot*.
 
     The snapshot is serialized to canonical bytes exactly once here; all
@@ -103,6 +109,15 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     guardrail_catalog = knowledge_catalogs.guardrails
     guardrail_index_etag = f'"{guardrail_catalog.index_sha256}"'
     schema_version = snapshot.beacon_snapshot_version
+    status_payload = dumps_canonical(
+        build_status_payload(
+            snapshot,
+            snapshot_sha256=sha256,
+            observation=status_observation,
+        )
+    )
+    status_sha256 = hashlib.sha256(status_payload).hexdigest()
+    status_etag = f'"{status_sha256}"'
 
     discovery = _discovery_payload(
         sha256=sha256,
@@ -120,6 +135,8 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
         guardrail_index_sha256=guardrail_catalog.index_sha256,
         guardrail_index_byte_count=len(guardrail_catalog.index_body),
         guardrail_count=len(guardrail_catalog.resources),
+        status_sha256=status_sha256,
+        status_byte_count=len(status_payload),
         schema_version=schema_version,
     )
     discovery_body = dumps_canonical(discovery)
@@ -133,6 +150,17 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     orientation_headers["link"] = '</v1/snapshot>; rel="alternate"; title="full snapshot"'
     identity_headers = _representation_headers(identity_payload, identity_sha256, identity_etag)
     identity_headers["link"] = (
+        '</v1/status>; rel="status"; title="project status", '
+        '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
+    )
+    status_headers = _representation_headers(
+        status_payload,
+        status_sha256,
+        status_etag,
+        digest_header="x-beacon-status-sha256",
+    )
+    status_headers["x-beacon-snapshot-sha256"] = sha256
+    status_headers["link"] = (
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
     )
     chunk_index_headers = _representation_headers(
@@ -240,6 +268,14 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             chunk_index_etag,
         )
 
+    async def status_route(request: Request) -> Response:
+        return _snapshot_response(
+            request,
+            status_payload,
+            status_headers,
+            status_etag,
+        )
+
     async def chunk_resource_route(request: Request) -> Response:
         resource = chunk_resources.get(request.path_params["chunk_id"])
         if resource is None:
@@ -298,6 +334,7 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
             Route("/v1/snapshot/orientation", orientation_route, methods=["GET", "HEAD"]),
             Route("/v1/snapshot", snapshot_route, methods=["GET", "HEAD"]),
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
+            Route("/v1/status", status_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks", chunk_index_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks/{chunk_id:str}", chunk_resource_route, methods=["GET", "HEAD"]),
             Route("/v1/concepts", concept_index_route, methods=["GET", "HEAD"]),
@@ -317,6 +354,7 @@ def create_http_app(snapshot: Snapshot) -> Starlette:
     app.state.beacon_chunk_index_sha256 = chunk_catalog.index_sha256
     app.state.beacon_concept_index_sha256 = concept_catalog.index_sha256
     app.state.beacon_guardrail_index_sha256 = guardrail_catalog.index_sha256
+    app.state.beacon_status_sha256 = status_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
@@ -444,6 +482,8 @@ def _discovery_payload(
     guardrail_index_sha256: str,
     guardrail_index_byte_count: int,
     guardrail_count: int,
+    status_sha256: str,
+    status_byte_count: int,
     schema_version: str,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document."""
@@ -457,6 +497,7 @@ def _discovery_payload(
             "chunks": True,
             "concepts": True,
             "guardrails": True,
+            "status": True,
             "query": False,
             "question_submission": False,
             "mcp_http": False,
@@ -491,6 +532,12 @@ def _discovery_payload(
             },
         },
         "resources": {
+            "status": {
+                "url": "/v1/status",
+                "version": STATUS_VERSION,
+                "sha256": status_sha256,
+                "bytes": status_byte_count,
+            },
             "chunks": {
                 "index_url": "/v1/chunks",
                 "item_url_template": "/v1/chunks/{id}",

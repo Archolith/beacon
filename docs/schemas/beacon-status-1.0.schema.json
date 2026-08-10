@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:status:1.0",
+  "title": "Beacon Project Status 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["beacon_status_version", "snapshot", "declared", "observed", "trust"],
+  "properties": {
+    "beacon_status_version": {"const": "1.0"},
+    "snapshot": {"$ref": "#/$defs/snapshot"},
+    "declared": {"$ref": "#/$defs/declared"},
+    "observed": {"$ref": "#/$defs/observed"},
+    "trust": {"$ref": "#/$defs/trust"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gitCommit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "schema_version"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"type": "string", "minLength": 1, "maxLength": 32}
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"type": "string", "maxLength": 64},
+        "title": {"type": "string", "maxLength": 512},
+        "path": {"type": "string", "maxLength": 1024},
+        "url": {"type": "string", "maxLength": 2048},
+        "line_start": {"type": "integer", "minimum": 1},
+        "line_end": {"type": "integer", "minimum": 1},
+        "status": {"type": "string", "maxLength": 64}
+      }
+    },
+    "stateItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "summary", "next_step", "sources"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 512},
+        "summary": {"type": "string", "maxLength": 4096},
+        "next_step": {"type": "string", "maxLength": 4096},
+        "sources": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/citation"}
+        }
+      }
+    },
+    "declared": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_work", "recently_completed", "blockers", "pending_decisions"],
+      "properties": {
+        "active_work": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/stateItem"}
+          ]
+        },
+        "recently_completed": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/stateItem"}
+        },
+        "blockers": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/stateItem"}
+        },
+        "pending_decisions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/stateItem"}
+        }
+      }
+    },
+    "repository": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {"state": {"const": "unavailable"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "commit", "branch", "dirty"],
+          "properties": {
+            "state": {"const": "observed"},
+            "commit": {"$ref": "#/$defs/gitCommit"},
+            "branch": {"type": "string", "minLength": 1, "maxLength": 1024},
+            "dirty": {"type": "boolean"}
+          }
+        }
+      ]
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "expected_sha256", "state"],
+      "properties": {
+        "kind": {"enum": ["manifest", "document"]},
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "expected_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_sha256": {"$ref": "#/$defs/sha256"},
+        "state": {"enum": ["fresh", "stale", "missing", "unavailable"]}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "checked", "fresh", "stale", "missing", "unavailable", "sources"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "missing", "unavailable"]},
+        "checked": {"type": "integer", "minimum": 0},
+        "fresh": {"type": "integer", "minimum": 0},
+        "stale": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0},
+        "unavailable": {"type": "integer", "minimum": 0},
+        "sources": {
+          "type": "array",
+          "maxItems": 257,
+          "items": {"$ref": "#/$defs/sourceEvidence"}
+        }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "observed_at", "repository", "freshness"],
+      "properties": {
+        "mode": {"enum": ["startup", "not_collected"]},
+        "observed_at": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "format": "date-time"}
+          ]
+        },
+        "repository": {"$ref": "#/$defs/repository"},
+        "freshness": {"$ref": "#/$defs/freshness"}
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion", "signed", "verification_scope", "note"],
+      "properties": {
+        "assertion": {"const": "self_reported"},
+        "signed": {"const": false},
+        "verification_scope": {"const": "origin_startup"},
+        "note": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    }
+  }
+}

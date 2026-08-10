@@ -341,7 +341,12 @@ class TestServeHttp:
         assert result.stdout == ""
         snap = run.call_args.args[0]
         assert snap.content_mode == "embedded"
-        assert run.call_args.kwargs == {"host": "127.0.0.1", "port": 0}
+        assert run.call_args.kwargs["host"] == "127.0.0.1"
+        assert run.call_args.kwargs["port"] == 0
+        observation = run.call_args.kwargs["status_observation"]
+        assert observation.mode == "startup"
+        assert observation.observed_at.endswith("Z")
+        assert observation.sources
 
     def test_non_loopback_host_refuses_before_snapshot(self, valid_manifest: Path) -> None:
         with mock.patch("beacon.main._serve_http_snapshot") as run:

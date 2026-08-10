@@ -304,7 +304,7 @@ def build_plan(
                 name="http_snapshot",
                 description=(
                     "real loopback HTTP discovery, identity/orientation/full snapshots, selective "
-                    "concept/guardrail/chunk resources, health, alias, HEAD, ETag, and errors"
+                    "status/concept/guardrail/chunk resources, health, alias, HEAD, ETag, and errors"
                 ),
                 func=lambda: probe_http_snapshot(
                     beacon_cmd,
@@ -447,6 +447,7 @@ def probe_http_snapshot(
             "chunks": True,
             "concepts": True,
             "guardrails": True,
+            "status": True,
             "mcp_http": False,
             "query": False,
             "question_submission": False,
@@ -455,8 +456,8 @@ def probe_http_snapshot(
             raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.4":
-            raise JourneyError("HTTP discovery descriptor version is not 1.4")
+        if descriptor.get("descriptor_version") != "1.5":
+            raise JourneyError("HTTP discovery descriptor version is not 1.5")
         representations = descriptor.get("representations", {})
         if representations.get("identity") != {
             "url": "/v1/snapshot/identity",
@@ -482,6 +483,36 @@ def probe_http_snapshot(
             "schema_version": "1.0",
         }:
             raise JourneyError("HTTP discovery full representation is wrong")
+
+        status_body, status_headers = _http_request(base_url + "/v1/status")
+        status_sha = hashlib.sha256(status_body).hexdigest()
+        status = json.loads(status_body)
+        _validate_http_schema(status, schema_name="beacon-status-1.0.schema.json")
+        if descriptor.get("resources", {}).get("status") != {
+            "url": "/v1/status",
+            "version": "1.0",
+            "sha256": status_sha,
+            "bytes": len(status_body),
+        }:
+            raise JourneyError("HTTP discovery status resource is wrong")
+        if status.get("snapshot", {}).get("sha256") != expected_sha:
+            raise JourneyError("HTTP status does not identify the full snapshot")
+        if (
+            status.get("trust", {}).get("assertion") != "self_reported"
+            or status.get("trust", {}).get("signed") is not False
+        ):
+            raise JourneyError("HTTP status overstates unsigned trust")
+        observed = status.get("observed", {})
+        if observed.get("mode") != "startup" or not observed.get("observed_at"):
+            raise JourneyError("HTTP status omits its startup observation time")
+        freshness = observed.get("freshness", {})
+        if freshness.get("state") != "fresh" or freshness.get("stale") != 0:
+            raise JourneyError("HTTP status source freshness is not clean at startup")
+        if status_headers.get("x-beacon-status-sha256") != status_sha:
+            raise JourneyError("HTTP status digest header is wrong")
+        if status_headers.get("x-beacon-snapshot-sha256") != expected_sha:
+            raise JourneyError("HTTP status lineage header is wrong")
+        _assert_no_server_identity(status_headers)
 
         chunk_index_body, chunk_index_headers = _http_request(base_url + "/v1/chunks")
         chunk_index_sha = hashlib.sha256(chunk_index_body).hexdigest()
@@ -596,9 +627,10 @@ def probe_http_snapshot(
         if identity_headers.get("etag") != f'"{identity_sha}"':
             raise JourneyError("HTTP identity ETag is wrong")
         if identity_headers.get("link") != (
+            '</v1/status>; rel="status"; title="project status", '
             '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
         ):
-            raise JourneyError("HTTP identity does not link to orientation")
+            raise JourneyError("HTTP identity does not link to status and orientation")
         _assert_no_server_identity(identity_headers)
 
         orientation_body, orientation_headers = _http_request(base_url + "/v1/snapshot/orientation")
@@ -661,6 +693,16 @@ def probe_http_snapshot(
             304,
             headers={"If-None-Match": f'"{identity_sha}"'},
         )
+        status_head_body, status_head_headers = _http_request(
+            base_url + "/v1/status", method="HEAD"
+        )
+        if status_head_body or status_head_headers.get("etag") != status_headers.get("etag"):
+            raise JourneyError("HTTP status HEAD response differs from GET")
+        _http_expect_status(
+            base_url + "/v1/status",
+            304,
+            headers={"If-None-Match": status_headers["etag"]},
+        )
         chunk_index_head_body, chunk_index_head_headers = _http_request(
             base_url + "/v1/chunks", method="HEAD"
         )
@@ -716,6 +758,7 @@ def probe_http_snapshot(
         _http_expect_status(base_url + "/v1/snapshot", 405, method="POST")
         _http_expect_status(base_url + "/v1/snapshot/orientation", 405, method="POST")
         _http_expect_status(base_url + "/v1/snapshot/identity", 405, method="POST")
+        _http_expect_status(base_url + "/v1/status", 405, method="POST")
         _http_expect_status(base_url + "/v1/chunks", 405, method="POST")
         _http_expect_status(base_url + "/v1/chunks/not-a-real-id?private=query", 404)
         for kind in ("concepts", "guardrails"):

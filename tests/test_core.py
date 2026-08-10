@@ -99,6 +99,58 @@ def test_loader_parses_guardrails(tmp_path: Path) -> None:
     assert manifest.guardrails[0].severity == "high"
 
 
+def test_loader_parses_optional_project_state() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {
+        "active_work": {
+            "title": "Ship status",
+            "summary": "Expose current work.",
+            "next_step": "Add the route.",
+            "sources": [{"path": "README.md", "line_start": 1, "line_end": 2}],
+        },
+        "recently_completed": [{"title": "Chunk retrieval"}],
+        "blockers": [],
+        "pending_decisions": [{"title": "Summary budget"}],
+    }
+
+    state = parse_manifest(raw).project_state
+
+    assert state.active_work is not None
+    assert state.active_work.title == "Ship status"
+    assert state.active_work.next_step == "Add the route."
+    assert state.active_work.sources[0].path == "README.md"
+    assert state.recently_completed[0].title == "Chunk retrieval"
+    assert state.pending_decisions[0].title == "Summary budget"
+
+
+@pytest.mark.parametrize(
+    ("project_state", "match"),
+    (
+        (None, "project_state must be a mapping"),
+        ({"active_work": None}, "project_state.active_work must be a mapping"),
+        ({"active_work": {}}, "needs a 'title'"),
+        ({"blockers": None}, "project_state.blockers must be a list"),
+        ({"blockers": [{"title": 42}]}, "title must be a string"),
+    ),
+)
+def test_loader_rejects_malformed_project_state(project_state: object, match: str) -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = project_state
+    with pytest.raises(ManifestError, match=match):
+        parse_manifest(raw)
+
+
+def test_loader_bounds_project_state_items_and_text() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {"blockers": [{"title": "x"}] * 65}
+    with pytest.raises(ManifestError, match="at most 64 items"):
+        parse_manifest(raw)
+
+    raw["project_state"] = {"active_work": {"title": "x" * 513}}
+    with pytest.raises(ManifestError, match="at most 512 characters"):
+        parse_manifest(raw)
+
+
 def test_loader_concept_requires_id(tmp_path: Path) -> None:
     raw = dict(MINIMAL_RAW)
     raw["core_concepts"] = [{"name": "Missing ID", "description": "no id"}]
@@ -317,6 +369,14 @@ def test_validator_checks_project_and_source_statuses() -> None:
     invalid = [issue.where for issue in report.warnings if "unknown status" in issue.message]
     assert "project.status" in invalid
     assert "core_concepts[x].sources[].status" in invalid
+
+
+def test_validator_requires_sources_for_declared_project_state() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {"active_work": {"title": "Unsourced active work"}}
+    report = validate_beacon_manifest(parse_manifest(raw))
+
+    assert any(issue.code == "project_state_sources_missing" for issue in report.warnings)
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ from beacon.core.paths import UnsafeCanonicalPath, resolve_canonical_path
 from beacon.core.scaffold import OPERATION_REFUSED, InitReport
 from beacon.core.schema import to_payload as schema_payload
 from beacon.core.security import SecurityOverrideError, parse_security_overrides
+from beacon.core.status import StatusObservation, observe_project_status
 
 EXIT_OK = cli_support.EXIT_OK
 EXIT_VALIDATION = cli_support.EXIT_VALIDATION
@@ -351,18 +352,35 @@ def _serve_http_impl(
             EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"
         ) from exc
 
-    _serve_http_snapshot(snap, host=host, port=port)
+    status_observation = observe_project_status(
+        snap,
+        manifest_path=context.manifest_path,
+        docs_root=context.docs_root,
+        limits=context.limits,
+    )
+    _serve_http_snapshot(
+        snap,
+        host=host,
+        port=port,
+        status_observation=status_observation,
+    )
     return EXIT_OK
 
 
-def _serve_http_snapshot(snap: snapshot_mod.Snapshot, *, host: str, port: int) -> None:
+def _serve_http_snapshot(
+    snap: snapshot_mod.Snapshot,
+    *,
+    host: str,
+    port: int,
+    status_observation: StatusObservation,
+) -> None:
     """Bind one loopback socket and run the immutable ASGI snapshot application."""
     import uvicorn
 
     from beacon import __version__
     from beacon.http_api import create_http_app
 
-    app_http = create_http_app(snap)
+    app_http = create_http_app(snap, status_observation=status_observation)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         listener.bind((host, port))

@@ -590,6 +590,19 @@ def _refuse_unsafe_manifest_paths(manifest: BeaconManifest) -> None:
         candidates.extend(guard.applies_to)
         candidates.extend(source.path for source in guard.sources)
         candidates.extend(source.url for source in guard.sources)
+    state_items = (
+        (
+            ()
+            if manifest.project_state.active_work is None
+            else (manifest.project_state.active_work,)
+        )
+        + manifest.project_state.recently_completed
+        + manifest.project_state.blockers
+        + manifest.project_state.pending_decisions
+    )
+    for item in state_items:
+        candidates.extend(source.path for source in item.sources)
+        candidates.extend(source.url for source in item.sources)
     candidates.extend(manifest.agent_guidance.read_first)
     candidates.extend(manifest.agent_guidance.avoid_without_review)
     for candidate in candidates:

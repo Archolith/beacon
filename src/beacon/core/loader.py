@@ -32,11 +32,15 @@ from beacon.core.schema import (
     BeaconGuardrail,
     BeaconManifest,
     BeaconProjectInfo,
+    BeaconProjectState,
     BeaconPurpose,
     BeaconSource,
+    BeaconStateItem,
 )
 
 _MISSING = object()
+_MAX_PROJECT_STATE_ITEMS = 64
+_MAX_PROJECT_STATE_SOURCES = 64
 
 
 class ManifestError(ValueError):
@@ -191,6 +195,9 @@ def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
             _parse_guardrail(item)
             for item in _as_list(raw.get("guardrails", _MISSING), "guardrails")
         ),
+        project_state=_parse_project_state(
+            _as_map(raw.get("project_state", _MISSING), "project_state", optional=True)
+        ),
     )
 
 
@@ -286,6 +293,59 @@ def _parse_build_test(data: dict[str, Any]) -> BeaconBuildTest:
         test=_opt_str(data.get("test", _MISSING), "build_and_test.test"),
         benchmark=_opt_str(data.get("benchmark", _MISSING), "build_and_test.benchmark"),
     )
+
+
+def _parse_project_state(data: dict[str, Any]) -> BeaconProjectState:
+    active_raw = data.get("active_work", _MISSING)
+    active_work = None
+    if active_raw is not _MISSING:
+        active_work = _parse_state_item(active_raw, "project_state.active_work")
+    return BeaconProjectState(
+        active_work=active_work,
+        recently_completed=_parse_state_items(
+            data.get("recently_completed", _MISSING),
+            "project_state.recently_completed",
+        ),
+        blockers=_parse_state_items(
+            data.get("blockers", _MISSING),
+            "project_state.blockers",
+        ),
+        pending_decisions=_parse_state_items(
+            data.get("pending_decisions", _MISSING),
+            "project_state.pending_decisions",
+        ),
+    )
+
+
+def _parse_state_items(value: Any, where: str) -> tuple[BeaconStateItem, ...]:
+    items = _as_list(value, where)
+    if len(items) > _MAX_PROJECT_STATE_ITEMS:
+        raise ManifestError(f"{where} must contain at most {_MAX_PROJECT_STATE_ITEMS} items")
+    return tuple(_parse_state_item(item, f"{where}[]") for item in items)
+
+
+def _parse_state_item(item: Any, where: str) -> BeaconStateItem:
+    data = _as_map(item, where)
+    if "title" not in data:
+        raise ManifestError(f"{where} needs a 'title'")
+    sources = _parse_sources(data.get("sources", _MISSING))
+    if len(sources) > _MAX_PROJECT_STATE_SOURCES:
+        raise ManifestError(
+            f"{where}.sources must contain at most {_MAX_PROJECT_STATE_SOURCES} items"
+        )
+    return BeaconStateItem(
+        title=_bounded_state_text(data["title"], f"{where}.title", 512),
+        summary=_bounded_state_text(data.get("summary", _MISSING), f"{where}.summary", 4096),
+        next_step=_bounded_state_text(data.get("next_step", _MISSING), f"{where}.next_step", 4096),
+        sources=sources,
+    )
+
+
+def _bounded_state_text(value: Any, field: str, maximum: int) -> str:
+    text = _collapse(value, field)
+    if len(text) > maximum:
+        raise ManifestError(f"{field} must contain at most {maximum} characters")
+    return text
 
 
 def _parse_sources(value: Any) -> tuple[BeaconSource, ...]:

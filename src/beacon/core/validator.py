@@ -55,6 +55,8 @@ CODE_TEST_COMMAND_MISSING = "test_command_missing"
 CODE_KNOWLEDGE_STATUS_INVALID = "knowledge_status_invalid"
 CODE_PROJECT_STATUS_UNKNOWN = "project_status_unknown"
 CODE_PURPOSE_MISSING = "purpose_missing"
+CODE_PROJECT_STATE_TITLE_MISSING = "project_state_title_missing"
+CODE_PROJECT_STATE_SOURCES_MISSING = "project_state_sources_missing"
 CODE_LEGACY_ISSUE = "legacy_issue"
 
 #: Every code the validator can emit. Used to tell an unknown acknowledgement
@@ -78,6 +80,8 @@ VALIDATION_CODES = frozenset(
         CODE_KNOWLEDGE_STATUS_INVALID,
         CODE_PROJECT_STATUS_UNKNOWN,
         CODE_PURPOSE_MISSING,
+        CODE_PROJECT_STATE_TITLE_MISSING,
+        CODE_PROJECT_STATE_SOURCES_MISSING,
         CODE_LEGACY_ISSUE,
     }
 )
@@ -94,6 +98,7 @@ PUBLICATION_WARNING_CODES = frozenset(
         CODE_RELATED_CONCEPT_UNKNOWN,
         CODE_KNOWLEDGE_STATUS_INVALID,
         CODE_CANONICAL_DOC_DUPLICATE,
+        CODE_PROJECT_STATE_SOURCES_MISSING,
     }
 )
 
@@ -332,6 +337,42 @@ def validate_beacon_manifest(
                 CODE_TEST_COMMAND_MISSING,
             )
         )
+
+    # --- maintainer-declared project state --------------------------------
+    state_groups = (
+        (
+            "active_work",
+            ()
+            if manifest.project_state.active_work is None
+            else (manifest.project_state.active_work,),
+        ),
+        ("recently_completed", manifest.project_state.recently_completed),
+        ("blockers", manifest.project_state.blockers),
+        ("pending_decisions", manifest.project_state.pending_decisions),
+    )
+    for group, items in state_groups:
+        for index, item in enumerate(items):
+            where = f"project_state.{group}[{index}]"
+            if not item.title.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        f"{where}.title",
+                        "is required",
+                        CODE_PROJECT_STATE_TITLE_MISSING,
+                    )
+                )
+            if not item.sources:
+                issues.append(
+                    ValidationIssue(
+                        "warning",
+                        f"{where}.sources",
+                        "has no source citation",
+                        CODE_PROJECT_STATE_SOURCES_MISSING,
+                    )
+                )
+            for source in item.sources:
+                _check_status(issues, f"{where}.sources[].status", source.status)
 
     return ValidationReport(tuple(issues))
 
