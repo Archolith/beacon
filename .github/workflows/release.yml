@@ -140,4 +140,4 @@ jobs:
           if [[ "$RELEASE_TAG" == *"rc"* ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" dist/* checksums/SHA256SUMS --verify-tag --generate-notes "${flags[@]}"
+          gh release create "$RELEASE_TAG" dist/* checksums/SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes "${flags[@]}"
