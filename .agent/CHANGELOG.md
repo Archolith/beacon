@@ -1,5 +1,12 @@
 # Changelog — beacon
 
+## 2026-08-10 — Cross-platform init symlink refusal
+
+- Fixed `beacon init` to preserve an existing final-target symlink long enough for the overwrite
+  classifier to return the documented refusal report instead of raising during path containment.
+- Kept direct output-path resolution strict for final symlinks that escape the repository, and added
+  regression coverage for that boundary.
+
 ## 2026-08-10 — Negative-control mutation gate
 
 - Added a deterministic mutation runner covering known-token detection, strict-warning

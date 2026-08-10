@@ -467,6 +467,18 @@ def test_resolve_output_path_escape(tmp_path: Path) -> None:
         resolve_output_path(root, "C:\\windows\\evil.yaml")
 
 
+def test_resolve_output_path_rejects_final_symlink_escape(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("x", encoding="utf-8")
+    try:
+        (root / DEFAULT_MANIFEST_NAME).symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    with pytest.raises(UnsafeCanonicalPath):
+        resolve_output_path(root, DEFAULT_MANIFEST_NAME)
+
+
 # ---------------------------------------------------------------------------
 # Init: create / dry-run / replace / refused
 # ---------------------------------------------------------------------------

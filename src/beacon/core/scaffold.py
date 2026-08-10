@@ -254,7 +254,12 @@ def init(
     # Resolve/validate the manifest target up front (without writing) so an
     # over-long or unsafe path is refused even when no canonical doc exists and
     # the no-doc branch would otherwise return a schema-shaped report.
-    target = _resolve_manifest_target(root, normalized_path, active)
+    target = _resolve_manifest_target(
+        root,
+        normalized_path,
+        active,
+        preserve_target_symlink=True,
+    )
     root_path = Path(root).resolve()
 
     if not discovery.canonical_docs:
@@ -399,15 +404,24 @@ def _security_finding_payload(finding: SecurityFinding) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_manifest_target(root: str | Path, manifest_path: str, limits: ResourceLimits) -> Path:
+def _resolve_manifest_target(
+    root: str | Path,
+    manifest_path: str,
+    limits: ResourceLimits,
+    *,
+    preserve_target_symlink: bool = False,
+) -> Path:
     """Return the lexical in-root candidate for *manifest_path*.
 
     The lexical candidate preserves symlink identity so a target symlink (or a
     symlinked parent component below root) is not mistaken for its referent.
     Resolution is used *only* for containment: the candidate must resolve to a
     path still under the resolved root, or :class:`UnsafeCanonicalPath` is
-    raised. The normalized ``manifest_path`` is also subject to the one-relative-
-    path byte limit (``limit_path_bytes``) and refused before any write.
+    raised. When ``preserve_target_symlink`` is true, an existing final-component
+    symlink is returned lexically so init's target classifier can produce its
+    required refusal report without following or writing through the link. The
+    normalized ``manifest_path`` is also subject to the one-relative-path byte
+    limit (``limit_path_bytes``) and refused before any write.
     """
     if not manifest_path or is_unsafe_path(manifest_path):
         raise UnsafeCanonicalPath()
@@ -422,6 +436,8 @@ def _resolve_manifest_target(root: str | Path, manifest_path: str, limits: Resou
         )
     root_resolved = Path(root).resolve()
     lexical = root_resolved.joinpath(manifest_path)
+    if preserve_target_symlink and lexical.is_symlink():
+        return lexical
     try:
         resolved = lexical.resolve()
     except (OSError, RuntimeError) as exc:
