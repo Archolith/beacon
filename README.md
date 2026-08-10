@@ -1,9 +1,7 @@
 # Beacon
 
-> **Status: `0.2.0rc1` development checkout.**
-> `archolith-beacon` is not on PyPI yet because its
-> `archolith-mcp-framework` dependency must be published first. See
-> [Install](#install) to run Beacon from a source checkout.
+> **Status: `0.2.0rc1` release candidate.**
+> Install the pinned release candidate from PyPI, or use a source checkout for development.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -27,32 +25,25 @@ does not need an external service, database, runtime LLM call, telemetry, or upd
 
 ## Install
 
-This checkout is `0.2.0rc1`. For now, install it from source. A normal
-`pip install archolith-beacon` will not work until `archolith-mcp-framework`
-has been published to PyPI.
+Install the release candidate and its published framework dependency from PyPI:
+
+```bash
+python -m pip install "archolith-beacon==0.2.0rc1"
+```
 
 The distribution name is `archolith-beacon`; the import package is `beacon` and
 the CLI command is `beacon`.
 
-Check out this repository and `archolith-mcp-framework` v0.2.0 side by side.
-Install the framework first so Beacon resolves the local copy:
+For development, check out this repository and install its dev dependencies:
 
 ```bash
-# 1. Check out the framework release and install it editable (must come first).
-git clone https://github.com/Archolith/archolith-mcp-framework.git
-cd archolith-mcp-framework
-git checkout v0.2.0
-pip install -e .
-
-# 2. Back in this repository, install Beacon editable with dev tooling.
-cd <path-to-this-beacon-checkout>
+git clone https://github.com/Archolith/beacon.git
+cd beacon
 pip install -e ".[dev]"
 ```
 
-The package metadata still uses the normal
-`archolith-mcp-framework>=0.2,<0.3` constraint. It does not contain a Git URL
-or depend on a private package index. Once the framework is on PyPI,
-`pip install archolith-beacon` will become the standard installation path.
+The package metadata uses the normal `archolith-mcp-framework>=0.2,<0.3`
+constraint. It does not contain a Git URL or depend on a private package index.
 
 **Requires Python 3.12, 3.13, or 3.14.**
 
@@ -408,16 +399,12 @@ emits structure and hashes without the text.
 
 ## Status
 
-Beacon is experimental, and this checkout is `0.2.0rc1` development. The v0.2
+Beacon is experimental, and this checkout is the `0.2.0rc1` release candidate. The v0.2
 local functionality is implemented: `beacon init`, `validate`, `inspect`,
 `export`, and `serve` (plus the no-argument stdio server) are shipped and
 tested, and the maintained examples pass their validation/provider/snapshot
-matrix. Two release gates remain, not missing feature scope:
+matrix. One release gate remains, not missing feature scope:
 
-- **Public publication.** `archolith-beacon` is not on the public package index
-  yet because its `archolith-mcp-framework` dependency must be published first.
-  Install from source as described under [Install](#install) for now, and do not
-  treat the public index as available until that dependency is published.
 - **Unaided developer trial.** The 15-minute cold-start claim is a separate
   acceptance gate to be measured with a developer who did not write the
   implementation; documentation does not assert that it has passed.

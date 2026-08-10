@@ -1,5 +1,11 @@
 # Changelog — beacon
 
+## 2026-08-10 — Release-candidate publication docs
+
+- Updated installation and client setup guidance for the public `archolith-mcp-framework==0.2.0`
+  dependency and pinned `archolith-beacon==0.2.0rc1` release candidate.
+- Narrowed the remaining v0.2 gate to the genuinely unaided developer trial.
+
 ## 2026-08-10 — Cross-platform init symlink refusal
 
 - Fixed `beacon init` to preserve an existing final-target symlink long enough for the overwrite

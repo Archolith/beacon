@@ -13,24 +13,13 @@ no telemetry, and no update check. Everything runs on your machine.
 
 ## 1. Install Beacon
 
-> **Status note.** This checkout is `0.2.0rc1` development. `archolith-beacon`
-> is not yet installable from the public package index because its
-> `archolith-mcp-framework` dependency must be published first. Until then,
-> install both from source checkouts as shown below. The commands in this guide
-> use the same distribution and CLI names that the wheel install will use.
+> **Status note.** This guide targets the published `0.2.0rc1` release candidate.
 
-Install the framework first, then Beacon, from side-by-side source checkouts:
+Install the pinned release candidate from PyPI. Its framework dependency resolves
+from the public index automatically:
 
 ```bash
-git clone https://github.com/Archolith/archolith-mcp-framework.git
-cd archolith-mcp-framework
-git checkout v0.2.0
-python -m pip install -e .
-
-cd ..
-git clone https://github.com/Archolith/beacon.git
-cd beacon
-python -m pip install -e ".[dev]"
+python -m pip install "archolith-beacon==0.2.0rc1"
 ```
 
 Check the CLI is present:
@@ -39,9 +28,6 @@ Check the CLI is present:
 beacon --version
 beacon --help
 ```
-
-When published, the install line becomes `python -m pip install archolith-beacon`
-with the dependency resolved from the public index automatically.
 
 ---
 
