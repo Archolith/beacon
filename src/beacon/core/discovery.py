@@ -410,7 +410,7 @@ def sanitize_remote_url(raw: str) -> tuple[str | None, tuple[SecurityFinding, ..
                 SecurityFinding(code=SENSITIVE_CREDENTIAL_URL, path=".git/config", blocked=False),
             )
         if parts.scheme in ("ssh", "git"):
-            netloc = f"[{host}]" if ":" in host else host
+            netloc = f"[{host}]" if host is not None and ":" in host else host
             scheme = "https"
         else:
             netloc = hostport

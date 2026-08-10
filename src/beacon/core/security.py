@@ -39,7 +39,8 @@ SENSITIVE_PRIVATE_KEY = "sensitive_private_key"
 SENSITIVE_CREDENTIAL_URL = "sensitive_credential_url"
 
 #: Stable diagnostic code: known provider token prefix/structure.
-SENSITIVE_KNOWN_TOKEN = "sensitive_known_token"
+# This is a public diagnostic code string, not a credential value.
+SENSITIVE_KNOWN_TOKEN = "sensitive_known_token"  # nosec B105
 
 #: Stable diagnostic code: known sensitive file excluded from discovery.
 SENSITIVE_FILE_EXCLUDED = "sensitive_file_excluded"

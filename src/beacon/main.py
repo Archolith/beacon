@@ -851,15 +851,15 @@ def _export_impl(
     if output == "-":
         # Raw canonical snapshot to stdout: exactly one document + newline, no write.
         try:
-            payload = snapshot_mod.snapshot_bytes(snap)
+            snapshot_bytes_out = snapshot_mod.snapshot_bytes(snap)
         except LimitError as exc:
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
         buffer = getattr(sys.stdout, "buffer", None)
         if buffer is not None:
-            buffer.write(payload)
+            buffer.write(snapshot_bytes_out)
             buffer.flush()
         else:  # pragma: no cover - defensive when stdout has no byte buffer
-            sys.stdout.write(payload.decode("utf-8"))
+            sys.stdout.write(snapshot_bytes_out.decode("utf-8"))
             sys.stdout.flush()
         return EXIT_OK
 
@@ -869,11 +869,11 @@ def _export_impl(
 
     # Exact canonical bytes for the artifact digest/byte count and the file write.
     try:
-        payload = snapshot_mod.snapshot_bytes(snap)
+        snapshot_bytes_out = snapshot_mod.snapshot_bytes(snap)
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-    artifact_sha = hashlib.sha256(payload).hexdigest()
-    artifact_bytes = len(payload)
+    artifact_sha = hashlib.sha256(snapshot_bytes_out).hexdigest()
+    artifact_bytes = len(snapshot_bytes_out)
     try:
         snapshot_mod.write_snapshot_atomic(out_path, snap, byte_ceiling=snap.byte_ceiling)
     except LimitError as exc:
@@ -885,7 +885,7 @@ def _export_impl(
 
     diagnostics = cli_support.report_to_diagnostics(context.report, context.acknowledgements)
     if fmt == "json":
-        payload = {
+        result_payload = {
             "content_mode": snap.content_mode,
             "documents": len(snap.documents),
             "chunks": sum(len(d.chunks) for d in snap.documents),
@@ -895,7 +895,7 @@ def _export_impl(
             "security_overrides": len(snap.validation.security_overrides),
             "limits": _limit_ok_payload(context.limits),
         }
-        _json("export", ok=True, result_payload=payload, diagnostics=diagnostics)
+        _json("export", ok=True, result_payload=result_payload, diagnostics=diagnostics)
     else:
         _text_export(out_path, snap, artifact_sha=artifact_sha, artifact_bytes=artifact_bytes)
     return EXIT_OK
