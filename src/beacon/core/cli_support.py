@@ -317,6 +317,25 @@ def _build_command_context(
     )
 
 
+def build_provider(context: CommandContext) -> ManifestBeaconProvider:
+    """Attach a provider to an already-built *context* without re-reading the manifest.
+
+    Requires ``context.report.ok`` (servable); otherwise raises an exit-1
+    :class:`CliFailure` with :data:`CODE_NOT_SERVABLE`. The provider is built
+    from the context's already-loaded manifest, limits, and docs root so the
+    shared one-read pipeline holds. Used by ``inspect`` and the explicit
+    ``serve`` command after they have surfaced the full validation diagnostics.
+    """
+    if not context.report.ok:
+        raise CliFailure(
+            EXIT_VALIDATION,
+            CODE_NOT_SERVABLE,
+            "manifest is not servable",
+            severity="error",
+        )
+    return _build_provider(context.docs_root, context.limits, context.manifest)
+
+
 def _build_provider(
     docs_root: Path, limits: ResourceLimits, manifest: BeaconManifest
 ) -> ManifestBeaconProvider:
@@ -385,6 +404,7 @@ __all__ = [
     "CliFailure",
     "CommandContext",
     "build_command_context",
+    "build_provider",
     "build_resource_limits",
     "effective_limits_mapping",
     "normalize_internal",
