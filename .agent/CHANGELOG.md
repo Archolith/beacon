@@ -1,5 +1,18 @@
 # Changelog — beacon
 
+## 2026-08-09 — Public GitHub project infrastructure
+
+- Added SHA-pinned cross-platform CI for Python 3.12–3.14, package validation, installed-wheel
+  smoke testing, and retained build artifacts.
+- Added a tag-gated, environment-protected PyPI trusted-publishing workflow that verifies the
+  tag/version pair and release artifact before publishing or creating a GitHub release.
+- Added Dependabot, CODEOWNERS, pull-request and issue templates, contribution guidance, and a
+  security policy. The release workflow intentionally requires the Archolith MCP framework to be
+  available from a public package index before publication can succeed.
+- The GitHub repository is public with squash-only merging, automatic branch deletion, security
+  alerts/fixes, private vulnerability reporting, and protected `master`. Required CI status checks
+  will be attached after the workflows have run once and stable check names exist.
+
 ## 2026-08-09 — Stable validation codes and strict/acknowledgement policy
 
 - `src/beacon/core/validator.py` — `ValidationIssue` now carries a stable, non-secret
