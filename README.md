@@ -1,7 +1,7 @@
 # Beacon
 
-> **Status: `0.2.0rc1` release candidate.**
-> Install the pinned release candidate from PyPI, or use a source checkout for development.
+> **Status: `0.2.0rc2` release candidate, pending publication.**
+> Use a source checkout until RC2 is published; then install the pinned release candidate from PyPI.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -25,10 +25,10 @@ does not need an external service, database, runtime LLM call, telemetry, or upd
 
 ## Install
 
-Install the release candidate and its published framework dependency from PyPI:
+After RC2 is published, install it and its published framework dependency from PyPI:
 
 ```bash
-python -m pip install "archolith-beacon==0.2.0rc1"
+python -m pip install "archolith-beacon==0.2.0rc2"
 ```
 
 The distribution name is `archolith-beacon`; the import package is `beacon` and
@@ -61,6 +61,7 @@ beacon init
   -> beacon inspect --task-hint "..."
   -> beacon export
   -> connect MCP client / beacon serve
+  -> optional plain JSON / beacon serve-http
 ```
 
 **1. Add a `beacon.yaml` to your repo.**
@@ -132,7 +133,7 @@ the no-argument defaults.
 
 ```bash
 beacon --version
-# beacon 0.2.0rc1
+# beacon 0.2.0rc2
 ```
 
 **5. Start the MCP server.**
@@ -150,6 +151,23 @@ BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon
 Configure your agent client to launch one of these commands (see
 [Connecting an agent](#connecting-an-agent) and the maintained
 [docs/client-setup.md](docs/client-setup.md)).
+
+**6. Optionally serve the snapshot as plain JSON.**
+
+Clients that do not speak MCP can use the loopback-only HTTP compatibility surface:
+
+```bash
+beacon serve-http --manifest beacon.yaml
+curl http://127.0.0.1:8765/.well-known/archolith-beacon
+curl http://127.0.0.1:8765/v1/snapshot
+```
+
+`/beacon.json` is a permanent alias for `/v1/snapshot`; `/healthz` returns redacted readiness
+metadata. The server builds the embedded canonical snapshot once at startup and serves immutable
+bytes with a SHA-256 ETag. It accepts only `127.0.0.1`, sends no CORS or access-log output, and
+refuses to start unless the same publication, path, resource, and secret gates as `beacon export`
+pass. Querying, question submission, remote binding, authentication, and AI synthesis are not RC2
+capabilities and are advertised as unavailable in discovery.
 
 ---
 
@@ -399,9 +417,9 @@ emits structure and hashes without the text.
 
 ## Status
 
-Beacon is experimental, and this checkout is the `0.2.0rc1` release candidate. The v0.2
+Beacon is experimental, and this checkout is the `0.2.0rc2` release candidate. The v0.2
 local functionality is implemented: `beacon init`, `validate`, `inspect`,
-`export`, and `serve` (plus the no-argument stdio server) are shipped and
+`export`, `serve`, and loopback-only `serve-http` (plus the no-argument stdio server) are shipped and
 tested, and the maintained examples pass their validation/provider/snapshot
 matrix. One release gate remains, not missing feature scope:
 
@@ -410,9 +428,10 @@ matrix. One release gate remains, not missing feature scope:
   implementation; documentation does not assert that it has passed.
 
 A `MenhirBeaconProvider` is a deferred v0.3 limitation, not evidence that this
-v0.2 scope is unfinished. Beacon is static and offline: no database, no runtime
-network call, no LLM or embedding, no telemetry, and no update check. It reads
-only the manifest and the documents it lists.
+v0.2 scope is unfinished. Beacon is static and has no outbound runtime network call: no database,
+no LLM or embedding, no telemetry, and no update check. The optional HTTP compatibility process
+listens only on loopback and serves the same startup snapshot. Beacon reads only the manifest and
+the documents it lists.
 
 Track the product path in
 [`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The
@@ -442,7 +461,8 @@ pip install -e ".[dev]"
 python -m pytest tests/ -x --tb=short
 ```
 
-All tests run offline. They do not require Neo4j, a network connection, or an external service.
+All tests run without outbound network access. They do not require Neo4j or an external service;
+the HTTP integration check uses only an ephemeral loopback socket.
 
 The negative-control mutation gate deliberately breaks four release-critical
 behaviors in temporary package copies and requires the focused tests to fail:

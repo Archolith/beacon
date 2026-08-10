@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import textwrap
 import types
@@ -137,7 +138,7 @@ class TestVersion:
     def test_version_prints_exact_string(self) -> None:
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert result.output == "beacon 0.2.0rc1\n"
+        assert result.output == "beacon 0.2.0rc2\n"
 
     def test_version_does_not_start_server(self) -> None:
         blocked = {
@@ -147,7 +148,7 @@ class TestVersion:
         with mock.patch.dict(sys.modules, blocked):
             result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert result.output == "beacon 0.2.0rc1\n"
+        assert result.output == "beacon 0.2.0rc2\n"
 
     def test_version_no_startup_text(self) -> None:
         result = runner.invoke(app, ["--version"])
@@ -322,6 +323,126 @@ class TestServe:
         assert "startup boom" not in result.stderr  # no exception details
         # Environment overrides were restored to absent despite the startup failure.
         assert os.environ.get("BEACON_MANIFEST_PATH") is None
+
+
+# ---------------------------------------------------------------------------
+# beacon serve-http
+# ---------------------------------------------------------------------------
+
+
+class TestServeHttp:
+    def test_builds_embedded_snapshot_then_serves(self, valid_manifest: Path) -> None:
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(
+                app,
+                ["serve-http", "--manifest", str(valid_manifest), "--port", "0"],
+            )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == ""
+        snap = run.call_args.args[0]
+        assert snap.content_mode == "embedded"
+        assert run.call_args.kwargs == {"host": "127.0.0.1", "port": 0}
+
+    def test_non_loopback_host_refuses_before_snapshot(self, valid_manifest: Path) -> None:
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(
+                app,
+                [
+                    "serve-http",
+                    "--manifest",
+                    str(valid_manifest),
+                    "--host",
+                    "0.0.0.0",
+                ],
+            )
+        assert result.exit_code == 2
+        assert "http_host_not_loopback" in result.stderr
+        run.assert_not_called()
+
+    @pytest.mark.parametrize("port", ["-1", "65536"])
+    def test_invalid_port_refuses(self, valid_manifest: Path, port: str) -> None:
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(
+                app,
+                ["serve-http", "--manifest", str(valid_manifest), "--port", port],
+            )
+        assert result.exit_code == 2
+        assert "http_port_invalid" in result.stderr
+        run.assert_not_called()
+
+    def test_occupied_loopback_port_refuses_without_path_leak(self, valid_manifest: Path) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = int(occupied.getsockname()[1])
+            result = runner.invoke(
+                app,
+                ["serve-http", "--manifest", str(valid_manifest), "--port", str(port)],
+            )
+        assert result.exit_code == 2
+        assert "http_bind_failed" in result.stderr
+        assert str(valid_manifest.parent) not in result.stderr
+
+    def test_unresolved_publication_warning_refuses(self, warning_manifest: Path) -> None:
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(app, ["serve-http", "--manifest", str(warning_manifest)])
+        assert result.exit_code == 1
+        assert "snapshot_blocked_policy" in result.stderr
+        run.assert_not_called()
+
+    def test_acknowledged_publication_warnings_allow_start(self, warning_manifest: Path) -> None:
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(
+                app,
+                [
+                    "serve-http",
+                    "--manifest",
+                    str(warning_manifest),
+                    "--acknowledge",
+                    "test_command_missing=Manual smoke tests cover this project.",
+                    "--acknowledge",
+                    "guardrails_missing=Guardrails live in the agent handbook.",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert len(run.call_args.args[0].validation.acknowledgements) == 2
+
+    def test_sensitive_content_refuses_without_leaking(self, valid_manifest: Path) -> None:
+        valid_manifest.with_name("README.md").write_text(
+            f"# Test\n\ntoken {GITHUB_TOKEN} here.\n", encoding="utf-8"
+        )
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(app, ["serve-http", "--manifest", str(valid_manifest)])
+        assert result.exit_code == 1
+        assert "snapshot_blocked_security" in result.stderr
+        assert GITHUB_TOKEN not in result.output
+        run.assert_not_called()
+
+    def test_reasoned_sensitive_override_allows_start(self, valid_manifest: Path) -> None:
+        valid_manifest.with_name("README.md").write_text(
+            f"# Test\n\ntoken {GITHUB_TOKEN} here.\n", encoding="utf-8"
+        )
+        with mock.patch("beacon.main._serve_http_snapshot") as run:
+            result = runner.invoke(
+                app,
+                [
+                    "serve-http",
+                    "--manifest",
+                    str(valid_manifest),
+                    "--allow-sensitive",
+                    "sensitive_known_token=Fixture token for HTTP CLI tests.",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert len(run.call_args.args[0].validation.security_overrides) == 1
+
+    def test_startup_exception_is_redacted(self, valid_manifest: Path) -> None:
+        with mock.patch(
+            "beacon.main._serve_http_snapshot", side_effect=RuntimeError("private startup detail")
+        ):
+            result = runner.invoke(app, ["serve-http", "--manifest", str(valid_manifest)])
+        assert result.exit_code == 3
+        assert "private startup detail" not in result.stderr
 
 
 _SERVE_ENV_KEYS = [

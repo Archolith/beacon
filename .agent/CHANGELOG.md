@@ -1,5 +1,17 @@
 # Changelog — beacon
 
+## 2026-08-10 — RC2 loopback HTTP snapshot
+
+- Added `beacon serve-http`, restricted to `127.0.0.1`, with immutable startup snapshot bytes,
+  well-known discovery, versioned snapshot and convenience routes, and redacted health.
+- Added SHA-256 ETag/conditional requests, deterministic Beacon error envelopes, GET/HEAD-only
+  routing, no CORS, no access logs, and suppressed server/date headers.
+- Reused export's publication, path, resource, and secret gates before binding; non-loopback,
+  invalid, and occupied bind targets fail closed with stable redacted diagnostics.
+- Added direct Starlette/Uvicorn dependencies and a real installed-process HTTP release journey
+  under outbound-socket denial.
+- Bumped the release candidate to `0.2.0rc2`; RC1 remains immutable.
+
 ## 2026-08-10 — Future AI answer-broker boundary
 
 - Recorded the optional AI answer broker as a future layer over canonical Beacon knowledge, with

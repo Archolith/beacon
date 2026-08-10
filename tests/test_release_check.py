@@ -66,6 +66,7 @@ def test_plan_step_names_and_order(rc) -> None:
         "export_2",
         "export_compare",
         "export_metadata_only",
+        "http_snapshot",
         "serve_or_stdio",
         "socket_guard",
     ]
@@ -162,6 +163,11 @@ def test_export_commands_output_paths(rc) -> None:
     meta = plan.steps[9]
     assert "--metadata-only" in meta.argv
     assert meta.argv[-1] == str(Path("/out/export-meta.json"))
+
+
+def test_http_probe_precedes_stdio_and_socket_guard(rc) -> None:
+    names = [step.name for step in _plan(rc).steps]
+    assert names[-3:] == ["http_snapshot", "serve_or_stdio", "socket_guard"]
 
 
 # ---------------------------------------------------------------------------

@@ -273,11 +273,15 @@ beacon inspect beacon.yaml
 
 # Start the MCP server (configure your client to point at beacon.yaml)
 beacon serve --manifest beacon.yaml
+
+# Or expose the same canonical snapshot to a non-MCP local client
+beacon serve-http --manifest beacon.yaml
 ```
 
 The full v0.2 product loop — `beacon init` → review → `beacon validate
 --strict-warnings` → `beacon inspect --task-hint "..."` → `beacon export` →
-`beacon serve` — is described in [`client-setup.md`](client-setup.md). Three
+`beacon serve` (or optional loopback `serve-http`) — is described in
+[`client-setup.md`](client-setup.md). Three
 ready-to-run examples live under
 [`../examples/`](../examples/README.md) and are exercised by
 [`../tests/test_examples.py`](../tests/test_examples.py).

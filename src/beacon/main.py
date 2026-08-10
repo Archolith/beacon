@@ -4,6 +4,7 @@ Subcommands
 -----------
   beacon                    Start the MCP stdio server (default when no subcommand).
   beacon serve              Start the stdio server with explicit manifest/docs-root/limits.
+  beacon serve-http         Serve one immutable canonical snapshot over loopback HTTP.
   beacon init ROOT          Initialize a starter beacon.yaml.
   beacon validate [PATH]    Validate a beacon.yaml and exit 0 on success, 1 on errors.
   beacon inspect [PATH]     Inspect all five tool outputs for a beacon.yaml.
@@ -23,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import socket
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -246,6 +248,151 @@ def serve(
         fail = cli_support.normalize_internal(exc)
         typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
         raise typer.Exit(fail.exit_code) from exc
+
+
+# ---------------------------------------------------------------------------
+# beacon serve-http
+# ---------------------------------------------------------------------------
+
+
+@app.command("serve-http")
+def serve_http(
+    manifest: str | None = typer.Option(
+        None, "--manifest", "-m", help="Path to beacon.yaml (default: ./beacon.yaml)."
+    ),
+    docs_root: str | None = typer.Option(None, "--docs-root", help="Docs root directory."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Loopback bind address."),
+    port: int = typer.Option(8765, "--port", help="Loopback port; 0 selects an available port."),
+    acknowledge: list[str] = typer.Option([], "--acknowledge"),
+    allow_sensitive: list[str] = typer.Option([], "--allow-sensitive"),
+    max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
+    max_documents: int | None = typer.Option(None, "--max-documents"),
+    max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
+    max_total_document_bytes: int | None = typer.Option(None, "--max-total-document-bytes"),
+    max_chunks: int | None = typer.Option(None, "--max-chunks"),
+    max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
+) -> None:
+    """Serve an immutable canonical snapshot over loopback HTTP."""
+    _safe(
+        "serve-http",
+        "text",
+        lambda: _serve_http_impl(
+            manifest,
+            docs_root,
+            host=host,
+            port=port,
+            acknowledges=acknowledge,
+            allow_sensitive=allow_sensitive,
+            cli_limits=_six_limit_args(
+                max_manifest_bytes,
+                max_documents,
+                max_document_bytes,
+                max_total_document_bytes,
+                max_chunks,
+                max_snapshot_bytes,
+            ),
+        ),
+    )
+
+
+def _serve_http_impl(
+    manifest: str | None,
+    docs_root: str | None,
+    *,
+    host: str,
+    port: int,
+    acknowledges: list[str],
+    allow_sensitive: list[str],
+    cli_limits: dict[str, Any],
+) -> int:
+    if host != "127.0.0.1":
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_host_not_loopback",
+            "HTTP server host must be 127.0.0.1",
+        )
+    if port < 0 or port > 65535:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_port_invalid",
+            "HTTP server port must be between 0 and 65535",
+        )
+
+    context = cli_support.build_command_context(
+        cli_limits=cli_limits,
+        manifest_path=manifest,
+        docs_root=docs_root,
+        acknowledgements=acknowledges,
+    )
+    try:
+        overrides = parse_security_overrides(allow_sensitive)
+    except SecurityOverrideError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "invalid security override") from exc
+
+    try:
+        snap = snapshot_mod.build_snapshot(
+            context.manifest_path,
+            docs_root=context.docs_root,
+            content_mode=snapshot_mod.CONTENT_EMBEDDED,
+            acknowledgements=context.acknowledgements,
+            security_overrides=overrides,
+            limits=context.limits,
+        )
+    except snapshot_mod.SnapshotError as exc:
+        return _emit_snapshot_refusal("serve-http", exc, "text")
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    except ManifestError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, cli_support.CODE_MANIFEST_INVALID, "malformed or invalid manifest"
+        ) from exc
+    except UnsafeCanonicalPath as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"
+        ) from exc
+
+    _serve_http_snapshot(snap, host=host, port=port)
+    return EXIT_OK
+
+
+def _serve_http_snapshot(snap: snapshot_mod.Snapshot, *, host: str, port: int) -> None:
+    """Bind one loopback socket and run the immutable ASGI snapshot application."""
+    import uvicorn
+
+    from beacon import __version__
+    from beacon.http_api import create_http_app
+
+    app_http = create_http_app(snap)
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind((host, port))
+        listener.listen(2048)
+    except OSError as exc:
+        listener.close()
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "http_bind_failed", "could not bind loopback HTTP server"
+        ) from exc
+
+    actual_port = int(listener.getsockname()[1])
+    snapshot_sha = str(app_http.state.beacon_snapshot_sha256)
+    typer.echo(
+        f"Beacon HTTP ready url=http://{host}:{actual_port} beacon={__version__} "
+        f"snapshot_schema={snap.beacon_snapshot_version} snapshot_sha256={snapshot_sha}",
+        err=True,
+    )
+    config = uvicorn.Config(
+        app_http,
+        host=host,
+        port=actual_port,
+        access_log=False,
+        server_header=False,
+        date_header=False,
+        log_level="warning",
+    )
+    try:
+        uvicorn.Server(config).run(sockets=[listener])
+    finally:
+        listener.close()
 
 
 # ---------------------------------------------------------------------------
@@ -836,7 +983,7 @@ def _export_impl(
             limits=context.limits,
         )
     except snapshot_mod.SnapshotError as exc:
-        return _emit_export_refusal(exc, fmt)
+        return _emit_snapshot_refusal("export", exc, fmt)
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     except ManifestError as exc:
@@ -932,8 +1079,8 @@ def _preflight_export_output(out_path: Path, context: cli_support.CommandContext
             )
 
 
-def _emit_export_refusal(exc: snapshot_mod.SnapshotError, fmt: str) -> int:
-    """Emit an export refusal with safe metadata-only findings; return exit code.
+def _emit_snapshot_refusal(command: str, exc: snapshot_mod.SnapshotError, fmt: str) -> int:
+    """Emit a snapshot refusal with safe metadata-only findings; return exit code.
 
     Policy/security refusals are exit 1; other snapshot errors (unsafe path,
     source changed, invalid mode) are exit 2. Findings carry only stable
@@ -958,7 +1105,7 @@ def _emit_export_refusal(exc: snapshot_mod.SnapshotError, fmt: str) -> int:
             )
         )
     if fmt == "json":
-        _json("export", ok=False, diagnostics=tuple(diagnostics))
+        _json(command, ok=False, diagnostics=tuple(diagnostics))
     else:
         for diag in diagnostics:
             location = ""

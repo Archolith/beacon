@@ -26,10 +26,10 @@ The journey exercises: version/help; ``init`` of a fresh minimal repository;
 the init JSON report; a deterministic explicit review edit into a clean
 manifest; strict JSON validation; task-aware JSON inspect covering all five
 tools; two embedded exports with identical bytes/SHA256; a metadata-only export
-without chunk text; an explicit ``serve``/stdio MCP connection enumerating and
-calling exactly five tools; and a socket-deny guard proving no runtime step
-attempts outbound network. It uses temporary directories and leaves the checkout
-clean.
+without chunk text; a real loopback HTTP process proving discovery/health/snapshot/alias/ETag and
+error behavior; an explicit ``serve``/stdio MCP connection enumerating and calling exactly five
+tools; and a socket-deny guard proving no runtime step attempts outbound network. It uses temporary
+directories and leaves the checkout clean.
 """
 
 from __future__ import annotations
@@ -38,9 +38,14 @@ import argparse
 import hashlib
 import json
 import os
+import queue
+import re
 import subprocess
 import sys
 import tempfile
+import threading
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -262,6 +267,16 @@ def build_plan(
                 checker=_check_metadata_only,
             ),
             Step(
+                name="http_snapshot",
+                description="real loopback HTTP discovery, health, snapshot, alias, HEAD, ETag, and errors",
+                func=lambda: probe_http_snapshot(
+                    beacon_cmd,
+                    manifest=manifest,
+                    expected_snapshot=out_dir / "export-1.json",
+                    env=guard_env,
+                ),
+            ),
+            Step(
                 name="serve_or_stdio",
                 description="explicit serve / real stdio MCP enumerating and calling exactly five tools",
                 func=lambda: serve_or_stdio(
@@ -331,6 +346,156 @@ def compare_exports(first: Path, second: Path) -> None:
         raise JourneyError("two embedded exports of the same manifest are not byte-identical")
     if hashlib.sha256(a).hexdigest() != hashlib.sha256(b).hexdigest():
         raise JourneyError("embedded export SHA256 digests differ")
+
+
+def probe_http_snapshot(
+    cmd: tuple[str, ...],
+    *,
+    manifest: Path,
+    expected_snapshot: Path,
+    env: dict[str, str],
+) -> None:
+    """Start the installed HTTP server and verify its real loopback contract."""
+    proc = subprocess.Popen(
+        list(cmd)
+        + ["serve-http", "--manifest", str(manifest), "--host", "127.0.0.1", "--port", "0"],
+        cwd=str(manifest.parent),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        startup = _readline_with_timeout(proc, timeout=15)
+        match = re.search(
+            r"url=(http://127\.0\.0\.1:\d+) .*snapshot_sha256=([0-9a-f]{64})", startup
+        )
+        if match is None:
+            raise JourneyError("serve-http did not emit the bounded startup contract")
+        base_url, reported_sha = match.groups()
+        expected = expected_snapshot.read_bytes()
+        expected_sha = hashlib.sha256(expected).hexdigest()
+        if reported_sha != expected_sha:
+            raise JourneyError("serve-http startup digest differs from the canonical export")
+
+        descriptor_body, descriptor_headers = _http_request(
+            base_url + "/.well-known/archolith-beacon"
+        )
+        descriptor = json.loads(descriptor_body)
+        if descriptor.get("scope") != "loopback" or descriptor.get("authentication") != "none":
+            raise JourneyError("HTTP discovery has the wrong scope or authentication mode")
+        capabilities = descriptor.get("capabilities")
+        if capabilities != {
+            "mcp_http": False,
+            "query": False,
+            "question_submission": False,
+            "snapshot": True,
+        }:
+            raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
+        if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
+            raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
+        _assert_no_server_identity(descriptor_headers)
+
+        snapshot_body, snapshot_headers = _http_request(base_url + "/v1/snapshot")
+        alias_body, alias_headers = _http_request(base_url + "/beacon.json")
+        if snapshot_body != expected or alias_body != expected:
+            raise JourneyError("HTTP snapshot bytes differ from the canonical export")
+        for headers in (snapshot_headers, alias_headers):
+            if headers.get("x-beacon-snapshot-sha256") != expected_sha:
+                raise JourneyError("HTTP snapshot digest header is wrong")
+            if headers.get("etag") != f'"{expected_sha}"':
+                raise JourneyError("HTTP snapshot ETag is wrong")
+            if headers.get("cache-control") != "no-cache":
+                raise JourneyError("HTTP snapshot cache policy is wrong")
+            _assert_no_server_identity(headers)
+
+        head_body, head_headers = _http_request(base_url + "/v1/snapshot", method="HEAD")
+        if head_body or head_headers.get("etag") != snapshot_headers.get("etag"):
+            raise JourneyError("HTTP HEAD response differs from the snapshot representation")
+        _http_expect_status(
+            base_url + "/v1/snapshot",
+            304,
+            headers={"If-None-Match": f'"{expected_sha}"'},
+        )
+
+        health_body, health_headers = _http_request(base_url + "/healthz")
+        health = json.loads(health_body)
+        if health.get("status") != "ready" or health.get("startup_mode") != "immutable_snapshot":
+            raise JourneyError("HTTP health response is not ready in immutable snapshot mode")
+        if health_headers.get("cache-control") != "no-store":
+            raise JourneyError("HTTP health cache policy is wrong")
+        _assert_no_server_identity(health_headers)
+        _http_expect_status(base_url + "/missing?private=query", 404)
+        _http_expect_status(base_url + "/v1/snapshot", 405, method="POST")
+    except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
+        raise JourneyError(f"loopback HTTP journey failed ({type(exc).__name__})") from exc
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        if proc.stdout is not None:
+            stdout = proc.stdout.read()
+            if stdout:
+                raise JourneyError("serve-http unexpectedly wrote to stdout")
+
+
+def _readline_with_timeout(proc: subprocess.Popen[str], *, timeout: float) -> str:
+    if proc.stderr is None:
+        raise JourneyError("serve-http stderr pipe is unavailable")
+    result: queue.Queue[str] = queue.Queue(maxsize=1)
+
+    def read() -> None:
+        result.put(proc.stderr.readline())
+
+    threading.Thread(target=read, daemon=True).start()
+    try:
+        line = result.get(timeout=timeout)
+    except queue.Empty as exc:
+        raise JourneyError("serve-http did not become ready before the timeout") from exc
+    if not line:
+        raise JourneyError("serve-http exited before reporting readiness")
+    return line.strip()
+
+
+def _http_request(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+) -> tuple[bytes, dict[str, str]]:
+    request = urllib.request.Request(url, method=method, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310 - fixed loopback URL
+        return response.read(), {key.lower(): value for key, value in response.headers.items()}
+
+
+def _http_expect_status(
+    url: str,
+    status: int,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+) -> None:
+    try:
+        _http_request(url, method=method, headers=headers)
+    except urllib.error.HTTPError as exc:
+        if exc.code != status:
+            raise JourneyError(f"HTTP status {exc.code} != expected {status}") from exc
+        if status == 304 and exc.read():
+            raise JourneyError("HTTP 304 unexpectedly contained a response body") from exc
+        return
+    raise JourneyError(f"HTTP request unexpectedly succeeded; expected status {status}")
+
+
+def _assert_no_server_identity(headers: dict[str, str]) -> None:
+    if "server" in headers or "date" in headers:
+        raise JourneyError("HTTP response exposes a server-identifying header")
 
 
 def serve_or_stdio(

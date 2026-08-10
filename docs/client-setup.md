@@ -4,22 +4,24 @@ This guide takes a maintainer from a fresh machine to a coding agent connected t
 a local Beacon instance. It is written to be copy-pasted, and it assumes nothing
 about the machine beyond Python 3.12, 3.13, or 3.14.
 
-Beacon is a **local, static, offline** MCP server. It reads a `beacon.yaml` and
+Beacon is a **local, static, no-outbound-network** knowledge server. It reads a `beacon.yaml` and
 the Markdown documents it lists, and it answers the five read-only Beacon tools
-from that in-memory index. There is no database, no network call, no runtime LLM,
-no telemetry, and no update check. Everything runs on your machine.
+from that in-memory index. It can also serve the canonical snapshot as plain JSON on loopback.
+There is no database, outbound network call, runtime LLM, telemetry, or update check. Everything
+runs on your machine.
 
 ---
 
 ## 1. Install Beacon
 
-> **Status note.** This guide targets the published `0.2.0rc1` release candidate.
+> **Status note.** This guide targets the unpublished `0.2.0rc2` release candidate.
 
-Install the pinned release candidate from PyPI. Its framework dependency resolves
-from the public index automatically:
+After RC2 is published, install the pinned release candidate from PyPI. Its framework dependency
+resolves from the public index automatically. Until then, use the source-checkout instructions
+below.
 
 ```bash
-python -m pip install "archolith-beacon==0.2.0rc1"
+python -m pip install "archolith-beacon==0.2.0rc2"
 ```
 
 Check the CLI is present:
@@ -76,6 +78,20 @@ BEACON_MANIFEST_PATH=/absolute/path/to/beacon.yaml beacon
 and the six overridable limit flags: `--max-manifest-bytes`,
 `--max-documents`, `--max-document-bytes`, `--max-total-document-bytes`,
 `--max-chunks`, and `--max-snapshot-bytes`.
+
+For a client that does not speak MCP, start the immutable loopback HTTP surface:
+
+```bash
+beacon serve-http --manifest beacon.yaml
+curl http://127.0.0.1:8765/.well-known/archolith-beacon
+curl http://127.0.0.1:8765/v1/snapshot
+```
+
+The routes are `/.well-known/archolith-beacon`, `/v1/snapshot`, the identical `/beacon.json`
+alias, and `/healthz`. Only `GET` and `HEAD` are supported. Snapshot responses include a SHA-256
+ETag and support `If-None-Match`; the snapshot is built once at startup. The command rejects every
+host except `127.0.0.1`, disables CORS and access logs, and applies the same strict publication and
+secret gates as export. Remote access, query, and question submission remain disabled.
 
 ---
 
@@ -237,9 +253,9 @@ each can change on its own cadence.
 
 ## 7. Limitations
 
-- **Static and offline.** Beacon reads only what is on disk. It performs no
-  runtime network I/O, no update check, no telemetry, and no runtime LLM or
-  embedding call. A file not listed in `beacon.yaml` is invisible to it.
+- **Static and no outbound network.** Beacon reads only what is on disk. It performs no outbound
+  runtime network I/O, update check, telemetry, runtime LLM, or embedding call. `serve-http` uses
+  only an explicitly requested loopback listener. A file not listed in `beacon.yaml` is invisible.
 - **Manifest-driven.** Everything an agent can learn is bounded by what the
   maintainer put in `beacon.yaml` and its canonical docs. A thin or stale
   manifest means a thin or stale Beacon.
@@ -248,9 +264,9 @@ each can change on its own cadence.
 - **No git, symbol, or benchmark adapters.** v0.2 ships the conservative init
   discovery and the manifest provider only. Code-level and Git-history
   knowledge is deferred to v0.3.
-- **Snapshots are exports, not a query source.** The v0.2 snapshot is a static,
-  reviewable artifact for CI diffing. Loading and querying it as a provider
-  fallback is deferred.
+- **Snapshots are exports, not a query provider.** The v0.2 snapshot is a static, reviewable
+  artifact for CI diffing and optional loopback HTTP retrieval. Loading or querying it as a
+  provider fallback is deferred.
 - **Not an unaided-trial guarantee.** Documentation keeps example commands
   honest, but it does not claim a scripted cold-start time for every machine.
   Measure your own journey and report any undocumented blocking step.

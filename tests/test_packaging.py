@@ -68,7 +68,7 @@ def test_no_static_version_field(pyproject: dict) -> None:
 
 
 def test_imported_version_matches_rc() -> None:
-    assert __version__ == "0.2.0rc1"
+    assert __version__ == "0.2.0rc2"
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +84,12 @@ def test_fastmcp_dependency_declared(pyproject: dict) -> None:
     assert "fastmcp>=3.2.4,<4" in pyproject["project"]["dependencies"]
 
 
+def test_http_dependencies_declared(pyproject: dict) -> None:
+    dependencies = pyproject["project"]["dependencies"]
+    assert "starlette>=1.0.1,<2" in dependencies
+    assert "uvicorn>=0.35,<1" in dependencies
+
+
 def test_legacy_framework_dependency_absent(pyproject: dict) -> None:
     assert "cth-mcp-framework" not in " ".join(pyproject["project"]["dependencies"])
 
@@ -97,7 +103,15 @@ def test_runtime_dependencies_complete(pyproject: dict) -> None:
     names = {
         dep.split(">=")[0].split("<")[0].lower() for dep in pyproject["project"]["dependencies"]
     }
-    assert {"archolith-mcp-framework", "fastmcp", "pyyaml", "python-dotenv", "typer"} <= names
+    assert {
+        "archolith-mcp-framework",
+        "fastmcp",
+        "pyyaml",
+        "python-dotenv",
+        "starlette",
+        "typer",
+        "uvicorn",
+    } <= names
 
 
 # ---------------------------------------------------------------------------
