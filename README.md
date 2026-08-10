@@ -1,17 +1,16 @@
 # Beacon
 
 > **Status: `0.2.0rc1` development checkout.**
-> Public PyPI installation of `archolith-beacon` is not yet available — it is
-> gated on first publishing the `archolith-mcp-framework` distribution. See
-> [Install](#install) for the truthful source-development setup.
+> `archolith-beacon` is not on PyPI yet because its
+> `archolith-mcp-framework` dependency must be published first. See
+> [Install](#install) to run Beacon from a source checkout.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Beacon is the missing handshake between software projects and coding agents.**
+Beacon gives software projects a consistent way to explain themselves to coding agents.
 
-Today, projects publish APIs for programs and READMEs for humans. Beacon adds a third surface: structured, source-cited project knowledge for LLM agents.
-
-An agent that connects to a project's Beacon can ask:
+Add a `beacon.yaml` to a repository and run the local MCP server. A connected
+agent can then ask:
 
 - *What is this project, and what is it trying to do?*
 - *What should I read before touching any code?*
@@ -19,26 +18,23 @@ An agent that connects to a project's Beacon can ask:
 - *What should I avoid changing without a senior review?*
 - *What is the safest first contribution I can make?*
 
-And receive structured, provenance-backed answers — not a dump of raw text.
+Beacon returns structured answers with source citations instead of handing the agent a pile of raw text.
 
-Beacon v0 is **manifest-driven**: drop a `beacon.yaml` into your repo, point the server at it, and any MCP-capable agent can query your project. No external service, no database, no LLM calls at runtime.
+The current release is manifest-driven. It reads `beacon.yaml` and the documents listed there. It does not need an external service, database, or runtime LLM call.
 
 ---
 
 ## Install
 
-> **Public PyPI is currently gated.** This checkout is `0.2.0rc1` development.
-> `archolith-beacon` cannot yet be installed from the public package index
-> because its runtime dependency `archolith-mcp-framework` is not yet published
-> there. Do not expect `pip install archolith-beacon` to work yet.
+This checkout is `0.2.0rc1`. For now, install it from source. A normal
+`pip install archolith-beacon` will not work until `archolith-mcp-framework`
+has been published to PyPI.
 
 The distribution name is `archolith-beacon`; the import package is `beacon` and
 the CLI command is `beacon`.
 
-**Source-development setup** (recommended for now). Check out this repository
-and a compatible `archolith-mcp-framework` v0.2.0 release side by side, then
-install the framework first with an editable install so `beacon` resolves it
-from your local checkout:
+Check out this repository and `archolith-mcp-framework` v0.2.0 side by side.
+Install the framework first so Beacon resolves the local copy:
 
 ```bash
 # 1. Check out the framework release and install it editable (must come first).
@@ -52,9 +48,10 @@ cd <path-to-this-beacon-checkout>
 pip install -e ".[dev]"
 ```
 
-This keeps the dependency pinned to `archolith-mcp-framework>=0.2,<0.3` in the
-package metadata — no Git URL, no private index. Once the framework is
-published, `pip install archolith-beacon` will work as a normal public install.
+The package metadata still uses the normal
+`archolith-mcp-framework>=0.2,<0.3` constraint. It does not contain a Git URL
+or depend on a private package index. Once the framework is on PyPI,
+`pip install archolith-beacon` will become the standard installation path.
 
 **Requires Python 3.12, 3.13, or 3.14.**
 
@@ -141,7 +138,7 @@ The server speaks MCP over stdio. Configure your agent client to launch this com
 
 ## What agents can ask
 
-Beacon exposes five read-only MCP tools. All are always visible — agents do not need to discover them.
+Beacon registers five read-only MCP tools when the server starts.
 
 ### `beacon_project_overview`
 
@@ -151,20 +148,20 @@ Returns a structured summary: project description, problem statement, current st
 
 ```
 Inputs:
-  audience      — "agent" | "developer" | "researcher" (default: "agent")
-  depth         — "brief" | "full" (default: "brief")
+  audience: "agent" | "developer" | "researcher" (default: "agent")
+  depth:    "brief" | "full" (default: "brief")
 ```
 
 ### `beacon_agent_onboarding`
 
 > *"I am about to work on X. What do I need to know?"*
 
-The flagship tool. Returns a task-scoped onboarding pack: docs to read first, relevant files, concepts to understand, safe first steps, and a do-not-touch list.
+Returns a task-specific onboarding pack: docs to read first, relevant files, concepts to understand, safe first steps, and a do-not-touch list.
 
 ```
 Inputs:
-  task_hint       — description of what you plan to do (optional)
-  risk_tolerance  — "low" | "medium" | "high" (default: "low")
+  task_hint:      description of what you plan to do (optional)
+  risk_tolerance: "low" | "medium" | "high" (default: "low")
 ```
 
 ### `beacon_search`
@@ -175,9 +172,9 @@ Keyword search across docs, concepts, and guardrails. Every result carries a sta
 
 ```
 Inputs:
-  query         — search string
-  source_types  — list of "doc" | "concept" | "guardrail" (default: all)
-  limit         — max results (default: 8)
+  query:        search string
+  source_types: list of "doc" | "concept" | "guardrail" (default: all)
+  limit:        max results (default: 8)
 ```
 
 ### `beacon_explain_concept`
@@ -188,8 +185,8 @@ Looks up a project-specific term by id or name. Returns the definition, motivati
 
 ```
 Inputs:
-  concept  — concept id or display name
-  depth    — "brief" | "full" (default: "brief")
+  concept: concept id or display name
+  depth:   "brief" | "full" (default: "brief")
 ```
 
 ### `beacon_guardrails`
@@ -200,7 +197,7 @@ Returns the full guardrail set, filtered to a task if a hint is provided. Includ
 
 ```
 Inputs:
-  task_hint  — description of planned work (optional)
+  task_hint: description of planned work (optional)
 ```
 
 ---
@@ -325,7 +322,7 @@ Any MCP client that accepts a stdio server can use this shape:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BEACON_MANIFEST_PATH` | **yes** | — | Absolute path to `beacon.yaml` |
+| `BEACON_MANIFEST_PATH` | **yes** | none | Absolute path to `beacon.yaml` |
 | `BEACON_DOCS_ROOT` | no | directory of manifest | Root for resolving canonical doc paths |
 | `BEACON_VALIDATE_ON_LOAD` | no | `true` | Hard-fail at startup if the manifest has errors |
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
@@ -340,20 +337,20 @@ Beacon v0 is deterministic. At startup it:
 2. Reads every `canonical_docs` entry and chunks them at Markdown headings into an in-memory `DocIndex`.
 3. Stores the resulting `ManifestBeaconProvider` in a module-level slot.
 
-On each tool call, the provider reads from the in-memory index and returns a frozen answer dataclass. No LLM calls, no network requests, no database.
+On each tool call, the provider reads from the in-memory index and returns a frozen answer dataclass. It does not call an LLM, access the network, or query a database.
 
-The provider interface (`BeaconProvider`) is a typed Protocol. A future `MenhirBeaconProvider` will swap in temporal memory, structure graphs, and git history without changing the tools or the answer contract.
+`BeaconProvider` is a typed protocol, so another provider can supply the same five tools without changing their answer contracts. A future Menhir-backed provider could add temporal memory, structure graphs, and Git history behind that interface.
 
 ---
 
 ## Status
 
-Beacon is **experimental**. The v0 surface (five tools, manifest schema, answer contract) is stable enough to use, but:
+Beacon is experimental. The five tools and their answer contracts are usable now, but the v0.2 product is not finished:
 
 - The manifest schema may gain new fields in v0.x releases.
 - A `MenhirBeaconProvider` does not yet exist.
 - `validate` and `inspect` are implemented and tested. `init`, `export`, and an
-  explicit `serve` command are not yet shipped — use the positional
+  explicit `serve` command are not yet shipped. Use the positional
   `beacon validate PATH` / `beacon inspect PATH` commands and the
   no-argument stdio server documented above.
 - This checkout is `0.2.0rc1` development. Public PyPI publication is gated on
@@ -371,27 +368,27 @@ tool-level interface history and backlog remain in
 
 Read [`docs/beacon-strategy-handoff.md`](docs/beacon-strategy-handoff.md) for the positioning rationale before proposing new features.
 
-The highest-value contributions right now are:
+Useful contributions at this stage include:
 
 - Adding example manifests for different project shapes (library, research project, monorepo service).
 - Adding `docs/demo-transcript.md` showing a real agent session.
 - Writing golden-output tests for each MCP tool.
 
-**Do not** add tools or expand the manifest schema until the existing five tools are well-documented and easy to connect. The interface should be obvious before it grows.
+Please hold off on adding tools or expanding the manifest schema. The current five tools need clearer documentation and easier client setup before the interface grows.
 
 Development setup:
 
 ```bash
 git clone https://github.com/Archolith/beacon.git
 cd beacon
-pip install -e .
+pip install -e ".[dev]"
 python -m pytest tests/ -x --tb=short
 ```
 
-All tests run offline. No Neo4j, no network, no external service required.
+All tests run offline. They do not require Neo4j, a network connection, or an external service.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
