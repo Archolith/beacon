@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a focused Beacon product improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user or maintainer problem before proposing implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What observable workflow should become possible?
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Trust and compatibility boundaries
+      description: Note effects on offline behavior, manifests, snapshots, MCP clients, or publication policy.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched the roadmap and existing issues for this request.
+          required: true
+        - label: I am opening a design discussion before a large implementation PR.
+          required: true

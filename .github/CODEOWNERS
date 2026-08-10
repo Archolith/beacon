@@ -1,0 +1,6 @@
+* @ctharvey
+
+/.github/ @ctharvey
+/pyproject.toml @ctharvey
+/src/beacon/core/ @ctharvey
+/src/beacon/mcp/ @ctharvey
