@@ -1,5 +1,15 @@
 # Changelog — beacon
 
+## 2026-08-10 — Automated Beacon freshness contract roadmap
+
+- Added a mandatory automated task-closeout disposition: `updated`, `not_affected`, or
+  `needs_review`.
+- Routed deterministic source/document synchronization checks before conditional LLM semantic
+  review, with canonical writes requiring cited evidence and authority-sensitive changes requiring
+  explicit review.
+- Added v0.3 deliverables, CI fixtures, wrapup receipts, and an immediate planning package for
+  diff classification, freshness verification, restart evidence, and fail-closed enforcement.
+
 ## 2026-08-10 — RC2 loopback HTTP snapshot
 
 - Added `beacon serve-http`, restricted to `127.0.0.1`, with immutable startup snapshot bytes,

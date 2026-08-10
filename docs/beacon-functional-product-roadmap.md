@@ -201,6 +201,38 @@ Provider selection must be configuration, not import-time magic. Startup must st
 are active, their last refresh, and whether the server is serving live, degraded, or snapshot-only
 knowledge.
 
+### Automated freshness and task-closeout contract
+
+Beacon freshness is a mandatory task outcome, not a mandatory manual ritual. Every completed task
+must produce one machine-readable disposition: `updated`, `not_affected`, or `needs_review`.
+Automation should inspect the task diff, identify Beacon-facing facts, make safe mechanical updates,
+run freshness checks, and emit the disposition. A task may close automatically when it is proven
+`not_affected` or all required updates pass; `needs_review` blocks completion until a maintainer or
+authorized closing agent resolves it.
+
+The first contract covers changes to:
+
+- product/package versions and release state;
+- CLI commands, MCP tools, HTTP routes, schemas, and answer contracts;
+- environment variables, defaults, limits, and operating instructions;
+- architecture, provider composition, data models, and security boundaries;
+- roadmap/current-focus claims and plan lifecycle state; and
+- canonical-document selection, authority, status, and exposure policy.
+
+Deterministic checks run before any model call. They compare source-of-truth values against
+documented versions, configuration tables, registered tools/routes, schema fixtures, canonical-doc
+paths/statuses, and exposure rules. An LLM review is conditional: it examines semantic changes such
+as architecture, roadmap, rationale, or authority only when diff classification says those facts may
+have changed. The model may propose cited updates or return `needs_review`; it cannot silently
+promote generated prose to canonical knowledge.
+
+Task wrapups and automation receipts record `Beacon Impact`, `Beacon Files Updated`, `Beacon
+Freshness Verification`, and whether a running Beacon required refresh/restart. Repository CI owns
+the enforceable gate so agents, skills, local hooks, and hosted workflows all follow the same
+contract. Closing-task skills invoke the gate and review its evidence rather than independently
+guessing whether Beacon changed. Known Beacon-sensitive changes paired with `not_affected` fail
+closed.
+
 ### Optional AI answer broker boundary
 
 Beacon may eventually place an AI answer broker between canonical Beacon knowledge and a consumer
@@ -288,7 +320,11 @@ Deliverables:
 - a durable, source-cited unanswered-question queue with `open`, `answered`, `deferred`, and
   `superseded` states so agents can submit knowledge gaps for later maintainer review without
   promoting them to trusted project knowledge;
-- source-coverage and stale-citation diagnostics.
+- source-coverage and stale-citation diagnostics;
+- a diff-aware task-closeout freshness checker with `updated`, `not_affected`, and `needs_review`
+  receipts, deterministic source/document synchronization checks, and conditional semantic review;
+- wrapup/CI integration that blocks known Beacon-facing drift without requiring a model call for
+  unaffected tasks.
 
 Exit gate:
 
@@ -399,6 +435,8 @@ test. Beacon needs project-task evaluation.
 - zero high-confidence answer when required evidence is absent;
 - old manifest and answer-contract compatibility fixtures pass;
 - provider outage/degraded-mode fixtures pass; and
+- every Beacon-sensitive task fixture produces a valid freshness disposition and known drift cannot
+  pass as `not_affected`;
 - remote descriptor/proof tampering, challenge replay, snapshot rollback, unexpected key rotation,
   and revocation fixtures fail closed.
 
@@ -452,7 +490,9 @@ Before implementation fans out, create reviewed execution plans for:
 4. task-onboarding evaluation corpus and README-only baseline;
 5. provider composition plus Menhir View boundary;
 6. trust, Hub, federation, remote transport/auth/operations threat model; and
-7. v1 compatibility/versioning policy.
+7. v1 compatibility/versioning policy; and
+8. automated Beacon freshness/task-closeout contract, diff classifier, deterministic checks,
+   conditional LLM review boundary, wrapup receipt, and CI enforcement.
 
 The first implementation sprint should combine one user-visible v0.2 improvement with the minimum
 contract work needed for v0.3. Avoid spending a whole milestone on abstractions that no maintainer or
@@ -473,6 +513,8 @@ agent can use.
 - What review/promotion mechanism controls dynamic high-confidence project decisions.
 - What identity, deduplication, retention, and promotion policy governs the unanswered-question
   queue.
+- Which Beacon facts may be updated mechanically, which changes trigger conditional LLM review, and
+  which semantic or authority changes always require explicit maintainer approval.
 - Which two non-Menhir repositories become maintained conformance examples.
 
 These decisions should be resolved by executable fixtures and user workflows, not by expanding the
