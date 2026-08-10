@@ -1,5 +1,16 @@
 # Changelog — beacon
 
+## 2026-08-09 — Define the Archolith Hub and federated trust product
+
+- `.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` — locked the approved hybrid
+  product shape: Archolith as the default directory, trust service, and optional public/private
+  host; conforming direct/self-hosted operation; a local trust broker and stateless signed preflight;
+  portable identity, descriptors, trust receipts, OAuth scopes, custody disclosures, question
+  review, threat gates, and phased v0.3/v0.5/v0.8/v1 delivery.
+- `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — integrated and
+  indexed the Hub/federation plan across users, v1 boundaries, architecture, milestones,
+  evaluation, immediate planning, and open security/operations decisions.
+
 ## 2026-08-09 — Plan the v0.2 publishable static product
 
 - `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` — converted the

@@ -58,6 +58,17 @@ The operator needs to:
 - pin a schema/contract version and test compatibility; and
 - deploy without giving Beacon write access to source repositories.
 
+### External Beacon consumer
+
+The consumer needs to:
+
+- discover a public or authorized private Beacon by stable project identity;
+- verify that the endpoint represents the intended repository and publisher;
+- understand whether Archolith or the project owner hosts and can read the data;
+- connect through a local trust broker without teaching every agent a new security protocol;
+- see trust, freshness, snapshot lineage, and remote provenance before using answers; and
+- revoke a remote Beacon locally without depending on the remote operator.
+
 ## 3. Definition of a functional v1
 
 Beacon is a functional product when all of the following are true.
@@ -90,6 +101,10 @@ Beacon is a functional product when all of the following are true.
 - Removing or changing a source invalidates or refreshes dependent records predictably.
 - Existing `beacon.yaml` v0.1 projects continue to load, or a tested migration explains the change.
 - Provider failures degrade to an explicit fallback or error state rather than fabricated answers.
+- A local trust broker verifies remote identity, publisher, endpoint, authorization, and snapshot
+  lineage before exposing another project's Beacon as trusted.
+- Archolith-hosted and self-hosted Beacons pass the same identity, answer, isolation, and revocation
+  conformance fixtures.
 
 ## 4. Product boundaries
 
@@ -102,6 +117,9 @@ Beacon is a functional product when all of the following are true.
 - hybrid manifest plus dynamic-provider answers;
 - source citations, lifecycle state, confidence, freshness, and provenance;
 - stdio MCP and authenticated remote MCP/HTTP operation;
+- portable Beacon identity, signed discovery/trust metadata, and local trust receipts;
+- an optional Archolith Hub for directory, trust assertions, public/private hosting, and question
+  review while direct/self-hosted operation remains conforming;
 - CLI setup, inspection, refresh, export, health, and diagnostics;
 - compatibility suite, examples, and operator documentation; and
 - Menhir as the first rich temporal provider, not as a requirement.
@@ -113,7 +131,9 @@ Beacon is a functional product when all of the following are true.
 - a universal ontology for every engineering organization;
 - mandatory runtime LLM synthesis;
 - broad enterprise connectors before the local/repository product is reliable;
-- billing, multi-region SaaS, or a public marketplace; and
+- mandatory Archolith hosting or accounts for direct/self-hosted operation;
+- billing, paid marketplace placement, or a multi-region commercial SLA before core Hub use is
+  validated; and
 - treating LongMemEval scores as proof that Beacon helps agents on software projects.
 
 ## 5. Product architecture
@@ -181,6 +201,24 @@ Provider selection must be configuration, not import-time magic. Startup must st
 are active, their last refresh, and whether the server is serving live, degraded, or snapshot-only
 knowledge.
 
+### Distribution and trust plane
+
+Archolith is the default directory, trust service, and optional host. A local Beacon trust broker
+resolves and verifies hosted or self-hosted remotes before exposing them to an agent. Direct mode
+must remain functional without the Hub.
+
+```mermaid
+flowchart LR
+    A["Coding agent"] --> L["Local Beacon trust broker"]
+    L --> H["Archolith Hub<br/>directory · identity · OAuth · optional hosting"]
+    L --> S["Self-hosted Beacon<br/>public or private"]
+    H --> P["Archolith-hosted Beacon<br/>public or private"]
+    H -. "signed listing or private pointer" .-> S
+```
+
+The detailed contract and phased implementation live in
+[`../.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md`](../.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md).
+
 ## 6. Release sequence
 
 Each release must produce something a user can operate; none is merely an internal abstraction
@@ -218,14 +256,15 @@ Deliverables:
 - read-only adapters for Markdown/docs, file inventory, selected symbols, git commits/diffs, explicit
   decision records, guardrails, and benchmark/result metadata;
 - source configuration with include/exclude rules and secret/generated-file safety defaults;
+- portable `beacon_id`, discovery-descriptor fixtures, and local signed-snapshot verification;
 - normalized knowledge envelope plus backward-compatible snapshot 1.x records and loader/fallback
   support for the v0.2 snapshot contract;
 - deterministic build/refresh with source digests and incremental invalidation;
 - task onboarding that ranks docs, files, tests, commands, and risks together;
-- search filters for source type, lifecycle state, and optional time mode; and
+- search filters for source type, lifecycle state, and optional time mode;
 - a durable, source-cited unanswered-question queue with `open`, `answered`, `deferred`, and
   `superseded` states so agents can submit knowledge gaps for later maintainer review without
-  promoting them to trusted project knowledge; and
+  promoting them to trusted project knowledge;
 - source-coverage and stale-citation diagnostics.
 
 Exit gate:
@@ -244,6 +283,9 @@ Deliverables:
 - `MenhirBeaconProvider` over the normalized envelope boundary;
 - one current decision, one superseded predecessor, and cited project status proven end to end;
 - refresh scheduling, idempotent rebuild, conflict/ambiguity handling, and last-known-good snapshot;
+- publisher/server key rotation, signed snapshot lineage, anti-rollback checks, and local trust
+  receipts;
+- unanswered-question moderation, deduplication, answer, and source-cited promotion workflow;
 - dynamic answers across all five existing tools, not just search; and
 - optional decision/change views exposed compatibly before any new MCP tool is added.
 
@@ -254,11 +296,17 @@ Exit gate:
 
 ### v0.8 — Operable remote product
 
-Goal: make Beacon safe to deploy for a team or public project.
+Goal: make Beacon safe to discover, trust, host, and use across project ownership boundaries.
 
 Deliverables:
 
-- supported remote transport with OAuth/resource binding and project-scoped authorization;
+- Archolith Hub alpha as the default directory, trust service, and optional public/private host;
+- self-hosted public/private federation and direct operation without a Hub query-time dependency;
+- local trust broker and stdio bridge for verified remote access;
+- current stateless MCP/Streamable HTTP with Beacon trust preflight, signed descriptor/proof, and
+  namespaced trust metadata;
+- OAuth/resource binding, separate read/question/publish/admin scopes, and project authorization;
+- centralized unanswered-question submission/moderation with abuse controls;
 - health, readiness, version, active-provider, snapshot-age, and source-coverage endpoints;
 - structured logs, request/refresh correlation, latency/error metrics, and audit events;
 - bounded caches, timeouts, retries, circuit breaking, and last-known-good serving policy;
@@ -269,8 +317,9 @@ Deliverables:
 
 Exit gate:
 
-> An operator can deploy, authenticate, monitor, refresh, back up, and roll back a Beacon without
-> reading source code, and a provider outage produces an explicit degraded mode rather than bad data.
+> An external user can verify and use an Archolith-hosted or self-hosted public Beacon; an
+> authorized user can connect to a private Beacon; identity, rollback, revocation, and cross-project
+> isolation failures all fail closed; and a provider or Hub outage degrades explicitly.
 
 ### v1.0 — Functional Beacon product
 
@@ -285,6 +334,8 @@ Deliverables:
   failure behavior;
 - polished maintainer and operator journeys, troubleshooting, and upgrade docs;
 - public Menhir Beacon as the rich reference implementation;
+- stable Hub/federation, descriptor, trust-proof/receipt, and hosted/private custody specifications;
+- one Archolith-hosted and two independently self-hosted conformance Beacons;
 - at least two non-Menhir example Beacons maintained in CI; and
 - release notes that distinguish product evidence from backend benchmark evidence.
 
@@ -304,7 +355,7 @@ The release sequence is implemented through seven parallel workstreams.
 | Sources/build | docs, code, git, decisions, benchmarks, incremental refresh | deterministic rebuild |
 | Retrieval/answers | ranking, lifecycle filters, provider composition, five tools | golden and task evals |
 | Menhir integration | temporal Views, citations, supersession, fallback | project-memory fixture |
-| Operations/security | remote auth, isolation, health, telemetry, backup | deployment/runbook drill |
+| Operations/security | Hub, trust broker, remote auth, isolation, health, telemetry, backup | trust/deployment/runbook drill |
 | Evaluation/ecosystem | examples, conformance, agent task trials, docs | release scorecard |
 
 The critical path is core contracts → repository build → useful task onboarding → dynamic provider
@@ -323,8 +374,10 @@ test. Beacon needs project-task evaluation.
 - content-identical snapshot on unchanged rebuild;
 - 100% resolvable citations for high-confidence fixture claims;
 - zero high-confidence answer when required evidence is absent;
-- old manifest and answer-contract compatibility fixtures pass; and
-- provider outage/degraded-mode fixtures pass.
+- old manifest and answer-contract compatibility fixtures pass;
+- provider outage/degraded-mode fixtures pass; and
+- remote descriptor/proof tampering, challenge replay, snapshot rollback, unexpected key rotation,
+  and revocation fixtures fail closed.
 
 ### Agent task trials
 
@@ -346,6 +399,7 @@ no-memory language-model baseline.
 - bounded memory/index size for supported repository sizes;
 - refresh failure and rollback drill;
 - remote authentication and cross-project access tests;
+- hosted/self-hosted identity handshake, authorization, lineage, and Hub-outage tests;
 - secrets/path-exclusion scan; and
 - supported-platform install/start smoke tests.
 
@@ -374,7 +428,7 @@ Before implementation fans out, create reviewed execution plans for:
 3. repository source/build pipeline and safety exclusions;
 4. task-onboarding evaluation corpus and README-only baseline;
 5. provider composition plus Menhir View boundary;
-6. remote transport/auth/operations threat model; and
+6. trust, Hub, federation, remote transport/auth/operations threat model; and
 7. v1 compatibility/versioning policy.
 
 The first implementation sprint should combine one user-visible v0.2 improvement with the minimum
@@ -387,6 +441,10 @@ agent can use.
 - Whether snapshots are JSON only in v1 or also support YAML/SQLite packaging.
 - Which code/symbol index is the default repository adapter and what repository sizes it supports.
 - Whether remote mode ships in the same package/process or as a deployment wrapper.
+- Canonical Beacon ID namespace, descriptor location, signature profile, trust extension, key
+  recovery, and transparency mechanism.
+- Archolith-hosted private custody, retention, deletion, backup, and operator-access policy.
+- Public directory moderation, namespace disputes, abuse response, and delisting/appeal policy.
 - Which optional `time_mode` and lifecycle filters can be added without destabilizing the five-tool
   contract.
 - What review/promotion mechanism controls dynamic high-confidence project decisions.

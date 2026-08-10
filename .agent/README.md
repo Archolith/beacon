@@ -11,6 +11,7 @@ Read everything in this directory before starting work.
 | `CHANGELOG.md` | Running log of changes, most recent first |
 | `workflows/code_conventions.md` | Language-specific style and formatting rules |
 | `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` | Executable plan for initialization, export, examples, packaging, and the v0.2 release gate |
+| `plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` | Approved hybrid Archolith Hub, self-hosting, trust handshake, private access, and federation plan |
 
 ## Maintenance Rules
 
