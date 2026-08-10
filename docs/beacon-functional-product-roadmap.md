@@ -218,10 +218,14 @@ Deliverables:
 - read-only adapters for Markdown/docs, file inventory, selected symbols, git commits/diffs, explicit
   decision records, guardrails, and benchmark/result metadata;
 - source configuration with include/exclude rules and secret/generated-file safety defaults;
-- normalized knowledge envelope and canonical snapshot schema v1;
+- normalized knowledge envelope plus backward-compatible snapshot 1.x records and loader/fallback
+  support for the v0.2 snapshot contract;
 - deterministic build/refresh with source digests and incremental invalidation;
 - task onboarding that ranks docs, files, tests, commands, and risks together;
 - search filters for source type, lifecycle state, and optional time mode; and
+- a durable, source-cited unanswered-question queue with `open`, `answered`, `deferred`, and
+  `superseded` states so agents can submit knowledge gaps for later maintainer review without
+  promoting them to trusted project knowledge; and
 - source-coverage and stale-citation diagnostics.
 
 Exit gate:
@@ -386,6 +390,8 @@ agent can use.
 - Which optional `time_mode` and lifecycle filters can be added without destabilizing the five-tool
   contract.
 - What review/promotion mechanism controls dynamic high-confidence project decisions.
+- What identity, deduplication, retention, and promotion policy governs the unanswered-question
+  queue.
 - Which two non-Menhir repositories become maintained conformance examples.
 
 These decisions should be resolved by executable fixtures and user workflows, not by expanding the

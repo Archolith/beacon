@@ -9,6 +9,10 @@
   cold-start usability, and wheel-based release gates.
 - `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — linked and indexed
   the v0.2 plan as the active implementation plan.
+- Approved all seven v0.2 release decisions: `archolith-beacon` ownership, the CPython/platform
+  matrix, structured initialization review reports, snapshot schema/content policy, shared CLI JSON
+  envelope and exit codes, bounded `--force`, and protected-`master` release/tag workflow. Added a
+  future durable unanswered-question review queue to the v0.3 roadmap.
 
 ## 2026-08-09 — Define the functional Beacon product roadmap
 

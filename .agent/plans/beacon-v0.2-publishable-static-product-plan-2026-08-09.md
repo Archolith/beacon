@@ -6,6 +6,7 @@
 **Parent roadmap:** `docs/beacon-functional-product-roadmap.md` — v0.2
 **Starting commit:** `77ad631`
 **Target release:** `0.2.0`
+**Release decisions approved:** 2026-08-09
 
 ## 1. Outcome
 
@@ -52,9 +53,10 @@ The release starts from a working manifest-driven product, not from zero.
 | Repository ignore rules | No `.gitignore` | Add Python/build/output hygiene |
 | Git release tags | None | Create only after release gate passes |
 
-Known release-truth conflict: README says the distribution is `archolith-beacon`, while
-`pyproject.toml` currently declares `name = "beacon"`. v0.2 must resolve and test the canonical
-distribution name before publishing or documenting installation as complete.
+Known release-truth conflict: README already uses the approved distribution name
+`archolith-beacon`, while `pyproject.toml` still declares `name = "beacon"`. WP0 must make the
+metadata consistent and successfully reserve/publish the distribution under Archolith ownership
+before documenting installation as complete.
 
 ## 3. Locked decisions
 
@@ -79,23 +81,25 @@ These decisions keep v0.2 small and prevent v0.3 architecture from leaking into 
    future fallback. It does not introduce the v0.3 normalized multi-adapter knowledge envelope.
 10. **No release claim without a wheel:** source-checkout success is insufficient; the built wheel
     must install and run in a clean environment.
+11. **Approved release contracts:** the package, platform, review-report, snapshot, CLI envelope,
+    overwrite, and release-workflow decisions in section 10 are implementation requirements.
 
 ## 4. Supported maintainer journey
 
 ### Step 1 — Install and identify the binary
 
 ```text
-python -m pip install <canonical-distribution-name>==0.2.0
+python -m pip install archolith-beacon==0.2.0
 beacon --version
 beacon --help
 ```
 
 Requirements:
 
-- one canonical distribution name in metadata and docs;
+- distribution `archolith-beacon`, import package `beacon`, and CLI command `beacon`;
 - one version source used by package metadata and `beacon --version`;
 - useful help without environment variables; and
-- supported Python/platform matrix stated before installation.
+- CPython `>=3.12,<3.15`, tested on Python 3.12, 3.13, and 3.14 across Windows, macOS, and Linux.
 
 ### Step 2 — Initialize
 
@@ -114,7 +118,7 @@ beacon init path/to/project --output path/to/beacon.yaml
 - license from a known license filename;
 - canonical entry docs from an allowlist of files that exist;
 - setup/test commands only when a supported build file provides an unambiguous command; and
-- explicit review placeholders for purpose, guardrails, and uncertain commands.
+- explicit review-report entries for unknown purpose, guardrails, and uncertain commands.
 
 The discovery allowlist should include common agent/project entry points such as `README.md`,
 `CONTRIBUTING.md`, `AGENTS.md`, `.agent/README.md`, and bounded architecture/index files under
@@ -127,9 +131,14 @@ secrets, and files outside the selected repository root.
 - relative, normalized manifest paths;
 - no recursive content ingestion;
 - no path escape through symlinks or `..`;
-- no overwrite by default;
+- no overwrite by default; `--force` replaces only an existing recognizable Beacon manifest;
 - atomic write when it does write;
-- an explicit summary of discovered, omitted, and review-required fields; and
+- an explicit structured summary of discovered, omitted, and review-required fields;
+- `--format json` for the report and optional `--report PATH` persistence without a surprise
+  second file by default;
+- no authoritative review state stored only in YAML comments;
+- optional unknown fields omitted or empty, and required unknown values stated factually with the
+  enclosing knowledge status set to `unknown`; and
 - generated output parses and has zero validation errors.
 
 Warnings are acceptable immediately after generation when a real value is unknown. Publication is
@@ -152,12 +161,19 @@ Shared CLI behavior:
 
 - `--docs-root` overrides path resolution consistently;
 - text is the human default;
-- `--format json` emits one versioned JSON object on stdout;
-- warnings/errors and paths have stable machine fields;
-- exit `0` means the requested operation succeeded;
-- exit `1` means invalid user input, manifest, or source state;
-- exit `2` is reserved for unexpected internal/configuration failure; and
+- `--format json` emits one `beacon.cli-result` version `1.0` envelope on stdout;
+- the envelope carries `command`, `ok`, command-specific `result`, and diagnostics with stable
+  `severity`, `code`, `path`, and `message` fields;
+- expected machine-mode outcomes produce exactly one JSON document and no human prose;
+- stderr is reserved for logs and failures that occur before an envelope can be built;
+- exit `0` means the command completed under the selected policy;
+- exit `1` means validation or strict-warning failure;
+- exit `2` means invalid arguments, missing inputs, unsafe paths, or refused overwrite;
+- exit `3` means an unexpected internal failure; and
 - Unicode output works on Windows without corrupting machine JSON.
+
+`export --output -` emits the raw versioned snapshot rather than a CLI envelope, and `serve` emits
+MCP stdio. These are protocol/artifact streams, not ordinary CLI results.
 
 `inspect --task-hint` must exercise task-scoped onboarding and guardrails rather than only the
 provider's no-argument defaults. JSON inspection returns the complete payload for all five tools,
@@ -169,12 +185,14 @@ not the truncated human presentation.
 beacon export
 beacon export --output beacon.snapshot.json
 beacon export --output -
+beacon export --metadata-only
 ```
 
 The canonical export is a self-contained JSON representation of the static Beacon inputs, suitable
 for code review and CI diffing. It includes:
 
-- `beacon_snapshot_version`;
+- `beacon_snapshot_version: "1.0"`;
+- generator distribution/version and `content_mode: "embedded"` or `"metadata_only"`;
 - project identity and `beacon_version`;
 - canonical serialized manifest data;
 - manifest SHA256;
@@ -190,6 +208,11 @@ Canonicalization rules:
 - no absolute local paths, environment values, credentials, timestamps, or host identifiers;
 - identical bytes for unchanged inputs; and
 - atomic file replacement, with stdout mode performing no file write.
+
+The default snapshot embeds each canonical heading chunk's text once. It does not also duplicate
+the complete document body. `--metadata-only` emits document metadata, structure, and hashes
+without text. Documentation must state plainly that the default snapshot contains the selected
+canonical documents' content.
 
 The snapshot is a review/export artifact in v0.2. Loading and querying snapshots as a provider
 fallback is v0.3 work unless it can be added without delaying the v0.2 exit gate.
@@ -228,18 +251,19 @@ Files likely involved:
 
 Tasks:
 
-1. Decide and verify the canonical distribution name (`beacon` versus `archolith-beacon`) against
-   package-index ownership/availability and intended public branding.
+1. Change package metadata to the approved distribution `archolith-beacon`; retain import package
+   and CLI name `beacon`; verify package-index availability and Archolith ownership before upload.
 2. Make version metadata single-source and expose `beacon --version`.
 3. Add complete package metadata: README, license, repository/issues URLs, classifiers, and package
    inclusion checks.
 4. Add `.gitignore` for Python bytecode, virtual environments, build outputs, coverage, local env,
    and generated snapshots while allowing committed example snapshots when explicitly located.
-5. Define supported Python versions and Windows/Linux/macOS smoke scope.
+5. Declare CPython `>=3.12,<3.15` and test Python 3.12/3.13/3.14 on Windows, macOS, and Linux; do
+   not claim PyPy, free-threaded, Python 3.15 prerelease, or mobile support.
 6. Add build/test dependencies or documented tool installation for `python -m build` and package
    metadata validation.
-7. Resolve branch/release workflow: the current pre-push hook blocks pushes to `master`; document
-   the supported release branch and tag path.
+7. Keep `master` as protected trunk; use `release/v0.2.0`, PR into `master`, annotated `v0.2.0`
+   tagging after merge, and tag-triggered trusted publication. Correct the hook's stale message.
 
 Acceptance:
 
@@ -262,17 +286,20 @@ Suggested modules:
 
 Tasks:
 
-1. Define frozen discovery/result dataclasses, including evidence and review-required fields.
+1. Define frozen discovery/result dataclasses, including evidence and review-required fields, and
+   serialize the initialization report through the shared CLI envelope.
 2. Implement bounded marker/doc detection with normalized relative paths.
 3. Sanitize git remote URLs and refuse paths outside the selected root.
 4. Render deterministic YAML without mutating the existing manifest schema.
-5. Implement default refusal, `--dry-run`, `--output`, and explicit `--force`.
+5. Implement default refusal, `--dry-run`, `--output`, and `--force` only for a recognizable Beacon
+   manifest that is a regular in-root file; never provide a generic arbitrary-file overwrite flag.
 6. Write atomically and clean temporary files on failure.
 7. Report what was discovered, skipped, and left for review in text and JSON.
 
 Negative tests:
 
 - existing manifest remains byte-identical without `--force`;
+- unrelated files, directories, symlinks, and path escapes are refused even with `--force`;
 - dry run creates nothing;
 - credential-bearing git remote is sanitized;
 - symlink/path escape is rejected;
@@ -297,10 +324,11 @@ Tasks:
 
 1. Add an explicit `serve` command while preserving no-argument stdio.
 2. Add default manifest discovery (`./beacon.yaml`) to validate/inspect/export.
-3. Add consistent `--docs-root`, `--format text|json`, and exit-code handling.
+3. Add consistent `--docs-root`, `--format text|json`, and the approved 0/1/2/3 exit codes.
 4. Add `--strict-warnings` to validation.
 5. Add task-hint inspection that invokes task-scoped onboarding and guardrails.
-6. Keep stdout/stderr separation safe for MCP and JSON consumers.
+6. Implement the shared `beacon.cli-result` `1.0` envelope and keep stdout/stderr separation safe
+   for MCP, snapshot, and JSON consumers.
 7. Centralize manifest loading, docs-root resolution, validation, and error normalization so commands
    do not drift.
 
@@ -325,11 +353,13 @@ Suggested modules:
 
 Tasks:
 
-1. Define frozen snapshot dataclasses/schema and version constant.
+1. Define frozen snapshot dataclasses/schema with `beacon_snapshot_version: "1.0"`, independent
+   generator/manifest versions, and explicit embedded/metadata-only content modes.
 2. Reuse loader, validator, and `DocIndex` chunking; do not implement a second parser.
 3. Compute source digests from exact bytes and normalize only the exported representation.
 4. Reject dangling/escaping docs before export.
-5. Implement stable JSON serialization and atomic output.
+5. Implement stable JSON serialization, default embedded chunk text, `--metadata-only`, and atomic
+   output.
 6. Document snapshot stability guarantees and deliberate non-guarantees.
 
 Acceptance:
@@ -381,7 +411,7 @@ CI gates:
 4. deterministic export comparison;
 5. sdist/wheel build and metadata check;
 6. clean-environment wheel install and CLI smoke;
-7. supported Python/platform matrix; and
+7. the complete CPython 3.12/3.13/3.14 × Windows/macOS/Linux matrix; and
 8. repository cleanliness after tests.
 
 Release candidate process:
@@ -390,9 +420,12 @@ Release candidate process:
 - install the wheel into a fresh virtual environment;
 - execute the complete maintainer journey against a temporary repository;
 - record artifact SHA256 values;
-- publish to a test index or equivalent controlled target first;
-- verify installation by canonical distribution name; and
-- create the `0.2.0` tag/release only after the scorecard passes.
+- publish a release candidate to a controlled target first when needed;
+- verify installation as `archolith-beacon`;
+- merge the passing `release/v0.2.0` PR into protected `master`;
+- create annotated tag `v0.2.0` on the exact merged commit; and
+- create the GitHub release and publish through trusted tag-triggered automation only after the
+  scorecard passes.
 
 No secrets or publishing credentials belong in ordinary pull-request CI.
 
@@ -502,6 +535,7 @@ is added to `.agent/workflows/code_conventions.md`.
 ### Safety and compatibility
 
 - [ ] Init refuses overwrite and path escape.
+- [ ] `--force` replaces only a recognizable in-root Beacon manifest and replacement is atomic.
 - [ ] Git remote credentials, environment secrets, and absolute local paths do not leak.
 - [ ] v0.1 manifests and existing five-tool contracts remain compatible.
 - [ ] Unknown facts remain warnings/review items rather than guesses.
@@ -526,21 +560,37 @@ is added to `.agent/workflows/code_conventions.md`.
 - lifecycle/time-mode search filters;
 - Menhir or any dynamic provider;
 - remote transport/auth/operations;
-- runtime LLM synthesis; and
+- runtime LLM synthesis;
+- durable agent-submitted unanswered-question storage and maintainer review workflow; and
 - new MCP tools.
 
 Deferral is important: v0.2 succeeds by making the static product installable and trustworthy, not
 by beginning every later architecture layer.
 
-## 10. Decisions required before WP0 closes
+## 10. Approved v0.2 release decisions
 
-1. Canonical package-index distribution name and ownership.
-2. Supported Python versions and release operating systems.
-3. Whether generated review items use YAML comments, explicit placeholder values, or a sidecar
-   initialization report; placeholders must not masquerade as current knowledge.
-4. Exact snapshot version string and whether canonical doc text is embedded by default.
-5. Whether JSON output uses one shared schema envelope across CLI commands.
-6. Whether `--force` is sufficient for overwrite or requires a second explicit confirmation flag.
-7. Release branch convention given the repository's push block on `master`.
+1. **Distribution and ownership:** publish `archolith-beacon` under Archolith ownership with at
+   least two maintainers and trusted GitHub publication. Keep `beacon` as import and CLI name.
+2. **Supported matrix:** support CPython 3.12, 3.13, and 3.14 on Windows, macOS, and Linux. Exclude
+   Python 3.15 prereleases, PyPy, free-threaded builds, and mobile until separately tested.
+3. **Unknown/review state:** keep guesses out of the manifest. Omit optional unknowns; mark required
+   unknown knowledge factually with `status: unknown`; expose a structured initialization report in
+   text or the shared JSON envelope; persist it only through optional `--report PATH`. YAML comments
+   may guide editing but are never authoritative review state. Strict warnings block publication.
+4. **Snapshot:** use snapshot schema `1.0`, independent of product `0.2.0` and manifest `0.1`.
+   Embed canonical heading-chunk text once by default; offer explicit `--metadata-only`; record the
+   content mode and exact source digests.
+5. **CLI JSON:** use shared envelope `beacon.cli-result` version `1.0` with `command`, `ok`,
+   command-specific `result`, and stable diagnostics. Raw snapshot stdout and MCP stdio remain
+   separately versioned streams. Use exit codes 0 success, 1 validation/policy failure, 2 user/input
+   safety failure, and 3 unexpected internal failure.
+6. **Overwrite:** `--force` is sufficient only for an existing recognizable Beacon manifest that
+   is a regular file inside the repository root. Validate and atomically replace it. Never overwrite
+   unrelated files, directories, symlinks, or path escapes, and provide no arbitrary-file escape
+   hatch.
+7. **Release workflow:** keep `master` as protected trunk. Implement on `release/v0.2.0`, merge by
+   passing PR, annotate the exact merged commit as `v0.2.0`, and trigger GitHub Release/trusted
+   package publication only from that tag. Delete the release branch after successful publication.
 
-Resolve these with small fixtures and command examples before implementation commits diverge.
+These decisions are locked for v0.2. Changing one requires updating its fixtures, command examples,
+acceptance checks, and this plan before implementation diverges.
