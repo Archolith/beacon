@@ -1,7 +1,7 @@
 # Beacon v0.2 RC2 loopback HTTP snapshot plan
 
-**Date:** 2026-08-10  
-**Status:** IMPLEMENTING  
+**Date:** 2026-08-10
+**Status:** IMPLEMENTATION COMPLETE — RELEASE GATES PENDING
 **Target:** `archolith-beacon==0.2.0rc2`
 
 ## Goal
@@ -49,7 +49,7 @@ Beacon's deterministic snapshot, publication-policy, privacy, or future trust bo
 | Exposure | non-loopback hosts and invalid/occupied ports fail closed |
 | Runtime | real installed-wheel process answers every route over loopback under outbound denial |
 | Packaging | direct Starlette/Uvicorn dependencies, wheel inspection, clean install, `pip check` |
-| Matrix | Python 3.12/3.13/3.14 locally; hosted Linux/macOS/Windows matrix after push |
+| Matrix | Python 3.12 locally; Python 3.12/3.13/3.14 on hosted Linux/macOS/Windows after push |
 
 ## Release sequence
 
