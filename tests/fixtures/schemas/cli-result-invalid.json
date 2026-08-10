@@ -1,0 +1,15 @@
+{
+  "schema": "beacon.cli-result",
+  "schema_version": "1.0",
+  "command": "publish",
+  "ok": true,
+  "result": {},
+  "diagnostics": [
+    {
+      "severity": "critical",
+      "code": "BROKEN_CODE",
+      "message": "",
+      "acknowledged": true
+    }
+  ]
+}
