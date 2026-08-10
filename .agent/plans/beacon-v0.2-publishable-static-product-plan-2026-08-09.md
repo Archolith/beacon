@@ -49,6 +49,7 @@ The release starts from a working manifest-driven product, not from zero.
 | Dedicated client setup guide | README only | Add one tested guide |
 | Golden CLI output contracts | Partial assertions only | Add JSON contract and stable fixture tests |
 | Distribution/release metadata | Inconsistent/incomplete | Resolve before package publication |
+| MCP framework dependency | Legacy `cth-mcp-framework` editable install | Migrate to public Archolith distribution |
 | Release CI | Missing | Add test/build/wheel-smoke workflow |
 | Repository ignore rules | No `.gitignore` | Add Python/build/output hygiene |
 | Git release tags | None | Create only after release gate passes |
@@ -57,6 +58,13 @@ Known release-truth conflict: README already uses the approved distribution name
 `archolith-beacon`, while `pyproject.toml` still declares `name = "beacon"`. WP0 must make the
 metadata consistent and successfully reserve/publish the distribution under Archolith ownership
 before documenting installation as complete.
+
+Dependency release prerequisite: Beacon still declares `cth-mcp-framework>=0.1.0` and imports
+`cth_mcp_framework`. The framework has migrated to
+`Archolith/archolith-mcp-framework`, distribution `archolith-mcp-framework`, import
+`archolith_mcp_framework`, and tag `v0.2.0`, but is not yet available from the public package index.
+WP0 must publish that framework first and must not put a direct Git dependency in Beacon's public
+package metadata.
 
 ## 3. Locked decisions
 
@@ -97,6 +105,8 @@ beacon --help
 Requirements:
 
 - distribution `archolith-beacon`, import package `beacon`, and CLI command `beacon`;
+- public dependency `archolith-mcp-framework>=0.2,<0.3`, imported as
+  `archolith_mcp_framework`, with no legacy or direct-URL requirement;
 - one version source used by package metadata and `beacon --version`;
 - useful help without environment variables; and
 - CPython `>=3.12,<3.15`, tested on Python 3.12, 3.13, and 3.14 across Windows, macOS, and Linux.
@@ -243,6 +253,8 @@ Files likely involved:
 
 - `pyproject.toml`
 - `src/beacon/__init__.py`
+- `src/beacon/main.py`
+- `src/beacon/mcp/server.py`
 - `README.md`
 - `LICENSE`
 - `.gitignore`
@@ -253,21 +265,26 @@ Tasks:
 
 1. Change package metadata to the approved distribution `archolith-beacon`; retain import package
    and CLI name `beacon`; verify package-index availability and Archolith ownership before upload.
-2. Make version metadata single-source and expose `beacon --version`.
-3. Add complete package metadata: README, license, repository/issues URLs, classifiers, and package
+2. Publish `archolith-mcp-framework==0.2.0` from its canonical Archolith repository, then replace
+   Beacon's legacy dependency/imports with `archolith-mcp-framework>=0.2,<0.3` and
+   `archolith_mcp_framework`. Preserve the five-tool behavior through compatibility tests.
+3. Make version metadata single-source and expose `beacon --version`.
+4. Add complete package metadata: README, license, repository/issues URLs, classifiers, and package
    inclusion checks.
-4. Add `.gitignore` for Python bytecode, virtual environments, build outputs, coverage, local env,
+5. Add `.gitignore` for Python bytecode, virtual environments, build outputs, coverage, local env,
    and generated snapshots while allowing committed example snapshots when explicitly located.
-5. Declare CPython `>=3.12,<3.15` and test Python 3.12/3.13/3.14 on Windows, macOS, and Linux; do
+6. Declare CPython `>=3.12,<3.15` and test Python 3.12/3.13/3.14 on Windows, macOS, and Linux; do
    not claim PyPy, free-threaded, Python 3.15 prerelease, or mobile support.
-6. Add build/test dependencies or documented tool installation for `python -m build` and package
+7. Add build/test dependencies or documented tool installation for `python -m build` and package
    metadata validation.
-7. Keep `master` as protected trunk; use `release/v0.2.0`, PR into `master`, annotated `v0.2.0`
+8. Keep `master` as protected trunk; use `release/v0.2.0`, PR into `master`, annotated `v0.2.0`
    tagging after merge, and tag-triggered trusted publication. Correct the hook's stale message.
 
 Acceptance:
 
 - package name and install docs agree;
+- the framework installs from the public index under its Archolith name and Beacon contains no
+  legacy `cth-mcp-framework` or direct-URL dependency;
 - `beacon --version` equals built metadata;
 - wheel/sdist contain expected code, README, and license only;
 - no bytecode/build junk appears in `git status`; and
@@ -416,6 +433,8 @@ CI gates:
 
 Release candidate process:
 
+- publish and smoke-test `archolith-mcp-framework==0.2.0` from the public package index before
+  building Beacon's release candidate;
 - build from a clean commit;
 - install the wheel into a fresh virtual environment;
 - execute the complete maintainer journey against a temporary repository;
@@ -544,6 +563,9 @@ is added to `.agent/workflows/code_conventions.md`.
 
 ### Distribution
 
+- [ ] `archolith-mcp-framework==0.2.0` is publicly installable from its Archolith release.
+- [ ] Beacon depends on `archolith-mcp-framework>=0.2,<0.3` with the new import namespace.
+- [ ] Beacon has no direct Git dependency or legacy `cth-mcp-framework` runtime requirement.
 - [ ] Canonical distribution name is verified and consistent.
 - [ ] Version is single-source and reports `0.2.0`.
 - [ ] Wheel and sdist metadata pass validation.
@@ -569,8 +591,12 @@ by beginning every later architecture layer.
 
 ## 10. Approved v0.2 release decisions
 
-1. **Distribution and ownership:** publish `archolith-beacon` under Archolith ownership with at
-   least two maintainers and trusted GitHub publication. Keep `beacon` as import and CLI name.
+1. **Distribution and ownership:** first publish `archolith-mcp-framework==0.2.0` from
+   `Archolith/archolith-mcp-framework`; migrate Beacon to dependency
+   `archolith-mcp-framework>=0.2,<0.3` and import `archolith_mcp_framework`; then publish
+   `archolith-beacon` under Archolith ownership. Both public distributions use trusted GitHub
+   publication and at least two maintainers. Keep `beacon` as Beacon's import and CLI name. Public
+   metadata contains no direct Git dependency.
 2. **Supported matrix:** support CPython 3.12, 3.13, and 3.14 on Windows, macOS, and Linux. Exclude
    Python 3.15 prereleases, PyPy, free-threaded builds, and mobile until separately tested.
 3. **Unknown/review state:** keep guesses out of the manifest. Omit optional unknowns; mark required

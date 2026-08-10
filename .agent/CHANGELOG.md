@@ -13,6 +13,10 @@
   matrix, structured initialization review reports, snapshot schema/content policy, shared CLI JSON
   envelope and exit codes, bounded `--force`, and protected-`master` release/tag workflow. Added a
   future durable unanswered-question review queue to the v0.3 roadmap.
+- Clarified the approved public dependency chain after the MCP framework's Archolith migration:
+  publish `archolith-mcp-framework==0.2.0`, migrate Beacon from the legacy dependency/import to
+  `archolith-mcp-framework>=0.2,<0.3` / `archolith_mcp_framework`, and only then publish
+  `archolith-beacon`, with no direct Git dependency in public package metadata.
 
 ## 2026-08-09 — Define the functional Beacon product roadmap
 
