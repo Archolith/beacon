@@ -10,6 +10,7 @@ Read everything in this directory before starting work.
 | `data_models.md` | Entities, DTOs, enums, converters, repository reference |
 | `CHANGELOG.md` | Running log of changes, most recent first |
 | `workflows/code_conventions.md` | Language-specific style and formatting rules |
+| `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` | Executable plan for initialization, export, examples, packaging, and the v0.2 release gate |
 
 ## Maintenance Rules
 

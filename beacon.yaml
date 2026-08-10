@@ -142,6 +142,11 @@ canonical_docs:
     status: current
     title: Canonical functional-product roadmap from v0 to v1
 
+  - path: .agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md
+    role: implementation_plan
+    status: current
+    title: Beacon v0.2 publishable static product execution plan
+
 agent_guidance:
   read_first:
     - .agent/README.md

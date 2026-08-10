@@ -1,5 +1,15 @@
 # Changelog — beacon
 
+## 2026-08-09 — Plan the v0.2 publishable static product
+
+- `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` — converted the
+  roadmap's v0.2 release into an executable product plan. Audited the current baseline, locked the
+  static/offline compatibility boundaries, specified init/validate/inspect/export/serve contracts,
+  split implementation into six work packages, and defined safety, packaging, deterministic export,
+  cold-start usability, and wheel-based release gates.
+- `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — linked and indexed
+  the v0.2 plan as the active implementation plan.
+
 ## 2026-08-09 — Define the functional Beacon product roadmap
 
 - `docs/beacon-functional-product-roadmap.md` — added the canonical roadmap from the shipped static
