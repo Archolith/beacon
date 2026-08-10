@@ -70,7 +70,8 @@ src/beacon/
 │   ├── schema.py        BeaconManifest + all answer-contract frozen dataclasses
 │   ├── limits.py        frozen ResourceLimits model + stable limit error codes
 │   ├── loader.py        load_beacon_manifest(path) → BeaconManifest (bounded PyYAML)
-│   ├── validator.py     validate_beacon_manifest(), require_valid_manifest()
+│   ├── validator.py     validate_beacon_manifest(), require_valid_manifest(), stable diagnostic codes
+│   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
 ├── provider/
 │   ├── base.py          @runtime_checkable BeaconProvider Protocol (5 methods)
@@ -242,7 +243,33 @@ Top-level sections:
 - concept referencing unknown related id (warning)
 - missing `build_and_test.test` command (warning)
 
+Every finding carries a stable, non-secret diagnostic `code` on `ValidationIssue`
+alongside the legacy `severity` / `where` / `message` fields, so existing consumers are
+unaffected. The addendum's publication-warning codes are emitted, including the
+acknowledgeable absent-test (`test_command_missing`) and absent-guardrail
+(`guardrails_missing`) codes, plus `project_status_unknown`, `purpose_missing`,
+`concept_definition_missing`, `related_concept_unknown`, `knowledge_status_invalid`, and
+`canonical_doc_duplicate`. Error findings keep error severity and their own stable codes.
+
 `require_valid_manifest()` raises `ManifestValidationError` on any error — used at startup.
+
+### Serving/publication policy and acknowledgement
+
+`beacon.core.policy` provides the reusable policy evaluation that the CLI unit will wire up:
+
+- `evaluate_policy(report, *, acknowledgements=())` returns a `PolicyEvaluation` with
+  `servable` (no errors) and `publishable` (no errors *and* no unresolved publication
+  warnings). Normal `validate` uses `servable`; strict `validate` and `export` use
+  `publishable`; `serve` uses `servable` while warnings stay visible.
+- Only warnings whose code is in `PUBLICATION_WARNING_CODES` block publication. Warnings
+  such as `guardrail_severity_invalid` are reported but do not block publication.
+- An acknowledgement is an explicit, reasoned, in-memory override for one allowlisted
+  warning (`test_command_missing`, `guardrails_missing`). `parse_acknowledgement(raw)` /
+  `parse_acknowledgements(raws)` validate `CODE=REASON` (reason trimmed, non-empty,
+  ≥10 characters) and reject malformed, unknown, duplicate, or unallowlisted codes with a
+  stable `AcknowledgementError`. An acknowledgement changes the policy disposition but
+  never mutates the diagnostic severity/facts or `beacon.yaml`; the reason is recorded on
+  `PolicyEvaluation.acknowledged` for reporting and future export metadata.
 
 ## Doc Index
 

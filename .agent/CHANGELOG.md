@@ -1,5 +1,31 @@
 # Changelog — beacon
 
+## 2026-08-09 — Stable validation codes and strict/acknowledgement policy
+
+- `src/beacon/core/validator.py` — `ValidationIssue` now carries a stable, non-secret
+  diagnostic `code` in addition to the legacy `severity`/`where`/`message` fields (additive;
+  existing consumers unchanged). Added the addendum §5 publication-warning codes
+  (`project_status_unknown`, `purpose_missing`, `test_command_missing`, `guardrails_missing`,
+  `concept_definition_missing`, `related_concept_unknown`, `knowledge_status_invalid`,
+  `canonical_doc_duplicate`), new absent-test/absent-guardrail findings, stable codes for all
+  other error/warning findings, and the `PUBLICATION_WARNING_CODES` / `VALIDATION_CODES` sets.
+- `src/beacon/core/policy.py` (new) — reusable serving/publication policy: `evaluate_policy()`
+  returns `PolicyEvaluation` distinguishing `servable` (no errors) from `publishable` (no errors
+  and no unresolved publication warnings). Added explicit acknowledgement parsing/model:
+  `parse_acknowledgement()` / `parse_acknowledgements()` validate `CODE=REASON` (reason trimmed,
+  non-empty, ≥10 chars) and reject malformed/unknown/duplicate/unallowlisted codes with stable
+  `AcknowledgementError` codes. Only `test_command_missing` and `guardrails_missing` are
+  acknowledgeable in v0.2; acknowledgements change policy disposition but preserve diagnostic
+  severity/facts and never mutate `beacon.yaml`.
+- `src/beacon/core/__init__.py` — re-exported the policy types/functions.
+- `tests/test_policy.py` (new) — 29 focused tests covering every acknowledgement rejection path,
+  direct-object revalidation, normal/strict/publish/export dispositions, preserved facts/severity,
+  deterministic ordering, and legacy positional-constructor compatibility.
+- `.agent/architecture.md`, `.agent/data_models.md` — documented the stable diagnostic codes,
+  serving/publication policy, and acknowledgement model.
+- The full CLI JSON envelope and `--strict-warnings` / `--acknowledge` flags are a later merge
+  unit; this slice provides the reusable core APIs only.
+
 ## 2026-08-09 — Shared resource-limits model and bounded readers
 
 - `src/beacon/core/limits.py` — added the frozen immutable `ResourceLimits` model with the
