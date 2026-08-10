@@ -1,0 +1,123 @@
+beacon_version: "0.1"
+
+project:
+  name: relayd
+  tagline: Relay files placed in a watched directory to a downstream endpoint.
+  status: experimental
+  description: >
+    A long-running background service that watches a local directory, reads new
+    files as they appear, and delivers them to a downstream HTTP endpoint with
+    bounded retries and exponential backoff. It is built to run for weeks at a
+    time: it shuts down cleanly, applies backpressure instead of dropping or
+    buffering without bound, and keeps every delivery retry-safe.
+  repository: https://github.com/example/relayd
+  primary_language: python
+  license: MIT
+
+purpose:
+  one_sentence: >
+    Deliver files dropped into a watched directory to a downstream endpoint
+    reliably, retrying on transient failures without unbounded buffering.
+  problem: >
+    Operators often move files into a folder as a hand-off to another system.
+    Without a watcher, nothing notices the file; with a naive loop, a slow or
+    down endpoint causes unbounded memory growth and duplicate deliveries.
+    relayd turns the folder into a bounded, retrying, idempotent pipeline.
+  non_goals:
+    - Providing a web UI or an interactive control plane.
+    - Storing messages beyond the local on-disk queue.
+    - Guaranteeing exactly-once delivery in the face of a reset upstream.
+
+core_concepts:
+  - id: watcher
+    name: Directory Watcher
+    status: current
+    definition: The component that notices new files in the watched directory.
+    why_it_exists: A polling loop with a stable scan cadence is simple, deterministic, and easy to test.
+    implementation_locations:
+      - src/relayd/watcher.py
+  - id: retry_policy
+    name: Retry Policy
+    status: current
+    definition: The bounded exponential-backoff schedule used before a delivery is failed.
+    why_it_exists: Backoff avoids hammering a recovering endpoint while still making progress.
+    implementation_locations:
+      - src/relayd/retry.py
+  - id: backpressure
+    name: Backpressure
+    status: current
+    definition: The mechanism that slows intake rather than buffering deliveries without limit.
+    why_it_exists: A downstream outage must not grow memory without bound; the watcher pauses instead.
+    implementation_locations:
+      - src/relayd/queue.py
+  - id: shutdown_drain
+    name: Shutdown Drain
+    status: current
+    definition: The graceful shutdown path that finishes in-flight work before exiting.
+    why_it_exists: Losing a delivery mid-write is worse than a slightly longer shutdown.
+    implementation_locations:
+      - src/relayd/service.py
+
+canonical_docs:
+  - path: README.md
+    role: entrypoint
+    status: current
+    title: Service README
+  - path: docs/architecture.md
+    role: architecture
+    status: current
+    title: Pipeline architecture
+  - path: docs/operations.md
+    role: research
+    status: current
+    title: Operations notes
+
+agent_guidance:
+  read_first:
+    - README.md
+    - docs/architecture.md
+    - docs/operations.md
+  safe_first_tasks:
+    - Add a unit test for a new backoff schedule.
+    - Document a failure mode observed under a slow endpoint.
+  avoid_without_review:
+    - src/relayd/service.py
+    - src/relayd/queue.py
+
+build_and_test:
+  setup: python -m pip install -e .
+  test: python -m pytest tests/
+
+guardrails:
+  - id: graceful_shutdown
+    scope: lifecycle
+    severity: high
+    rule: >
+      On shutdown, drain the in-flight queue before exiting. Never kill in-flight
+      deliveries without attempting them.
+    applies_to:
+      - src/relayd/service.py
+  - id: no_unbounded_buffer
+    scope: queue
+    severity: high
+    rule: >
+      Apply backpressure when the queue is full. Do not grow an in-memory buffer
+      without bound when the downstream endpoint is slow or down.
+    applies_to:
+      - src/relayd/queue.py
+  - id: idempotent_delivery
+    scope: delivery
+    severity: high
+    rule: >
+      A delivery must be safe to retry. Use a stable deduplication key so a
+      retried delivery cannot be applied twice downstream.
+    applies_to:
+      - src/relayd/retry.py
+  - id: no_blocking_main_loop
+    scope: architecture
+    severity: medium
+    rule: >
+      Keep the watcher loop non-blocking. Do not perform network I/O or long
+      writes on the scanning path.
+    applies_to:
+      - src/relayd/watcher.py

@@ -1,0 +1,104 @@
+beacon_version: "0.1"
+
+project:
+  name: frontmatter-kit
+  tagline: Parse and write the YAML front matter at the top of Markdown files.
+  status: experimental
+  description: >
+    A small Python library that reads the YAML block between the leading
+    '---' markers of a Markdown file, exposes it as a typed record, and can
+    write an updated block back without disturbing the body below it. It is a
+    focused library: a single public package with a small API surface, no
+    server, and no framework.
+  repository: https://github.com/example/frontmatter-kit
+  primary_language: python
+  license: MIT
+
+purpose:
+  one_sentence: >
+    Read and write the YAML front matter at the top of Markdown files as a
+    typed, round-trippable record.
+  problem: >
+    Tooling that edits the metadata block of Markdown files either re-serializes
+    the whole file (losing formatting and line endings) or hand-rolls fragile
+    string slicing for each format variant. This library gives one small API
+    that is stable across the common front-matter delimiters.
+  non_goals:
+    - Parsing arbitrary YAML documents that are not a leading front-matter block.
+    - Providing a command-line interface.
+    - Automatic migration of record fields between releases.
+
+core_concepts:
+  - id: front_matter
+    name: Front Matter
+    status: current
+    definition: The YAML block between the leading '---' markers of a Markdown file.
+    why_it_exists: It is the standard home for a file's metadata and the one thing the library reads.
+    implementation_locations:
+      - src/frontmatter_kit/
+  - id: record
+    name: Record
+    status: current
+    definition: The typed, validated view of a parsed front-matter block.
+    why_it_exists: Callers want a stable shape to inspect, not a raw mapping they must validate themselves.
+    implementation_locations:
+      - src/frontmatter_kit/record.py
+  - id: round_trip
+    name: Round Trip
+    status: current
+    definition: The property that writing an unchanged record leaves the file byte-identical.
+    why_it_exists: It makes writes safe to run repeatedly and reviewable as real diffs.
+    implementation_locations:
+      - src/frontmatter_kit/writer.py
+
+canonical_docs:
+  - path: README.md
+    role: entrypoint
+    status: current
+    title: Library README
+  - path: docs/format.md
+    role: research
+    status: current
+    title: Front-matter format notes
+
+agent_guidance:
+  read_first:
+    - README.md
+    - docs/format.md
+  safe_first_tasks:
+    - Add a parser regression test for a new delimiter style.
+    - Document a behavior difference between the record and a raw mapping.
+  avoid_without_review:
+    - src/frontmatter_kit/record.py
+    - src/frontmatter_kit/writer.py
+
+build_and_test:
+  setup: python -m pip install -e .
+  test: python -m pytest tests/
+  benchmark: ""
+
+guardrails:
+  - id: no_record_shape_change
+    scope: record
+    severity: high
+    rule: >
+      Do not change the fields or types of the Record dataclass without a
+      migration plan and a changelog entry; callers depend on its shape.
+    applies_to:
+      - src/frontmatter_kit/record.py
+  - id: no_rewrite_when_unchanged
+    scope: writer
+    severity: high
+    rule: >
+      A write of unchanged content must be a no-op. Never rewrite a file whose
+      record is byte-identical, or diffs become noise.
+    applies_to:
+      - src/frontmatter_kit/writer.py
+  - id: run_tests_before_commit
+    scope: repository
+    severity: medium
+    rule: >
+      Run the full offline test suite before committing. All tests must run
+      without network access or an external service.
+    applies_to:
+      - tests/
