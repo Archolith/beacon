@@ -1,5 +1,14 @@
 # Changelog — beacon
 
+## 2026-08-10 — Public release candidate
+
+- Published `archolith-beacon==0.2.0rc1` through PyPI trusted publishing after the public
+  `archolith-mcp-framework==0.2.0` dependency was available and verified.
+- Added checksummed wheel and source artifacts to the `v0.2.0rc1` GitHub prerelease.
+- Made GitHub release creation repository-explicit so the no-checkout release job works in future
+  tag workflows.
+- Added an observer scorecard for the remaining genuinely unaided 15-minute developer trial.
+
 ## 2026-08-10 — Release-candidate publication docs
 
 - Updated installation and client setup guidance for the public `archolith-mcp-framework==0.2.0`
