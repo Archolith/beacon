@@ -52,7 +52,7 @@ def serve(ctx: typer.Context) -> None:
     load_dotenv(os.getenv("ENV_FILE") or None)
     _configure_logging(include_console=False)
 
-    from cth_mcp_framework import run_server
+    from archolith_mcp_framework import run_server
 
     from beacon.mcp.server import mcp
 
