@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:snapshot:1.0",
+  "title": "Beacon Static Snapshot 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "beacon_snapshot_version",
+    "generator",
+    "content_mode",
+    "project",
+    "manifest",
+    "documents",
+    "validation"
+  ],
+  "properties": {
+    "beacon_snapshot_version": {
+      "const": "1.0"
+    },
+    "generator": {
+      "$ref": "#/$defs/generator"
+    },
+    "content_mode": {
+      "type": "string",
+      "enum": [
+        "embedded",
+        "metadata_only"
+      ]
+    },
+    "project": {
+      "$ref": "#/$defs/project"
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    },
+    "documents": {
+      "type": "array",
+      "maxItems": 256
+    },
+    "validation": {
+      "$ref": "#/$defs/validation"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "content_mode": {
+            "const": "embedded"
+          }
+        },
+        "required": [
+          "content_mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/$defs/embeddedDocument"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "content_mode": {
+            "const": "metadata_only"
+          }
+        },
+        "required": [
+          "content_mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/$defs/metadataDocument"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+(?:/[^\\\\]+)*$"
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distribution",
+        "version"
+      ],
+      "properties": {
+        "distribution": {
+          "const": "archolith-beacon"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "current",
+            "experimental",
+            "planned",
+            "superseded",
+            "disputed",
+            "unknown"
+          ]
+        },
+        "repository": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beacon_version",
+        "source_sha256",
+        "data"
+      ],
+      "properties": {
+        "beacon_version": {
+          "const": "0.1"
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    },
+    "documentBase": {
+      "type": "object",
+      "required": [
+        "path",
+        "role",
+        "status",
+        "title",
+        "source_sha256",
+        "chunks"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "current",
+            "experimental",
+            "planned",
+            "superseded",
+            "disputed",
+            "unknown"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "chunks": {
+          "type": "array"
+        }
+      }
+    },
+    "chunkBase": {
+      "type": "object",
+      "required": [
+        "heading_path",
+        "line_start",
+        "line_end"
+      ],
+      "properties": {
+        "heading_path": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "embeddedChunk": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/chunkBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "heading_path",
+            "line_start",
+            "line_end",
+            "text"
+          ],
+          "properties": {
+            "heading_path": true,
+            "line_start": true,
+            "line_end": true,
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "metadataChunk": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/chunkBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "heading_path",
+            "line_start",
+            "line_end"
+          ],
+          "properties": {
+            "heading_path": true,
+            "line_start": true,
+            "line_end": true
+          }
+        }
+      ]
+    },
+    "embeddedDocument": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/documentBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "role",
+            "status",
+            "title",
+            "source_sha256",
+            "chunks"
+          ],
+          "properties": {
+            "path": true,
+            "role": true,
+            "status": true,
+            "title": true,
+            "source_sha256": true,
+            "chunks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/embeddedChunk"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "metadataDocument": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/documentBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "role",
+            "status",
+            "title",
+            "source_sha256",
+            "chunks"
+          ],
+          "properties": {
+            "path": true,
+            "role": true,
+            "status": true,
+            "title": true,
+            "source_sha256": true,
+            "chunks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/metadataChunk"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "policyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "reason"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 1024
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "errors",
+        "warnings",
+        "acknowledgements",
+        "security_overrides"
+      ],
+      "properties": {
+        "errors": {
+          "const": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "acknowledgements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/policyRecord"
+          }
+        },
+        "security_overrides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/policyRecord"
+          }
+        }
+      }
+    }
+  }
+}

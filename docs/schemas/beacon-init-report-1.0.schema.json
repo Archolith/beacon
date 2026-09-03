@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:init-report:1.0",
+  "title": "Beacon Initialization Report 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "beacon_init_report_version",
+    "operation",
+    "repository_root",
+    "manifest_path",
+    "would_write",
+    "written",
+    "replaced",
+    "discovered",
+    "omitted",
+    "review_required",
+    "security_findings"
+  ],
+  "properties": {
+    "beacon_init_report_version": {
+      "const": "1.0"
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "dry_run",
+        "create",
+        "replace",
+        "refused"
+      ]
+    },
+    "repository_root": {
+      "const": "."
+    },
+    "manifest_path": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "would_write": {
+      "type": "boolean"
+    },
+    "written": {
+      "type": "boolean"
+    },
+    "replaced": {
+      "type": "boolean"
+    },
+    "discovered": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/discoveredField"
+      }
+    },
+    "omitted": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewItem"
+      }
+    },
+    "review_required": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewItem"
+      }
+    },
+    "security_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/securityFinding"
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+(?:/[^\\\\]+)*$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "directory_name",
+            "git_remote",
+            "build_file",
+            "license_file",
+            "document"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "discoveredField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "value",
+        "evidence"
+      ],
+      "properties": {
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "value": true,
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "reviewItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "manifest_path",
+        "reason"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidence_checked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          }
+        }
+      }
+    },
+    "securityFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "path",
+        "blocked"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "sensitive_private_key",
+            "sensitive_credential_url",
+            "sensitive_known_token",
+            "sensitive_file_excluded"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "blocked": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

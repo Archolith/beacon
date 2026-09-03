@@ -1,7 +1,12 @@
-# Beacon MCP Roadmap
+# Beacon MCP Interface Roadmap
 
-> Status: implementation roadmap  
-> Scope: Beacon v0 MCP surface, demo flow, and next milestones
+> Status: interface-level roadmap and backlog
+> Scope: Beacon MCP tools, demo flow, and interface ideas
+> Canonical product roadmap: [`beacon-functional-product-roadmap.md`](beacon-functional-product-roadmap.md)
+
+This document remains the detailed history and backlog for the MCP surface. Product releases,
+maintainer/operator workflows, repository adapters, dynamic-provider architecture, evaluation,
+security, distribution, and v1 acceptance are owned by the canonical functional-product roadmap.
 
 ## 0. Current v0 surface
 
@@ -322,7 +327,7 @@ Expected answer:
 
 This fourth prompt is the "normal RAG cannot do this cleanly" moment.
 
-## 4. Milestones
+## 4. Historical capability milestones
 
 ### Milestone 0 — Beacon exists
 

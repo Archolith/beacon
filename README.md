@@ -321,7 +321,10 @@ Beacon is **experimental**. The v0 surface (five tools, manifest schema, answer 
 - A `MenhirBeaconProvider` does not yet exist.
 - PyPI publication is pending — install from source for now.
 
-Track progress in [`docs/beacon-mcp-roadmap.md`](docs/beacon-mcp-roadmap.md).
+Track the product path in
+[`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The
+tool-level interface history and backlog remain in
+[`docs/beacon-mcp-roadmap.md`](docs/beacon-mcp-roadmap.md).
 
 ---
 

@@ -1,5 +1,57 @@
 # Changelog — beacon
 
+## 2026-08-09 — Lock v0.2 implementation readiness contracts
+
+- `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` — locked stable
+  FastMCP 3.x/stdio for v0.2, conservative configurable repository limits, explicit
+  absent-test/guardrail acknowledgements, high-confidence secret blocking/overrides, an
+  offline/telemetry-free runtime promise, public release order, and PyPI-access verification.
+- `docs/schemas/beacon-*-1.0.schema.json` — added Draft 2020-12 machine contracts for the shared
+  CLI envelope, initialization report, and canonical static snapshot.
+- `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`,
+  `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — linked and indexed
+  the readiness addendum as normative v0.2 implementation guidance.
+
+## 2026-08-09 — Define the Archolith Hub and federated trust product
+
+- `.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` — locked the approved hybrid
+  product shape: Archolith as the default directory, trust service, and optional public/private
+  host; conforming direct/self-hosted operation; a local trust broker and stateless signed preflight;
+  portable identity, descriptors, trust receipts, OAuth scopes, custody disclosures, question
+  review, threat gates, and phased v0.3/v0.5/v0.8/v1 delivery.
+- `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — integrated and
+  indexed the Hub/federation plan across users, v1 boundaries, architecture, milestones,
+  evaluation, immediate planning, and open security/operations decisions.
+
+## 2026-08-09 — Plan the v0.2 publishable static product
+
+- `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` — converted the
+  roadmap's v0.2 release into an executable product plan. Audited the current baseline, locked the
+  static/offline compatibility boundaries, specified init/validate/inspect/export/serve contracts,
+  split implementation into six work packages, and defined safety, packaging, deterministic export,
+  cold-start usability, and wheel-based release gates.
+- `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`, `beacon.yaml` — linked and indexed
+  the v0.2 plan as the active implementation plan.
+- Approved all seven v0.2 release decisions: `archolith-beacon` ownership, the CPython/platform
+  matrix, structured initialization review reports, snapshot schema/content policy, shared CLI JSON
+  envelope and exit codes, bounded `--force`, and protected-`master` release/tag workflow. Added a
+  future durable unanswered-question review queue to the v0.3 roadmap.
+- Clarified the approved public dependency chain after the MCP framework's Archolith migration:
+  publish `archolith-mcp-framework==0.2.0`, migrate Beacon from the legacy dependency/import to
+  `archolith-mcp-framework>=0.2,<0.3` / `archolith_mcp_framework`, and only then publish
+  `archolith-beacon`, with no direct Git dependency in public package metadata.
+
+## 2026-08-09 — Define the functional Beacon product roadmap
+
+- `docs/beacon-functional-product-roadmap.md` — added the canonical roadmap from the shipped static
+  v0 through publishable static, repository-aware, dynamic/temporal, operable remote, and stable v1
+  releases. Defined users, product workflows, architecture, trust gates, project-task evaluation,
+  Menhir/full-500 boundaries, workstreams, and open decisions.
+- `docs/beacon-mcp-roadmap.md` — narrowed to the interface-level history/backlog and linked the
+  canonical product roadmap so the two documents do not compete.
+- `README.md`, `beacon.yaml` — made the product roadmap discoverable to people and through Beacon's
+  own canonical document index.
+
 ## 2026-08-07 — Doc sweep: fix stale CLI description, fill in code conventions
 
 - `.agent/architecture.md` — Package Layout's `main.py` row still described the pre-CLI

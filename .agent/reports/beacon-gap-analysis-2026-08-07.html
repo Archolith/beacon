@@ -1,0 +1,262 @@
+<title>Beacon — What's Missing</title>
+<style>
+  :root {
+    --paper: #f2f1ec;
+    --surface: #ffffff;
+    --surface-sunk: #e9e6de;
+    --ink: #221d17;
+    --muted: #6b6055;
+    --faint: #9a8f80;
+    --hairline: #ddd6c8;
+    --accent: #c9701c;
+    --accent-deep: #8f4e10;
+    --accent-tint: #faf0e2;
+    --done: #1f7a5c;
+    --done-tint: #e6f2ec;
+    --progress: #4c6b8a;
+    --progress-tint: #e8edf2;
+    --blocked: #a83232;
+    --blocked-tint: #f6e6e6;
+    --pending: #857a6e;
+    --pending-tint: #eeece5;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #16130f;
+      --surface: #1d1811;
+      --surface-sunk: #221c14;
+      --ink: #ede7dd;
+      --muted: #a89a88;
+      --faint: #756a5b;
+      --hairline: #322a1f;
+      --accent: #e08a3c;
+      --accent-deep: #f2b166;
+      --accent-tint: #2c2013;
+      --done: #4fbf8f;
+      --done-tint: #163024;
+      --progress: #7fa3c9;
+      --progress-tint: #16232f;
+      --blocked: #e17272;
+      --blocked-tint: #341717;
+      --pending: #948779;
+      --pending-tint: #241f18;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #16130f;
+    --surface: #1d1811;
+    --surface-sunk: #221c14;
+    --ink: #ede7dd;
+    --muted: #a89a88;
+    --faint: #756a5b;
+    --hairline: #322a1f;
+    --accent: #e08a3c;
+    --accent-deep: #f2b166;
+    --accent-tint: #2c2013;
+    --done: #4fbf8f;
+    --done-tint: #163024;
+    --progress: #7fa3c9;
+    --progress-tint: #16232f;
+    --blocked: #e17272;
+    --blocked-tint: #341717;
+    --pending: #948779;
+    --pending-tint: #241f18;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Cambria, "Sitka Text", Georgia, "Noto Serif", serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 780px; margin: 0 auto; padding: 56px 24px 88px; }
+
+  .eyebrow {
+    font-family: "Avenir Next", "Century Gothic", "Segoe UI Semibold", sans-serif;
+    font-size: 12.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent-deep); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: "Avenir Next", "Century Gothic", "Segoe UI Semibold", "Trebuchet MS", sans-serif;
+    font-size: clamp(28px, 4.4vw, 38px); font-weight: 700; letter-spacing: -0.01em;
+    margin: 0 0 10px; text-wrap: balance; color: var(--ink);
+  }
+  .dek { font-size: 17px; color: var(--muted); max-width: 62ch; margin: 0 0 18px; }
+
+  .verdict {
+    padding: 16px 18px; background: var(--accent-tint); border-left: 3px solid var(--accent);
+    font-size: 14.5px; color: var(--ink); margin-bottom: 20px;
+  }
+  .verdict b { color: var(--accent-deep); }
+  .revised {
+    font-family: "Avenir Next", "Century Gothic", sans-serif; font-size: 11.5px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--blocked); margin: 0 0 24px;
+  }
+
+  h2.section {
+    font-family: "Avenir Next", "Century Gothic", "Segoe UI Semibold", sans-serif;
+    font-size: 19px; font-weight: 700; letter-spacing: -0.005em; margin: 36px 0 6px; color: var(--ink);
+  }
+  h2.section:first-of-type { margin-top: 8px; }
+  .section-sub { color: var(--muted); font-size: 14.5px; max-width: 66ch; margin: 0 0 16px; }
+
+  .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .timeline li {
+    display: grid; grid-template-columns: 96px 1fr; gap: 14px; padding: 14px 0;
+    border-top: 1px solid var(--hairline); font-size: 14.5px;
+  }
+  .timeline li:first-child { border-top: 1px solid var(--hairline); }
+  .t-date {
+    font-family: "Avenir Next", "Century Gothic", sans-serif; font-size: 12px; color: var(--faint);
+    padding-top: 2px;
+  }
+  .t-body b { display: block; margin-bottom: 2px; }
+  .t-status {
+    font-family: "Avenir Next", "Century Gothic", sans-serif; font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase; margin-left: 8px;
+  }
+  .t-status.shipped { color: var(--done); }
+  .t-status.open { color: var(--pending); }
+  .t-status.accepted { color: var(--accent-deep); }
+
+  .glist { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .glist li { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; }
+  .glist .mark { flex: none; width: 15px; height: 15px; margin-top: 3px; }
+  .glist .mark svg { width: 15px; height: 15px; display: block; }
+  .glist .body { color: var(--ink); }
+  .glist .body .note { display: block; color: var(--faint); font-size: 12.5px; margin-top: 2px; font-family: "Avenir Next", "Century Gothic", sans-serif; }
+
+  .steps { list-style: none; margin: 12px 0 0; padding: 0; counter-reset: step; display: flex; flex-direction: column; }
+  .steps li { counter-increment: step; padding: 20px 0; border-top: 1px solid var(--hairline); display: grid; grid-template-columns: 34px 1fr; gap: 14px; }
+  .steps li:first-child { border-top: 1px solid var(--hairline); }
+  .steps li::before {
+    content: counter(step); font-family: "Avenir Next", "Century Gothic", sans-serif; font-weight: 700;
+    font-size: 15px; color: var(--accent-deep); background: var(--accent-tint);
+    width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  }
+  .steps h3 {
+    font-family: "Avenir Next", "Century Gothic", sans-serif; font-size: 15.5px; font-weight: 700;
+    margin: 2px 0 6px; color: var(--ink);
+  }
+  .steps p { margin: 0; font-size: 14.5px; color: var(--ink); }
+  .steps p.why { color: var(--muted); font-size: 13.5px; margin-top: 6px; }
+
+  .not-yet { padding: 18px 20px 20px; background: var(--blocked-tint); border: 1px solid color-mix(in srgb, var(--blocked) 30%, var(--hairline)); margin-top: 12px; }
+  .not-yet h3 {
+    font-family: "Avenir Next", "Century Gothic", sans-serif; font-size: 13px; letter-spacing: 0.06em;
+    text-transform: uppercase; font-weight: 700; margin: 0 0 10px; color: var(--blocked);
+  }
+  .not-yet ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .not-yet li { font-size: 14.5px; padding-left: 16px; position: relative; }
+  .not-yet li::before { content: "\2013"; position: absolute; left: 0; color: var(--blocked); font-weight: 700; }
+
+  footer {
+    margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--hairline);
+    font-size: 12.5px; color: var(--faint); font-family: "Avenir Next", "Century Gothic", sans-serif;
+  }
+  footer .sources { margin-top: 10px; line-height: 1.9; display: flex; flex-direction: column; gap: 2px; }
+
+  code.mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 0.92em; }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 36px 16px 64px; }
+    .timeline li, .steps li { grid-template-columns: 1fr; gap: 6px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Archolith &middot; Beacon &times; Menhir</p>
+    <h1>What Beacon Is Missing</h1>
+    <p class="dek">Beacons are generated via Menhir. That reframes the question &mdash; not "what does the standalone package's own roadmap say," but "what does Menhir need before it can actually generate one."</p>
+  </header>
+
+  <p class="revised">Revision note &mdash; the first pass of this page analyzed the wrong layer; see below.</p>
+
+  <div class="verdict">
+    <b>The real gap is smaller than it looks.</b> Menhir already shipped a concrete semantic-object system for engineering documents (<code class="mono">WorkArtifact</code>, 2026-08-03) with identity, lifecycle, relationships, and full MCP tool support. <code class="mono">orientation</code> &mdash; the exact concept a generated Beacon would need &mdash; is already sitting on that system's own deferred-type list. Nothing abstract needs designing from zero; something concrete needs promoting.
+  </div>
+
+  <h2 class="section">Three points in time, one unresolved until now</h2>
+  <p class="section-sub">None of these three documents reference each other. Read in isolation, each looks complete. Read together, two of them contradict.</p>
+  <ol class="timeline">
+    <li>
+      <span class="t-date">2026-06-29&ndash;30</span>
+      <div class="t-body"><b>archolith-beacon v0 ships<span class="t-status shipped">Shipped</span></b>Standalone PyPI package. Static <code class="mono">beacon.yaml</code>, five read-only MCP tools, <code class="mono">ManifestBeaconProvider</code>. Zero commits since.</div>
+    </li>
+    <li>
+      <span class="t-date">2026-07-11</span>
+      <div class="t-body"><b>"LSP for Agents" proposal<span class="t-status open">Never resolved</span></b>Argues Beacon should be a decoupled protocol, Menhir only an optional backend. <i>"Do not make Beacon a menhir feature."</i> Status: needs a product decision from <code class="mono">ctharvey</code>. No decision was ever recorded against it directly.</div>
+    </li>
+    <li>
+      <span class="t-date">2026-07-25</span>
+      <div class="t-body"><b>Semantic Object &amp; Beacon architecture decisions<span class="t-status accepted">Accepted baseline</span></b>Decision queue #56. Redefines Beacon as Menhir-native: <i>"the authorized adaptation and delivery boundary"</i> that generates <b>Orientation</b> &mdash; an Adaptive Semantic Object minimizing Time-to-Competence. Confirms zero Beacon code exists in <code class="mono">src/menhir</code> at the time. All operational detail explicitly deferred.</div>
+    </li>
+  </ol>
+  <p class="section-sub" style="margin-top:14px;">Neither the July 11 nor the July 25 direction has a single line of implementing code. The difference is that July 25 is the later, explicitly "accepted" decision, and it's the one you just confirmed.</p>
+
+  <h2 class="section">What already exists: the Artifact Semantic Model</h2>
+  <p class="section-sub">Shipped 2026-08-03 &mdash; four days before this conversation, and with no cross-reference to either Beacon document above. It is, in every load-bearing respect, a working instance of what the July 25 decision describes in the abstract.</p>
+  <ul class="glist">
+    <li><span class="mark" aria-hidden="true"><svg viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="7" fill="none" stroke="var(--done)" stroke-width="1.4"/><path d="M4.2 7.7l2.1 2.1 4.4-4.6" fill="none" stroke="var(--done)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="body"><code class="mono">:WorkArtifact</code> &mdash; stable <code class="mono">artifact_uuid</code> identity independent of path, a real lifecycle (<code class="mono">PROPOSED &rarr; REVIEWED &rarr; APPROVED &rarr; IMPLEMENTING &rarr; IMPLEMENTED</code>, plus <code class="mono">SUPERSEDED</code>/<code class="mono">DEFERRED</code> from any state), typed relationships (<code class="mono">ABOUT</code>, <code class="mono">DECLARES</code>), and addressable owned <code class="mono">OpenQuestion</code> records.</span></li>
+    <li><span class="mark" aria-hidden="true"><svg viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="7" fill="none" stroke="var(--done)" stroke-width="1.4"/><path d="M4.2 7.7l2.1 2.1 4.4-4.6" fill="none" stroke="var(--done)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="body">Already MCP-exposed: <code class="mono">list_artifacts</code>, <code class="mono">get_artifact</code>, <code class="mono">get_artifact_relationships</code>, <code class="mono">list_artifact_questions</code>, <code class="mono">supersede_artifact</code>, <code class="mono">transition_artifact</code>, <code class="mono">link_artifacts</code>. A future Beacon provider would not need a single new Menhir API &mdash; these already cover onboarding, guardrails, and concept-explanation queries.</span></li>
+    <li><span class="mark" aria-hidden="true"><svg viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="7" fill="none" stroke="var(--accent-deep)" stroke-width="1.4"/><circle cx="7.5" cy="7.5" r="2.6" fill="var(--accent-deep)"/></svg></span><span class="body"><code class="mono">work_artifact.py</code>'s own docstring: <i>"Deliberately not generalized further yet. Deferred: adr, migration, rfc, orientation."</i> Orientation is already named, in the exact system Beacon would need to read from.<span class="note">Same discipline that added `handoff` on 2026-08-03: "a type earns its place by having instances," not by being imaginable.</span></span></li>
+    <li><span class="mark" aria-hidden="true"><svg viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="7" fill="none" stroke="var(--progress)" stroke-width="1.4"/><circle cx="7.5" cy="7.5" r="2.6" fill="var(--progress)"/></svg></span><span class="body">The design doc's own open question 1 &mdash; whether <code class="mono">ABOUT</code> allows more than one subject per artifact &mdash; was left unresolved because <i>"<code class="mono">CurrentPlanView</code> is unbuilt, so the grouping pressure that would decide this has not been felt yet."</i> A Beacon/Orientation generator is exactly the consumer that would apply that pressure.</span></li>
+  </ul>
+
+  <h2 class="section">The path, in order</h2>
+  <p class="section-sub">Each step only makes sense after the one before it. Skipping ahead means guessing at a shape nothing has tested.</p>
+  <ol class="steps">
+    <li>
+      <div>
+        <h3>Run the corpus check <code class="mono">handoff</code> ran</h3>
+        <p><code class="mono">handoff</code> became a real type because 14 undifferentiated handoff documents already existed across two repos. Before <code class="mono">orientation</code> earns the same promotion, the equivalent question needs an answer: does orientation-shaped content already exist informally? Every project's <code class="mono">.agent/README.md</code> "Quick Start" section is a plausible candidate corpus &mdash; but that's a hypothesis to check, not an assumption to build on.</p>
+        <p class="why">Why first: the artifact system's whole discipline is "earns its place by having instances." Skipping this check is exactly the mistake the system was designed to prevent.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Promote <code class="mono">orientation</code> to a real <code class="mono">artifact_type</code></h3>
+        <p>If the corpus check finds real instances, derive <code class="mono">orientation</code>'s shape contract from them &mdash; the same way <code class="mono">handoff</code>'s contract was derived from what its 14 real documents actually had in common (a title, nothing else universal), not from what seemed reasonable to require.</p>
+        <p class="why">Why here: this reuses 100% of existing graph schema, lifecycle, and MCP surface. No new Menhir subsystem, just one more entry in <code class="mono">ARTIFACT_TYPES</code> plus a shape contract in <code class="mono">artifact_shape.py</code>.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Build <code class="mono">MenhirBeaconProvider</code> in the standalone package</h3>
+        <p>The <code class="mono">BeaconProvider</code> Protocol already exists in <code class="mono">archolith-beacon</code>'s <code class="mono">provider/base.py</code> with exactly the five methods needed. A Menhir-backed implementation calls <code class="mono">list_artifacts(type=orientation)</code> / <code class="mono">get_artifact</code> instead of parsing static YAML &mdash; the MCP tool layer (<code class="mono">beacon_project_overview</code>, etc.) doesn't change at all.</p>
+        <p class="why">Why last: this is the only step that touches the beacon repo, and it has nothing real to consume until step 2 exists.</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="not-yet">
+    <h3>Don't build yet</h3>
+    <ul>
+      <li><b>More hand-written <code class="mono">beacon.yaml</code> manifests.</b> This was my first recommendation on this page, and it's close to the exact anti-pattern the July 11 review called out &mdash; a static file that "rots," authored instead of generated.</li>
+      <li><b>The full abstract Semantic Object framework</b> (disclosure profiles, revision/event formats, generic Adaptive composition beyond Orientation). The July 25 decision doc itself defers all of this. Building it ahead of a concrete consumer repeats the exact mistake <code class="mono">CurrentPlanView</code> is avoiding by staying unbuilt.</li>
+      <li><b>A resolution to the July 11 proposal as written.</b> It's superseded by the July 25 acceptance, but nobody has gone back and marked it <code class="mono">SUPERSEDED</code> in the artifact graph &mdash; worth a five-minute fix so a future reader doesn't hit the same contradiction cold.</li>
+    </ul>
+  </div>
+
+  <footer>
+    Compiled from three menhir docs the first pass of this analysis never read, plus the beacon repo checked previously, 2026-08-07.
+    <div class="sources">
+      <span>menhir/.agent/plans/beacon-lsp-for-agents-proposal.md</span>
+      <span>menhir/docs/architecture/semantic-object-architecture-decisions.md (commit 47bab08, historical)</span>
+      <span>menhir/.agent/plans/menhir-artifact-semantic-model.md</span>
+      <span>menhir/src/menhir/domain/work_artifact.py</span>
+      <span>menhir/.agent/research/menhir-beacon-architecture-review.md</span>
+      <span>archolith-beacon: docs/beacon-mcp-roadmap.md, docs/beacon-strategy-handoff.md, src/beacon/</span>
+    </div>
+  </footer>
+
+</div>

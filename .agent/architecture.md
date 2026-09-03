@@ -18,7 +18,7 @@ structure graph, git history) can be swapped in later without touching the tools
 ```
 ┌────────────────────────────────────────────────┐
 │  MCP Server (stdio)                            │
-│  cth_mcp_framework gateway                     │
+│  archolith_mcp_framework gateway                     │
 │  5 tools · all readonly · all always_visible   │
 ├────────────────────────────────────────────────┤
 │  Beacon Tools                                  │
@@ -42,7 +42,7 @@ structure graph, git history) can be swapped in later without touching the tools
 | Layer | Technology |
 |-------|-----------|
 | Language | Python 3.12+ |
-| MCP framework | cth_mcp_framework (create_gateway_server) + fastmcp ≥3.2.4 |
+| MCP framework | archolith_mcp_framework (create_gateway_server) + fastmcp ≥3.2.4 |
 | YAML parsing | PyYAML ≥6 |
 | Settings | frozen dataclass + from_env() pattern (no Pydantic) |
 | Tests | pytest + pytest-asyncio |
