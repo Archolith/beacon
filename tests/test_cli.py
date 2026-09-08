@@ -6,7 +6,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from beacon.main import app

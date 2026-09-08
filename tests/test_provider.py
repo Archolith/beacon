@@ -6,7 +6,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
 from beacon.core.loader import parse_manifest
 from beacon.core.doc_index import DocIndex

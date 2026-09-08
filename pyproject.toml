@@ -32,3 +32,13 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Declared explicitly rather than inherited from whatever the installed ruff
+# defaults to. Ruff 0.16 widened its default set, which is what turned
+# archolith-bench's CI red for two months with no code change: under 0.16
+# defaults this repo reports 24 findings, under the classic set it reports none.
+# Pinning the rule set here makes the gate depend on this file, not on the
+# linter version that happens to resolve. Widening it is a deliberate,
+# separate change with its own cleanup.
+select = ["E4", "E7", "E9", "F"]
