@@ -230,12 +230,21 @@ content pass the identical validator, and a hand-authored fixture stays in CI pe
 
 ## 7. Open questions
 
-1. **Build-time source or runtime provider for Menhir?** This plan says build-time adapter (Step 5);
-   the roadmap's v0.5 says `MenhirBeaconProvider` at runtime (roadmap:286) and the bench plan is
-   defining that read boundary. They share the normalized envelope, so they are compatible rather than
-   contradictory — but someone should pick which comes first, because building both doubles the
-   surface. Recommendation: build-time first; it needs no live dependency and satisfies the determinism
-   gates without special cases.
+1. **~~Build-time source or runtime provider for Menhir?~~ DECIDED 2026-09-15 (ctharvey): build-time
+   now; runtime is a much later thing.** Menhir integrates as a Step 5 source adapter whose output is
+   baked into the snapshot. The runtime `MenhirBeaconProvider` (roadmap:286, the bench plan's read
+   boundary) is deferred, not rejected — it shares the normalized envelope and can be layered on later
+   without reworking this plan.
+
+   Why build-time wins now: the snapshot is required under either option (as the no-Menhir floor and as
+   the outage fallback), so it is the foundation rather than a competing choice; it needs no live
+   dependency and no uptime/auth/latency work; it satisfies the determinism gates without special
+   cases; and a maintainer reviews the content before any agent sees it, which is the product's core
+   trust promise.
+
+   Revisit when: the dominant agent question turns out to be recent activity ("what changed this week,
+   what is in flight") rather than orientation, or rebuilds cannot be triggered reliably and snapshots
+   are chronically stale in practice.
 2. **Is derived content allowed in a signed snapshot at all**, or must drafts stay in the manifest layer
    and never enter the snapshot directly? Cleanest answer is the latter (LLM writes YAML a human commits;
    the snapshot only ever contains reviewed content) — but it forecloses cheap auto-refresh. Needs a call.
