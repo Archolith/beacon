@@ -10,8 +10,9 @@ Read everything in this directory before starting work.
 | `data_models.md` | Entities, DTOs, enums, converters, repository reference |
 | `CHANGELOG.md` | Running log of changes, most recent first |
 | `workflows/code_conventions.md` | Language-specific style and formatting rules |
-| `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` | Executable plan for initialization, export, examples, packaging, and the v0.2 release gate |
-| `plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` | Normative MCP baseline, limits, validation/secret/privacy policy, schemas, and release sequence for v0.2 |
+| `plans/beacon-v0.2-plan-2026-09-15.md` | The v0.2 release plan: maintainer journey, locked decisions, normative limits/validation/secret/privacy policy, schemas, work packages, merge order, and release gate |
+| `plans/beacon-build-pipeline-and-source-adapters-plan-2026-09-15.md` | Draft plan for `beacon build`, multi-source adapters, merge precedence, and optional LLM drafting (v0.3) |
+| `plans/beacon-multi-intent-beacons-plan-2026-09-15.md` | Draft plan for serving several intent-scoped beacons from one project |
 | `plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` | Approved hybrid Archolith Hub, self-hosting, trust handshake, private access, and federation plan |
 
 ## Maintenance Rules

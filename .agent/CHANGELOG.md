@@ -1,5 +1,24 @@
 # Changelog — beacon
 
+## 2026-09-15 — Merge the v0.2 plan and its readiness addendum
+
+- `.agent/plans/beacon-v0.2-plan-2026-09-15.md` — new single v0.2 plan. Three lists of decisions
+  became one (`D1`-`D24`); two merge orders became one 14-unit order; the addendum's "normative where
+  more specific" precedence rule is gone.
+- Reconciliation fixed a real dependency defect and two duplications: the shared CLI envelope now
+  lands before `beacon init` (whose report serializes through it), limits and diagnostic codes land
+  before any reader, and high-confidence secret detection is one shared module instead of separate
+  implementations inside `init` and `export`.
+- Resolved the snapshot-writer overlap with the build-pipeline plan: v0.2 WP4 owns the digests and
+  canonical writer (`beacon export`), the build-pipeline plan owns the reader and `beacon build`.
+- `.agent/plans/archive/` — archived the 2026-08-09 product plan and readiness addendum with
+  supersession banners.
+- `docs/beacon-functional-product-roadmap.md`, `.agent/README.md`,
+  `.agent/plans/beacon-multi-intent-beacons-plan-2026-09-15.md`,
+  `.agent/plans/beacon-build-pipeline-and-source-adapters-plan-2026-09-15.md` — repointed references.
+  Also corrected the multi-intent plan's citation of `no_manifest_schema_change`, which is a guardrail
+  in `beacon.yaml`, not in the addendum.
+
 ## 2026-08-09 — Lock v0.2 implementation readiness contracts
 
 - `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` — locked stable

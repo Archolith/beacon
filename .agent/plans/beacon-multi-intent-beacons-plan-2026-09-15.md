@@ -86,9 +86,10 @@ Ordered. Steps 1–4 are the feature; step 5 is optional and separable.
 
 **Files:** `src/beacon/core/schema.py`, `src/beacon/core/loader.py`, `src/beacon/core/validator.py`
 
-Add to `BeaconManifest` (all optional, defaulted — constraint from
-`beacon-v0.2-implementation-readiness-addendum`'s `no_manifest_schema_change` guardrail: existing
-`beacon.yaml` files in the wild must still load unchanged):
+Add to `BeaconManifest` (all optional, defaulted — constraint from the repository's own
+`no_manifest_schema_change` guardrail (`beacon.yaml:205`), restated as decision `D4` in
+`.agent/plans/beacon-v0.2-plan-2026-09-15.md`: existing `beacon.yaml` files in the wild must still
+load unchanged):
 
 ```yaml
 beacon:

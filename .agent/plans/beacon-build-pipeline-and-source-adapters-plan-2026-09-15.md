@@ -5,7 +5,9 @@
 **Owner:** Beacon
 **Parent roadmap:** `docs/beacon-functional-product-roadmap.md` — v0.3 "Repository-aware Beacon"
 **Siblings:**
-`.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` (publishes what this builds),
+`.agent/plans/beacon-v0.2-plan-2026-09-15.md` (publishes what this builds; **its WP4 owns the
+canonical snapshot writer and source digests** — Step 1 below consumes that writer and adds the
+reader, per that plan's §11),
 `archolith-bench/.agent/plans/beacon-view-contract-and-full500-gate-2026-08-09.md` (runtime Menhir View
 read boundary — see §7 Q1),
 `.agent/plans/beacon-multi-intent-beacons-plan-2026-09-15.md` (owns the base-beacon contracts; this plan
@@ -118,6 +120,12 @@ a snapshot instead of re-reading the repo — so the server can run snapshot-onl
 
 This step alone closes constraint §2.2 and is independently shippable: it makes the existing v0.2
 snapshot contract real without adding a single new source.
+
+**Ownership (resolved 2026-09-15).** The digest computation and canonical writer are v0.2 work, owned
+by `beacon-v0.2-plan-2026-09-15.md` WP4 under the command name `beacon export`. If v0.2 has shipped,
+this step reduces to the snapshot **reader** plus `beacon build` as the pipeline entry point, reusing
+that writer. Only if this plan starts first does it implement the writer, in which case WP4 becomes
+the consumer. Do not build two writers or two digest implementations.
 
 ### Step 2 — Source adapter interface + the repository tier
 
