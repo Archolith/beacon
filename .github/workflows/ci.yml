@@ -30,11 +30,11 @@ jobs:
 
       # Temporary source-integration bridge. Release publishing deliberately
       # does not use this checkout and requires the framework from real PyPI.
-      - name: Check out Archolith MCP Framework v0.2.0
+      - name: Check out Archolith MCP Framework v0.3.0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Archolith/archolith-mcp-framework
-          ref: v0.2.0
+          ref: v0.3.0
           path: .deps/archolith-mcp-framework
 
       - name: Set up Python
@@ -76,11 +76,11 @@ jobs:
       - name: Check out Beacon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check out Archolith MCP Framework v0.2.0
+      - name: Check out Archolith MCP Framework v0.3.0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Archolith/archolith-mcp-framework
-          ref: v0.2.0
+          ref: v0.3.0
           path: .deps/archolith-mcp-framework
 
       - name: Set up Python
@@ -124,11 +124,11 @@ jobs:
       - name: Check out Beacon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check out Archolith MCP Framework v0.2.0
+      - name: Check out Archolith MCP Framework v0.3.0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Archolith/archolith-mcp-framework
-          ref: v0.2.0
+          ref: v0.3.0
           path: .deps/archolith-mcp-framework
 
       - name: Set up Python

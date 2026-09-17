@@ -37,7 +37,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "archolith-mcp-framework>=0.2,<0.3",
+    "archolith-mcp-framework>=0.3.0",
     "fastmcp>=3.2.4,<4",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
