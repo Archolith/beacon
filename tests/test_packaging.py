@@ -95,7 +95,7 @@ def test_imported_version_matches_rc() -> None:
 
 
 def test_framework_dependency_declared(pyproject: dict) -> None:
-    assert "archolith-mcp-framework>=0.2,<0.3" in pyproject["project"]["dependencies"]
+    assert "archolith-mcp-framework>=0.3.0" in pyproject["project"]["dependencies"]
 
 
 def test_fastmcp_dependency_declared(pyproject: dict) -> None:
