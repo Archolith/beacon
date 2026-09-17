@@ -1,6 +1,7 @@
 # Beacon v0.2 — Publishable Static Product
 
-**Status:** READY FOR IMPLEMENTATION
+**Status:** IMPLEMENTED — the v0.2 product exists on `release/v0.2.0` (PR #4). This document
+remains the contract record; see "Implementation status" below before acting on anything here.
 **Date:** 2026-09-15
 **Owner:** Beacon
 **Parent roadmap:** `docs/beacon-functional-product-roadmap.md` — v0.2
@@ -14,6 +15,33 @@
 and the multi-source pipeline — ownership boundary in §11),
 `.agent/plans/beacon-multi-intent-beacons-plan-2026-09-15.md` (owns intent-scoped beacons),
 `.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` (v0.3+ trust/federation)
+
+## Implementation status (recorded 2026-09-17)
+
+The implementation this plan describes already exists. Do not restart v0.2 from this document.
+
+- **Where:** `release/v0.2.0` (PR #4), restacked onto current `master` on 2026-09-17 with the
+  framework baseline reconciled to `>=0.3.0` (merge `a9873e0` + pin-test fix `849fb16`; 695 passed,
+  8 skipped, ruff clean against real framework 0.3.0). That branch also carries three previously
+  unpushed commits (`5016d58`, `e3ede11`, `1c1834c`) adding a verified project-status companion
+  (`/v1/status`, `beacon-status-1.0.schema.json`) that postdates this plan.
+- **Shipped surface:** CLI `serve`, `serve-http`, `init`, `validate`, `inspect`, `export`; loopback
+  HTTP consumption tiers (`/v1/snapshot` with `/identity` and `/orientation`, `/v1/chunks`,
+  concept/guardrail companion indexes, well-known discovery); release candidate `0.2.0rc2`; per the
+  branch CHANGELOG, `archolith-beacon==0.2.0rc1` was published to PyPI through trusted publishing.
+- **Work packages:** WP0–WP7 are implemented on that branch. WP8's observer scorecard artifact is
+  recorded there; the genuinely unaided 15-minute trial itself remains open.
+- **Reconciliation decisions** — where the text below conflicts with these, these govern:
+  - Framework baseline is `archolith-mcp-framework>=0.3.0` (framework v0.2.0 predates
+    `pagination.py`). The `<0.3` pins in D20, §4, §5.1, WP0, and §10 are historical.
+  - **D15 amended:** v0.2 ships `serve-http` (loopback-only immutable-snapshot HTTP) alongside
+    stdio. stdio remains the only MCP transport; HTTP is a read-only consumption surface.
+  - **D12 amended:** snapshots embed canonical heading-chunk text by default EXCEPT plan-role
+    documents: `role == "plan"` or `role.endswith("_plan")` is emitted title-only (path, role,
+    status, hash) in BOTH embedded and metadata-only modes; the private local MCP index still
+    reads their bodies.
+  - WP4 owns the snapshot writer, digests, and `beacon export` (§6, §11); the two stale "WP3"
+    references to that writer in §0 and §2 are corrected.
 
 ## 0. What this merge changed
 
@@ -29,7 +57,7 @@ content is preserved; the structure is not. Three substantive changes:
    orderings of the same work. Reconciling them exposed a real defect and two duplications — see
    §7.1 for what moved and why.
 
-3. **The snapshot-writer overlap is resolved (§11).** WP3 (`beacon export`) owns the canonical
+3. **The snapshot-writer overlap is resolved (§11).** WP4 (`beacon export`) owns the canonical
    writer and source digests for v0.2. The build-pipeline plan's Step 1 does not re-implement it.
 
 ## 1. Outcome
@@ -91,7 +119,7 @@ a direct Git dependency in Beacon's public package metadata.
 
 **Snapshot contract gap.** `docs/schemas/beacon-snapshot-1.0.schema.json` requires
 `manifest.source_sha256` and a per-document `source_sha256`, and nothing in `src/beacon/` computes a
-digest. The contract has required fields that no code produces. WP3 closes this.
+digest. The contract has required fields that no code produces. WP4 closes this.
 
 ## 3. Locked decisions
 
@@ -131,7 +159,8 @@ acceptance checks, and this plan before implementation diverges.
   publication.
 - **D12 — Snapshot.** Use snapshot schema `1.0`, independent of product `0.2.0` and manifest `0.1`.
   Embed canonical heading-chunk text once by default; offer explicit `--metadata-only`; record the
-  content mode and exact source digests.
+  content mode and exact source digests. *(Amended 2026-09-17: implemented snapshots keep plan-role
+  documents title-only in both modes — see Implementation status.)*
 - **D13 — CLI JSON.** Use shared envelope `beacon.cli-result` version `1.0` with `command`, `ok`,
   command-specific `result`, and stable diagnostics. Raw snapshot stdout and MCP stdio remain
   separately versioned streams. Exit codes: `0` success, `1` validation/policy failure, `2`
@@ -145,6 +174,9 @@ acceptance checks, and this plan before implementation diverges.
 
 - **D15 — MCP baseline.** v0.2 remains on stable FastMCP 3.x and stdio. FastMCP 4 and stateless MCP
   `2026-07-28` migration wait until FastMCP 4 is stable and the Archolith framework migrates.
+  *(Amended 2026-09-17: v0.2 as implemented also ships `serve-http`, a loopback-only HTTP
+  consumption surface — an explicit inclusion decision recorded in Implementation status; stdio
+  remains the only MCP transport.)*
 - **D16 — Repository scale.** v0.2 supports small-to-medium repositories through conservative
   defaults with explicit overrides. Large-monorepo support requires later benchmark evidence.
 - **D17 — Intentional absence.** Projects may publish without automated tests or guardrails only when
@@ -158,7 +190,8 @@ acceptance checks, and this plan before implementation diverges.
 
 - **D20 — Distribution and ownership.** First publish `archolith-mcp-framework==0.2.0` from
   `Archolith/archolith-mcp-framework`; migrate Beacon to dependency
-  `archolith-mcp-framework>=0.2,<0.3` and import `archolith_mcp_framework`; then publish
+  `archolith-mcp-framework>=0.3.0` *(reconciled 2026-09-17 from the historical `<0.3`; v0.2.0
+  predates `pagination.py`)* and import `archolith_mcp_framework`; then publish
   `archolith-beacon` under Archolith ownership. Both public distributions use trusted GitHub
   publication and at least two maintainers. Keep `beacon` as Beacon's import and CLI name. Public
   metadata contains no direct Git dependency.
@@ -187,7 +220,8 @@ beacon --help
 Requirements:
 
 - distribution `archolith-beacon`, import package `beacon`, and CLI command `beacon`;
-- public dependency `archolith-mcp-framework>=0.2,<0.3`, imported as `archolith_mcp_framework`, with
+- public dependency `archolith-mcp-framework>=0.3.0` *(reconciled 2026-09-17; see Implementation
+  status)*, imported as `archolith_mcp_framework`, with
   no legacy or direct-URL requirement;
 - one version source used by package metadata and `beacon --version`;
 - useful help without environment variables; and
@@ -342,9 +376,11 @@ satisfy the policies here.
 
 v0.2 contract:
 
-- runtime framework `archolith-mcp-framework>=0.2,<0.3`, imported as `archolith_mcp_framework`;
+- runtime framework `archolith-mcp-framework>=0.3.0` *(reconciled 2026-09-17; see Implementation
+  status)*, imported as `archolith_mcp_framework`;
 - FastMCP stable `>=3.2.4,<4` as constrained by the framework;
-- stdio only as the supported release transport;
+- stdio only as the supported release **MCP** transport *(amended 2026-09-17: v0.2 as implemented
+  additionally ships the loopback-only `serve-http` consumption surface — D15 amendment)*;
 - existing no-argument `beacon` stdio behavior remains compatible;
 - five tool names, input shapes, answer dataclasses, and provider protocol remain frozen; and
 - v0.2 does not claim support for MCP `2026-07-28` or the FastMCP 4 extension model.
@@ -549,7 +585,7 @@ Tasks:
 1. Change package metadata to the approved distribution `archolith-beacon`; retain import package
    and CLI name `beacon`; verify package-index availability and Archolith ownership before upload.
 2. Publish `archolith-mcp-framework==0.2.0` from its canonical Archolith repository, then replace
-   Beacon's legacy dependency/imports with `archolith-mcp-framework>=0.2,<0.3` and
+    Beacon's legacy dependency/imports with `archolith-mcp-framework>=0.3.0` and
    `archolith_mcp_framework`. Preserve the five-tool behavior through compatibility tests. Add the
    protocol-version diagnostic test required by §5.1.
 3. Make version metadata single-source and expose `beacon --version`.
@@ -917,7 +953,7 @@ command becomes a required gate and is added there too.
 - [ ] All three schemas pass Draft 2020-12 meta-validation with success and negative fixtures.
 - [ ] Packaged stdio reports the tested MCP/framework versions and serves five tools.
 - [ ] `archolith-mcp-framework==0.2.0` is publicly installable from its Archolith release.
-- [ ] Beacon depends on `archolith-mcp-framework>=0.2,<0.3` with the new import namespace.
+- [ ] Beacon depends on `archolith-mcp-framework>=0.3.0` with the new import namespace.
 - [ ] Beacon has no direct Git dependency or legacy `cth-mcp-framework` runtime requirement.
 - [ ] Canonical distribution name is verified and consistent.
 - [ ] Version is single-source and reports `0.2.0`.

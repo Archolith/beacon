@@ -2,6 +2,12 @@
 
 **Status:** DRAFT — NEEDS REVIEW
 **Date:** 2026-09-15
+**Update 2026-09-17:** v0.2 is **implemented** on `release/v0.2.0` (PR #4) — digests, canonical
+JSON, the snapshot writer, and `beacon export` all exist there, verified by the restack onto
+current `master` (695 tests passing against framework 0.3.0). Step 1's conditional ownership below
+is resolved for good: this plan **consumes** that writer and builds only the snapshot **reader**
+and the `beacon build` pipeline on top. §2 constraints 1–2 describe the pre-implementation
+baseline and are historical.
 **Owner:** Beacon
 **Parent roadmap:** `docs/beacon-functional-product-roadmap.md` — v0.3 "Repository-aware Beacon"
 **Siblings:**
@@ -36,11 +42,14 @@ touch trust/signing (owned by the federation plan).
 
 ## 2. Constraints (from current code)
 
-1. **There is no build step and no snapshot writer.** `src/beacon/main.py` registers exactly three
+1. **There is no build step and no snapshot writer.** *(Historical as of 2026-09-17: the v0.2
+   implementation on `release/v0.2.0` ships `init`, `export`, `serve-http`, and the writer; only
+   `build`/`refresh` remain to be added by this plan.)* `src/beacon/main.py` registers exactly three
    commands — the default `serve` (`:45`), `validate` (`:72-73`), `inspect` (`:122-123`). `beacon build`,
    `refresh`, and `export` do not exist. (The v0.2 plan approved `init`/`export`; neither was written.)
 
-2. **Nothing computes a digest.** A search for `sha256|hashlib|digest` across `src/beacon/` returns
+2. **Nothing computes a digest.** *(Historical as of 2026-09-17: `release/v0.2.0` computes and
+   publishes source digests through `beacon export`.)* A search for `sha256|hashlib|digest` across `src/beacon/` returns
    nothing, while `docs/schemas/beacon-snapshot-1.0.schema.json` *requires* `manifest.source_sha256`
    and a per-document `source_sha256` (`$defs.documentBase.required`). **The snapshot contract has
    fields that no code produces.** That gap is the cheapest, highest-value thing in this plan.
@@ -110,22 +119,23 @@ Three consequences:
 
 ## 5. Proposed steps
 
-### Step 1 — Digests and a snapshot writer
+### Step 1 — Snapshot reader and `beacon build` entry point
 
-**Files:** new `src/beacon/core/digest.py`, new `src/beacon/build/snapshot.py`, `src/beacon/main.py`
+**Files:** new `src/beacon/build/snapshot.py` (reader), `src/beacon/main.py`
 
-Compute `sha256` for the manifest and each canonical doc; emit a snapshot conforming to
-`beacon-snapshot-1.0.schema.json`; add `beacon build [--out snapshot.json]`. Add the reverse path — load
-a snapshot instead of re-reading the repo — so the server can run snapshot-only.
+*(Revised 2026-09-17: the writer half of this step is done.)* `release/v0.2.0` already computes
+`sha256` digests for the manifest and each canonical doc and emits snapshots conforming to
+`beacon-snapshot-1.0.schema.json` via `beacon export` (`src/beacon/core/snapshot.py`,
+`src/beacon/core/canonical_json.py`). What remains here is the reverse path — load a snapshot
+instead of re-reading the repo — so the server can run snapshot-only, plus `beacon build
+[--out snapshot.json]` as the pipeline entry point that calls the adapters and then reuses that
+same writer. Do not build a second writer or a second digest implementation.
 
-This step alone closes constraint §2.2 and is independently shippable: it makes the existing v0.2
-snapshot contract real without adding a single new source.
-
-**Ownership (resolved 2026-09-15).** The digest computation and canonical writer are v0.2 work, owned
-by `beacon-v0.2-plan-2026-09-15.md` WP4 under the command name `beacon export`. If v0.2 has shipped,
-this step reduces to the snapshot **reader** plus `beacon build` as the pipeline entry point, reusing
-that writer. Only if this plan starts first does it implement the writer, in which case WP4 becomes
-the consumer. Do not build two writers or two digest implementations.
+**Ownership (resolved 2026-09-15; final 2026-09-17).** The digest computation and canonical writer
+are v0.2 work, owned by `beacon-v0.2-plan-2026-09-15.md` WP4 under the command name `beacon export`
+and implemented on `release/v0.2.0` (PR #4). This plan implements the snapshot **reader** plus
+`beacon build` as the pipeline entry point, reusing that writer. There is no remaining conditional:
+v0.2 shipped first, so WP4 is the writer's owner and this plan is its consumer.
 
 ### Step 2 — Source adapter interface + the repository tier
 
@@ -169,6 +179,24 @@ paths produce citations that do not resolve, failing the 100%-resolvable-citatio
 Hard boundary: the output snapshot must load and serve with Menhir switched off. Menhir enriches the
 build; the artifact stays portable. (`beacon.yaml` non-goal: "Requiring Menhir or any external service";
 roadmap:125: "Menhir as the first rich temporal provider, **not as a requirement**.")
+
+**Menhir #120 is the MVP bridge, not the destination (recorded 2026-09-17).** Menhir now carries
+generation work — `23f22c8` ("generate a validated Beacon from an indexed local project") and
+`49b4033` ("provision isolated Beacon interpreter for portable CI tests"). That work generates a
+Beacon manifest from an indexed project by driving Beacon through a subprocess compat layer; treat
+it as the transitional MVP that proves the integration while Beacon has no build step. Long-term,
+this step owns the real mapping: Beacon's Menhir adapter reads Menhir's evidence surface directly
+and `beacon build` owns generation. Known debts in the bridge that this step must replace, not
+inherit:
+
+- **Brittle version pin.** Menhir's `src/menhir/services/beacon_compat.py` hard-fails unless
+  `beacon.__version__ == "0.1.0"` exactly. The manifest schema stays `"0.1"` while the product
+  version moves (`0.2.0rc2` on `release/v0.2.0`), so the bridge refuses the actual v0.2
+  implementation. Menhir should gate on manifest compatibility, not product version.
+- **Unresolved provenance.** Menhir-generated citations are typed `type=manifest` with an empty
+  `path`, and the scan fingerprint is not persisted, so generated output cannot prove where its
+  claims came from. Beacon's claim model (Step 3's merge policy, citations with source digests)
+  supersedes this; the bridge output must not become the long-term citation format.
 
 ### Step 6 — Optional LLM drafting stage
 
