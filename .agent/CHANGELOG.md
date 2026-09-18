@@ -1,5 +1,26 @@
 # Changelog — beacon
 
+## 2026-09-17 — GitSourceAdapter: first v0.3 repository-source slice
+
+- `src/beacon/sources/` (new package) — `NormalizedRecord`/`SourceAdapter` boundary and
+  `GitSourceAdapter`: deterministic, bounded, local-only git evidence (HEAD state, inventory
+  summary, tags, recent commits, per-file history with renames/introduction/removal, bounded
+  co-change pairs, activity by top-level directory). Fixed argv commands with no shell, hard
+  output caps, `--no-optional-locks` (never writes the repo), `GIT_TERMINAL_PROMPT=0`, commit
+  digests as provenance, and sensitive-path exclusion before anything path-bearing is emitted.
+- `beacon init` now consumes the adapter: the sanitized origin URL comes from `git remote
+  get-url origin` (the pure `.git/config` read remains the fallback when git is unavailable),
+  and the init report gains the additive, optional `git_evidence` section. Git supplies
+  reality/history only — no intent-bearing manifest field is derived from git statistics.
+- `docs/schemas/beacon-init-report-1.1.schema.json` (new) — additive schema evolution from 1.0:
+  same shape plus optional `git_evidence`; emitted reports declare version `1.1`. The 1.0
+  schema and its golden fixtures remain valid compatibility fixtures.
+- Tests: `tests/test_git_source.py` (20 tests over real fixture repositories: determinism,
+  provenance, caps/truncation honesty, rename direction, sensitive exclusion, no repo mutation,
+  init integration). Full suite: 718 passed, 8 skipped; ruff clean against framework 0.3.0.
+- Branch `v03/git-source-adapter`, stacked on `release/v0.2.0`; the v0.2 release branch and
+  PR #4 are unchanged. `beacon build` will consume these same records in the merge-policy step.
+
 ## 2026-08-10 — Verified project-status companion
 
 - Added optional source-cited `project_state` declarations with exactly zero or one active work item,
