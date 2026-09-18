@@ -139,8 +139,22 @@ v0.2 shipped first, so WP4 is the writer's owner and this plan is its consumer.
 
 ### Step 2 — Source adapter interface + the repository tier
 
-**Files:** new `src/beacon/sources/base.py`, `sources/docs.py`, `sources/git.py`, `sources/files.py`,
-`src/beacon/config/settings.py`
+**Status 2026-09-17: the git half of this step is implemented** — `v03/git-source-adapter`
+(PR #9, stacked on `release/v0.2.0`) ships `src/beacon/sources/base.py` (the
+`NormalizedRecord`/`SourceAdapter` boundary below) and `sources/git.py` (`GitSourceAdapter`):
+deterministic, bounded, local-only git evidence (HEAD state, inventory summary, tags, recent
+commits, per-file history with rename folding and introduction/removal, bounded co-change pairs,
+activity by top-level directory) with commit-digest provenance, fixed-argv/no-shell commands,
+hard output caps, `--no-optional-locks`, and sensitive-path exclusion before anything
+path-bearing is emitted. **Git is the first real adapter after the v0.2 snapshot reader/writer
+boundary, and one adapter serves both consumers:** `beacon init` consumes it today (sanitized
+origin URL via `git remote get-url origin`, plus the additive optional `git_evidence` section in
+init-report schema 1.1), and `beacon build` consumes the same records in Step 3's merge policy.
+Remaining here: the docs and file-inventory adapters (porting `DocIndex` chunking behind the
+interface, with the include/exclude and secret/generated-file defaults that R1 requires).
+
+**Files:** `src/beacon/sources/base.py` (shipped, PR #9), `sources/git.py` (shipped, PR #9),
+`sources/docs.py`, `sources/files.py`, `src/beacon/config/settings.py` (remaining)
 
 One `SourceAdapter` protocol: `collect() -> Iterable[NormalizedRecord]`. Port the existing doc chunking
 behind it (behavior unchanged — the current `DocIndex` tests are the regression gate), then add git and
