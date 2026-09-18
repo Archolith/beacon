@@ -42,7 +42,7 @@ cd beacon
 pip install -e ".[dev]"
 ```
 
-The package metadata uses the normal `archolith-mcp-framework>=0.2,<0.3`
+The package metadata uses the normal `archolith-mcp-framework>=0.3.0`
 constraint. It does not contain a Git URL or depend on a private package index.
 
 **Requires Python 3.12, 3.13, or 3.14.**
