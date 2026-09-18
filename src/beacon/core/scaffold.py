@@ -548,7 +548,7 @@ def _collect_git_evidence(
             repository=url,
             git_evidence=Evidence(kind=KIND_GIT_REMOTE, path="."),
         )
-        merged: dict[tuple[str, str, bool], SecurityFinding] = {}
+        merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
         for finding in (*findings, *url_findings):
             merged[(finding.code, finding.path, finding.blocked)] = finding
         findings = tuple(merged.values())

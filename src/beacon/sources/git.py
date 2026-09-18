@@ -40,10 +40,10 @@ from __future__ import annotations
 import os
 import subprocess
 from collections import Counter
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import assert_never
+from typing import cast
 
 from beacon.core.discovery import sanitize_remote_url
 from beacon.core.security import (
@@ -149,6 +149,28 @@ class _FileHistory:
     introduced_in: str | None = None
     removed_in: str | None = None
     renamed_from: tuple[str, ...] = ()
+
+
+@dataclass
+class _MutableFileHistory:
+    """Accumulator used while folding one walk; frozen on conversion."""
+
+    changes: int = 0
+    last_commit: str | None = None
+    last_date: str | None = None
+    introduced_in: str | None = None
+    removed_in: str | None = None
+    renamed_from: list[str] = field(default_factory=list)
+
+    def freeze(self) -> _FileHistory:
+        return _FileHistory(
+            changes=self.changes,
+            last_commit=self.last_commit,
+            last_date=self.last_date,
+            introduced_in=self.introduced_in,
+            removed_in=self.removed_in,
+            renamed_from=tuple(self.renamed_from),
+        )
 
 
 @dataclass(frozen=True)
@@ -707,20 +729,10 @@ def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileH
     ``A`` status, ``removed_in`` a ``D`` status, and ``renamed_from`` folds
     rename/copy source names in walk order.
     """
-    files: dict[str, dict[str, object]] = {}
+    files: dict[str, _MutableFileHistory] = {}
 
-    def entry(path: str) -> dict[str, object]:
-        return files.setdefault(
-            path,
-            {
-                "changes": 0,
-                "last_commit": None,
-                "last_date": None,
-                "introduced_in": None,
-                "removed_in": None,
-                "renamed_from": [],
-            },
-        )
+    def entry(path: str) -> _MutableFileHistory:
+        return files.setdefault(path, _MutableFileHistory())
 
     def emit(path: str) -> bool:
         return (
@@ -738,32 +750,23 @@ def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileH
                 touched.add(path)
             if code in ("A", "D") and emit(path):
                 item = entry(path)
-                key = "introduced_in" if code == "A" else "removed_in"
-                if item[key] is None:
-                    item[key] = commit.sha
+                if code == "A":
+                    if item.introduced_in is None:
+                        item.introduced_in = commit.sha
+                elif item.removed_in is None:
+                    item.removed_in = commit.sha
             if code in ("R", "C") and orig is not None and emit(path) and emit(orig):
                 # `path` is the old name; the folded source history lives on
                 # the NEW name (orig) so follow-a-rename reads naturally.
                 item = entry(orig)
-                sources: list[str] = item["renamed_from"]
-                sources.append(path)
+                item.renamed_from.append(path)
         for path in touched:
             item = entry(path)
-            item["changes"] = int(item["changes"]) + 1
-            if item["last_commit"] is None:
-                item["last_commit"] = commit.sha
-                item["last_date"] = commit.date
-    return {
-        path: _FileHistory(
-            changes=item["changes"],  # type: ignore[arg-type]
-            last_commit=item["last_commit"],  # type: ignore[arg-type]
-            last_date=item["last_date"],  # type: ignore[arg-type]
-            introduced_in=item["introduced_in"],  # type: ignore[arg-type]
-            removed_in=item["removed_in"],  # type: ignore[arg-type]
-            renamed_from=tuple(item["renamed_from"]),  # type: ignore[arg-type]
-        )
-        for path, item in files.items()
-    }
+            item.changes += 1
+            if item.last_commit is None:
+                item.last_commit = commit.sha
+                item.last_date = commit.date
+    return {path: item.freeze() for path, item in files.items()}
 
 
 def records_to_git_evidence(records: tuple[NormalizedRecord, ...]) -> dict[str, object]:
@@ -773,61 +776,67 @@ def records_to_git_evidence(records: tuple[NormalizedRecord, ...]) -> dict[str, 
     ``beacon-init-report-1.1``); ``beacon build`` will consume the records
     directly instead of this report-shaped projection.
     """
-    section: dict[str, object] = {
-        "adapter": ADAPTER_NAME,
-        "adapter_version": ADAPTER_VERSION,
-        "head": None,
-        "tracked_file_count": 0,
-        "tracked_dirs": [],
-        "tags": [],
-        "recent_commits": [],
-        "activity": [],
-        "file_history": [],
-        "co_change": [],
-        "window_commits": 0,
-        "truncated": False,
-    }
+    head: dict[str, object] | None = None
+    tracked_dirs: list[dict[str, object]] = []
+    tags: list[dict[str, object]] = []
+    recent_commits: list[dict[str, object]] = []
+    activity: list[dict[str, object]] = []
+    file_history: list[dict[str, object]] = []
+    co_change: list[dict[str, object]] = []
+    tracked_file_count = 0
+    window_commits = 0
+    truncated = False
+
     for record in records:
         kind = record.kind
         if kind == KIND_GIT_HEAD:
-            section["head"] = {
+            head = {
                 "commit": record.payload["commit"],
                 "branch": record.payload["branch"],
                 "dirty": record.payload["dirty"],
                 "dirty_paths": record.payload["dirty_paths"],
             }
-            section["window_commits"] = record.payload["window_commits"]
-            section["truncated"] = record.payload["truncated"]
+            window_commits = cast(int, record.payload["window_commits"])
+            truncated = cast(bool, record.payload["truncated"])
+            tracked_file_count = cast(int, record.payload["tracked_file_count"])
         elif kind == KIND_GIT_INVENTORY:
-            section["tracked_file_count"] = record.payload["tracked_file_count"]
-            section["tracked_dirs"] = list(record.payload["tracked_dirs"])
+            tracked_file_count = cast(int, record.payload["tracked_file_count"])
+            raw_dirs = record.payload["tracked_dirs"]
+            if isinstance(raw_dirs, list):
+                tracked_dirs = [dict(item) for item in raw_dirs]
         elif kind == KIND_GIT_TAG:
-            section["tags"] = [*section["tags"], dict(record.payload)]
+            tags.append(dict(record.payload))
         elif kind == KIND_GIT_COMMIT:
-            section["recent_commits"] = [
-                *section["recent_commits"],
+            recent_commits.append(
                 {
                     "commit": record.payload["commit"],
                     "date": record.payload["date"],
                     "subject": record.payload["subject"],
                     "subject_redacted": record.payload["subject_redacted"],
-                },
-            ]
+                }
+            )
         elif kind == KIND_GIT_FILE_HISTORY:
-            section["file_history"] = [*section["file_history"], dict(record.payload)]
+            file_history.append(dict(record.payload))
         elif kind == KIND_GIT_ACTIVITY:
-            section["activity"] = [
-                *section["activity"],
-                {"path": record.payload["path"], "commits": record.payload["commits"]},
-            ]
+            activity.append({"path": record.payload["path"], "commits": record.payload["commits"]})
         elif kind == KIND_GIT_CO_CHANGE:
-            section["co_change"] = [
-                *section["co_change"],
-                {"paths": record.payload["paths"], "commits": record.payload["commits"]},
-            ]
-        else:
-            assert_never(kind)
-    return section
+            co_change.append(
+                {"paths": record.payload["paths"], "commits": record.payload["commits"]}
+            )
+    return {
+        "adapter": ADAPTER_NAME,
+        "adapter_version": ADAPTER_VERSION,
+        "head": head,
+        "tracked_file_count": tracked_file_count,
+        "tracked_dirs": tracked_dirs,
+        "tags": tags,
+        "recent_commits": recent_commits,
+        "activity": activity,
+        "file_history": file_history,
+        "co_change": co_change,
+        "window_commits": window_commits,
+        "truncated": truncated,
+    }
 
 
 __all__ = [
