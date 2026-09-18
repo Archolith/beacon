@@ -38,7 +38,10 @@ Safety contract:
 from __future__ import annotations
 
 import os
-import subprocess
+
+# Fixed local Git inspection is the only subprocess use here: fixed argv, no
+# shell, no network, bounded output.
+import subprocess  # nosec B404
 from collections import Counter
 from dataclasses import dataclass, field, fields
 from datetime import datetime
@@ -287,7 +290,7 @@ class GitSourceAdapter:
         """
         argv = [self._git, "--no-optional-locks", *args]
         try:
-            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            proc = subprocess.Popen(  # nosec B603
                 argv,
                 cwd=self._root,
                 stdout=subprocess.PIPE,
@@ -301,7 +304,8 @@ class GitSourceAdapter:
         killed = False
         try:
             stream = proc.stdout
-            assert stream is not None
+            if stream is None:  # pragma: no cover - guaranteed by stdout=PIPE
+                raise GitSourceError("git produced no readable output stream")
             while True:
                 chunk = stream.read(65536)
                 if not chunk:
