@@ -27,8 +27,11 @@ The implementation this plan describes already exists. Do not restart v0.2 from 
   (`/v1/status`, `beacon-status-1.0.schema.json`) that postdates this plan.
 - **Shipped surface:** CLI `serve`, `serve-http`, `init`, `validate`, `inspect`, `export`; loopback
   HTTP consumption tiers (`/v1/snapshot` with `/identity` and `/orientation`, `/v1/chunks`,
-  concept/guardrail companion indexes, well-known discovery); release candidate `0.2.0rc2`; per the
-  branch CHANGELOG, `archolith-beacon==0.2.0rc1` was published to PyPI through trusted publishing.
+  concept/guardrail companion indexes, well-known discovery); release candidate `0.2.0rc2`;
+  `archolith-beacon==0.2.0rc1` (wheel + sdist) is on the public index — published 2026-08-10 via
+  trusted publishing and verified against PyPI 2026-09-17. The published rc1 artifact carries the
+  historical `<0.3` pin; uploaded artifacts are immutable, so the reconciled `>=0.3.0` baseline
+  ships in the next release candidate.
 - **Work packages:** WP0–WP7 are implemented on that branch. WP8's observer scorecard artifact is
   recorded there; the genuinely unaided 15-minute trial itself remains open.
 - **Reconciliation decisions** — where the text below conflicts with these, these govern:
@@ -81,9 +84,13 @@ install wheel
   -> commit beacon.yaml + reviewed snapshot if desired
 ```
 
-## 2. Current baseline
+## 2. Original implementation baseline
 
-The release starts from a working manifest-driven product, not from zero.
+*(Renamed 2026-09-17: this audit describes the pre-implementation state the plan was written
+against. What it marks missing or partial — `init`, export/snapshot, digests, examples, packaging,
+release CI — now exists on `release/v0.2.0` (PR #4); see Implementation status.)*
+
+The release started from a working manifest-driven product, not from zero.
 
 | Capability | Current state | v0.2 disposition |
 | --- | --- | --- |
@@ -188,7 +195,10 @@ acceptance checks, and this plan before implementation diverges.
 
 ### 3.4 Distribution and release
 
-- **D20 — Distribution and ownership.** First publish `archolith-mcp-framework==0.2.0` from
+- **D20 — Distribution and ownership.** *(Status 2026-09-17: the framework publication step below
+  is complete — `archolith-mcp-framework` 0.2.0 went public 2026-08-10 and 0.3.0, the current
+  baseline, went public 2026-09-03; `archolith-beacon==0.2.0rc1` is also published.)* First publish
+  `archolith-mcp-framework==0.2.0` from
   `Archolith/archolith-mcp-framework`; migrate Beacon to dependency
   `archolith-mcp-framework>=0.3.0` *(reconciled 2026-09-17 from the historical `<0.3`; v0.2.0
   predates `pagination.py`)* and import `archolith_mcp_framework`; then publish
@@ -199,7 +209,10 @@ acceptance checks, and this plan before implementation diverges.
   Exclude Python 3.15 prereleases, PyPy, free-threaded builds, and mobile until separately tested.
 - **D22 — Release order.** Publish `archolith-mcp-framework==0.2.0`, then
   `archolith-beacon==0.2.0rc1`, then `archolith-beacon==0.2.0`, with TestPyPI smoke before each
-  applicable real-index release.
+  applicable real-index release. *(Status 2026-09-17: steps one and two are complete — framework
+  0.2.0 and Beacon 0.2.0rc1 are on the public index. Remaining: the final `0.2.0`, or a further
+  RC, built from `release/v0.2.0` under the reconciled `framework>=0.3.0` prerequisite, which is
+  publicly available.)*
 - **D23 — PyPI access.** Archolith account/organization and two-maintainer access are believed to
   exist but remain an explicit WP0 verification gate. No release relies on an assumption about
   access.
@@ -857,6 +870,12 @@ Three differences between the two original orderings had to be resolved rather t
 
 ## 8. Release and supply-chain sequence
 
+*(Status 2026-09-17: the framework half of this sequence is complete and historical —
+`archolith-mcp-framework` 0.2.0 and 0.3.0 are both on the public index, and
+`archolith-beacon==0.2.0rc1` is published. The current prerequisite for the final Beacon release
+is `archolith-mcp-framework>=0.3.0`, not 0.2.0; read the numbered steps below as the process of
+record with that substitution.)*
+
 Before any upload, verify rather than assume:
 
 - Archolith controls both PyPI project namespaces or can register them;
@@ -952,7 +971,9 @@ command becomes a required gate and is added there too.
 
 - [ ] All three schemas pass Draft 2020-12 meta-validation with success and negative fixtures.
 - [ ] Packaged stdio reports the tested MCP/framework versions and serves five tools.
-- [ ] `archolith-mcp-framework==0.2.0` is publicly installable from its Archolith release.
+- [x] `archolith-mcp-framework>=0.3.0` is publicly installable from its Archolith release *(0.3.0
+      public since 2026-09-03; the 0.2.0 prerequisite step completed 2026-08-10 — checked
+      2026-09-17 against the public index)*.
 - [ ] Beacon depends on `archolith-mcp-framework>=0.3.0` with the new import namespace.
 - [ ] Beacon has no direct Git dependency or legacy `cth-mcp-framework` runtime requirement.
 - [ ] Canonical distribution name is verified and consistent.
