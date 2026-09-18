@@ -212,7 +212,34 @@ inherit:
   claims came from. Beacon's claim model (Step 3's merge policy, citations with source digests)
   supersedes this; the bridge output must not become the long-term citation format.
 
+**Replacement is scheduled (2026-09-18): the Menhir MVP requires this step now, not "long-term".**
+Menhir MVP E2E-6 ("Beacon generation and consumption") must run entirely through Beacon-owned
+generation so Menhir can delete its bespoke manifest-mapping implementation
+(`beacon_generation.py`'s raw-manifest construction and the `beacon_compat.py` version pin). The
+replacement path, agreed with ctharvey:
+
+`Menhir evidence dump (versioned JSON) -> Beacon MenhirSourceAdapter (Step 2 envelope) ->
+beacon build (Step 1 entry point + Step 3 merge policy) -> deterministic projection ->
+Beacon-owned manifest/snapshot artifact`
+
+Two properties of that path are **normative, not optional**:
+
+1. **Deterministic projection is REQUIRED and gates everything downstream.** Converting merged
+   normalized records into a valid manifest/snapshot without an LLM is the MVP-critical piece.
+   Projection may populate only evidence-backed fields (identity/repository/language, canonical
+   docs, source-grounded concepts, implementation locations, current structure/focus where
+   defensible, guardrails only from an authoritative intent source); unknown intent stays
+   unknown/empty. The Menhir MVP must not require an LLM.
+2. **Step 6 (LLM drafting) is blocked until deterministic projection ships and passes E2E-6.**
+   The drafting stage is an optional enhancement layered on a working deterministic pipeline —
+   it is never a prerequisite for it, and no MVP path may require it.
+
 ### Step 6 — Optional LLM drafting stage
+
+**GATE (2026-09-18): this step must not ship, and must not be required by any consumer, before
+the deterministic projection described in Step 5's replacement path passes Menhir MVP E2E-6.**
+Drafting consumes tier 0-2 records that are already merged and projected deterministically; it
+refines wording, it never bootstraps the pipeline.
 
 **Files:** new `src/beacon/build/draft.py`, `docs/schemas/beacon-snapshot-1.1.schema.json`
 
