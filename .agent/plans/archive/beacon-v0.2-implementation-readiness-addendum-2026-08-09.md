@@ -1,6 +1,11 @@
 # Beacon v0.2 — Implementation Readiness Addendum
 
-**Status:** READY FOR IMPLEMENTATION
+> **ARCHIVED 2026-09-15.** Superseded by `.agent/plans/beacon-v0.2-plan-2026-09-15.md`, which folds
+> this addendum's readiness decisions, limits, validation/secret/privacy policy, schemas, and release
+> sequence into the v0.2 plan itself. Kept for history. The "normative where more specific"
+> precedence rule in §1 no longer applies — there is one document now.
+
+**Status:** ARCHIVED — superseded (was READY FOR IMPLEMENTATION)
 **Date:** 2026-08-09
 **Owner:** Beacon
 **Parent plan:** `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`

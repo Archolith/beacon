@@ -1,6 +1,11 @@
 # Beacon v0.2 — Publishable Static Product Plan
 
-**Status:** READY FOR IMPLEMENTATION
+> **ARCHIVED 2026-09-15.** Superseded by `.agent/plans/beacon-v0.2-plan-2026-09-15.md`, which merges
+> this plan with its implementation-readiness addendum into one document with a single decisions list
+> and a single reconciled merge order. Kept for history. Do not implement from this file — its merge
+> order (§6) sequences `beacon init` ahead of the shared CLI envelope that its own WP1 depends on.
+
+**Status:** ARCHIVED — superseded (was READY FOR IMPLEMENTATION)
 **Date:** 2026-08-09
 **Owner:** Beacon
 **Parent roadmap:** `docs/beacon-functional-product-roadmap.md` — v0.2
