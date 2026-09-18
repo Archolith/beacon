@@ -15,6 +15,17 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from beacon.core.limits import (
+    LIMIT_CHUNKS,
+    LIMIT_DOCUMENT_BYTES,
+    LIMIT_DOCUMENTS,
+    LIMIT_PATH_BYTES,
+    LIMIT_TOTAL_DOCUMENT_BYTES,
+    LimitError,
+    ResourceLimits,
+    read_bytes_bounded,
+)
+from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconDoc, BeaconSource
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -66,16 +77,71 @@ class DocIndex:
         docs: tuple[BeaconDoc, ...] | list[BeaconDoc],
         *,
         docs_root: str | Path,
-    ) -> "DocIndex":
+        limits: ResourceLimits | None = None,
+    ) -> DocIndex:
         root = Path(docs_root)
+        active = limits if limits is not None else ResourceLimits()
+        if len(docs) > active.documents:
+            raise LimitError(
+                LIMIT_DOCUMENTS,
+                "resource limit exceeded: "
+                f"{LIMIT_DOCUMENTS} (limit={active.documents}, actual={len(docs)})",
+                limit="documents",
+                limit_value=active.documents,
+            )
         chunks: list[DocChunk] = []
+        total_bytes = 0
         for doc in docs:
-            target = root / doc.path
+            doc_path = doc.path.encode("utf-8")
+            if len(doc_path) > active.path_bytes:
+                raise LimitError(
+                    LIMIT_PATH_BYTES,
+                    "resource limit exceeded: "
+                    f"{LIMIT_PATH_BYTES} (limit={active.path_bytes}, "
+                    f"actual={len(doc_path)})",
+                    limit="path_bytes",
+                    limit_value=active.path_bytes,
+                )
+            target = resolve_canonical_path(root, doc.path)
             if not target.is_file():
                 # Missing docs are a validator concern; index what exists.
                 continue
-            text = target.read_text(encoding="utf-8", errors="replace")
-            chunks.extend(_chunk_markdown(doc.path, text, status=doc.status))
+            aggregate_remaining = active.total_document_bytes - total_bytes
+            read_ceiling = min(active.document_bytes, max(aggregate_remaining, 0))
+            raw = read_bytes_bounded(
+                target,
+                ceiling=read_ceiling,
+                code=(
+                    LIMIT_TOTAL_DOCUMENT_BYTES
+                    if read_ceiling < active.document_bytes
+                    else LIMIT_DOCUMENT_BYTES
+                ),
+                field=(
+                    "total_document_bytes"
+                    if read_ceiling < active.document_bytes
+                    else "document_bytes"
+                ),
+            )
+            total_bytes += len(raw)
+            if total_bytes > active.total_document_bytes:
+                raise LimitError(
+                    LIMIT_TOTAL_DOCUMENT_BYTES,
+                    "resource limit exceeded: "
+                    f"{LIMIT_TOTAL_DOCUMENT_BYTES} (limit={active.total_document_bytes}, "
+                    f"actual={total_bytes})",
+                    limit="total_document_bytes",
+                    limit_value=active.total_document_bytes,
+                )
+            text = raw.decode("utf-8", errors="replace")
+            doc_chunks = _chunk_markdown(doc.path, text, status=doc.status)
+            if len(chunks) + len(doc_chunks) > active.chunks:
+                raise LimitError(
+                    LIMIT_CHUNKS,
+                    f"resource limit exceeded: {LIMIT_CHUNKS} (limit={active.chunks})",
+                    limit="chunks",
+                    limit_value=active.chunks,
+                )
+            chunks.extend(doc_chunks)
         return cls(tuple(chunks))
 
     def search(self, query: str, *, limit: int = 8) -> list[tuple[DocChunk, float]]:

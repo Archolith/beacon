@@ -19,6 +19,7 @@ from abc import abstractmethod
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
+from beacon.core.limits import LimitError
 from beacon.core.schema import to_payload
 from beacon.mcp.lifecycle import get_provider
 
@@ -38,8 +39,8 @@ def render_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True, default=_json_default)
 
 
-def _error_payload(tool: str, message: str) -> str:
-    return render_json({"ok": False, "tool": tool, "error": {"message": message}})
+def _error_payload(tool: str, code: str, message: str) -> str:
+    return render_json({"ok": False, "tool": tool, "error": {"code": code, "message": message}})
 
 
 class BeaconBaseTool:
@@ -67,9 +68,16 @@ class BeaconBaseTool:
     async def execute(self, *args: Any, **kwargs: Any) -> str:
         try:
             return await self.endpoint(*args, **kwargs)
-        except Exception as exc:
+        except LimitError as exc:
+            logger.info("beacon tool %r refused request: %s", self.name, exc.code)
+            return _error_payload(self.name, exc.code, str(exc))
+        except Exception:
             logger.exception("beacon tool %r raised", self.name)
-            return _error_payload(self.name, str(exc))
+            return _error_payload(
+                self.name,
+                "internal_error",
+                "Beacon could not complete this request; see server logs.",
+            )
 
     def render_json(self, payload: dict[str, Any]) -> str:
         return render_json(payload)
@@ -78,7 +86,7 @@ class BeaconBaseTool:
         """Render a frozen-dataclass answer-contract object to a JSON string."""
         return render_json(to_payload(answer_obj))
 
-    def register(self, mcp: "FastMCP") -> None:
+    def register(self, mcp: FastMCP) -> None:
         target = self.endpoint
 
         @wraps(target)

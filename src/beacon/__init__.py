@@ -6,4 +6,4 @@ stuffing. v0 is manifest-driven: a ``beacon.yaml`` plus canonical-doc indexing
 powers every tool, with no external service dependency.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0rc2"

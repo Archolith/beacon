@@ -1,0 +1,121 @@
+{
+  "beacon_init_report_version": "1.0",
+  "operation": "create",
+  "repository_root": ".",
+  "manifest_path": "beacon.yaml",
+  "would_write": true,
+  "written": true,
+  "replaced": false,
+  "discovered": [
+    {
+      "manifest_path": "project.name",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "directory_name",
+          "path": "."
+        }
+      ]
+    },
+    {
+      "manifest_path": "project.repository",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "git_remote",
+          "path": ".git/config"
+        }
+      ]
+    },
+    {
+      "manifest_path": "project.primary_language",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "build_file",
+          "path": "pyproject.toml"
+        }
+      ]
+    },
+    {
+      "manifest_path": "project.license",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "license_file",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "manifest_path": "canonical_docs",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "document",
+          "path": "README.md",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      ]
+    },
+    {
+      "manifest_path": "build_and_test.setup",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "build_file",
+          "path": "pyproject.toml"
+        }
+      ]
+    },
+    {
+      "manifest_path": "build_and_test.test",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "build_file",
+          "path": "pyproject.toml"
+        }
+      ]
+    }
+  ],
+  "omitted": [
+    {
+      "code": "concepts_omitted",
+      "manifest_path": "core_concepts",
+      "reason": "no core concepts were discovered",
+      "evidence_checked": [
+        "README.md"
+      ]
+    },
+    {
+      "code": "benchmark_omitted",
+      "manifest_path": "build_and_test.benchmark",
+      "reason": "no benchmark was configured"
+    }
+  ],
+  "review_required": [
+    {
+      "code": "project_status_unknown",
+      "manifest_path": "project.status",
+      "reason": "project status is unknown and must be set by the maintainer"
+    },
+    {
+      "code": "purpose_missing",
+      "manifest_path": "purpose.one_sentence",
+      "reason": "project purpose is unknown and must be authored"
+    },
+    {
+      "code": "guardrails_missing",
+      "manifest_path": "guardrails",
+      "reason": "no guardrails were discovered; they must be authored"
+    }
+  ],
+  "security_findings": [
+    {
+      "code": "sensitive_credential_url",
+      "path": ".git/config",
+      "blocked": false
+    }
+  ]
+}

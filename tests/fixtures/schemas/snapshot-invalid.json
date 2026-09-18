@@ -1,0 +1,38 @@
+{
+  "beacon_snapshot_version": "2.0",
+  "generator": {
+    "distribution": "wrong-distribution",
+    "version": ""
+  },
+  "content_mode": "metadata_only",
+  "project": {
+    "name": "bad-fixture",
+    "status": "invalid-status"
+  },
+  "manifest": {
+    "beacon_version": "0.1",
+    "source_sha256": "not-a-sha",
+    "data": {}
+  },
+  "documents": [
+    {
+      "path": "docs/../escape.md",
+      "role": "",
+      "status": "current",
+      "title": "Missing required line ranges",
+      "source_sha256": "short",
+      "chunks": []
+    }
+  ],
+  "validation": {
+    "errors": 1,
+    "warnings": -1,
+    "acknowledgements": [
+      {
+        "code": "BAD_CODE",
+        "reason": "short"
+      }
+    ],
+    "security_overrides": []
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "beacon_init_report_version": "2.0",
+  "operation": "publish",
+  "repository_root": "..",
+  "manifest_path": "beacon.yaml",
+  "would_write": true,
+  "written": true,
+  "replaced": "no",
+  "discovered": [
+    {
+      "manifest_path": "project.name",
+      "value": "acme",
+      "evidence": []
+    }
+  ],
+  "omitted": [],
+  "review_required": [],
+  "security_findings": [
+    {
+      "code": "sensitive_credential_url",
+      "path": "../../.env",
+      "line": 0,
+      "blocked": false
+    }
+  ]
+}

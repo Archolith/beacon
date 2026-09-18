@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:chunk-resource:1.0",
+  "title": "Beacon Chunk Resource 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "chunk_resource_version",
+    "beacon_version",
+    "snapshot_sha256",
+    "id",
+    "document",
+    "heading_path",
+    "line_start",
+    "line_end",
+    "text_bytes",
+    "text"
+  ],
+  "properties": {
+    "chunk_resource_version": {"const": "1.0"},
+    "beacon_version": {"type": "string", "minLength": 1},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "id": {"$ref": "#/$defs/chunkId"},
+    "document": {"$ref": "#/$defs/document"},
+    "heading_path": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "line_start": {"type": "integer", "minimum": 1},
+    "line_end": {"type": "integer", "minimum": 1},
+    "text_bytes": {"type": "integer", "minimum": 0},
+    "text": {"type": "string"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chunkId": {"type": "string", "pattern": "^c1-[0-9a-f]{32}$"},
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "title", "role", "status", "source_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "role": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

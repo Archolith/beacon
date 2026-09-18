@@ -23,8 +23,21 @@ Top-level container. One per loaded manifest.
 | `agent_guidance` | `BeaconAgentGuidance` | Read order, safe tasks, avoid list |
 | `build_and_test` | `BeaconBuildTest` | Setup/test/benchmark commands |
 | `guardrails` | `tuple[BeaconGuardrail, ...]` | How not to break the project |
+| `project_state` | `BeaconProjectState` | Optional source-cited current-work state |
 
 Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by id or name.
+
+### BeaconProjectState and BeaconStateItem
+
+`BeaconProjectState` has zero or one `active_work` item plus bounded tuples for
+`recently_completed`, `blockers`, and `pending_decisions`. Each `BeaconStateItem` carries `title`,
+`summary`, `next_step`, and source citations. The whole section is optional-with-defaults, preserving
+existing manifest `0.1` inputs. When an item is present without a citation, strict publication emits
+the blocking `project_state_sources_missing` warning.
+
+HTTP `/v1/status` publishes these declared values beside a separate immutable startup observation:
+snapshot lineage, Git commit/branch/dirty state when available, source digest comparisons, and
+observation time. Status companion schema `1.0` does not change snapshot schema `1.0`.
 
 ### BeaconProjectInfo
 
@@ -33,7 +46,7 @@ Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by 
 | `name` | `str` | Required — validator errors if empty |
 | `tagline` | `str` | One-line pitch |
 | `description` | `str` | Required — validator errors if empty |
-| `status` | `str` | `experimental` \| `current` \| `stable` \| … |
+| `status` | `str` | Controlled knowledge status; defaults to `experimental` |
 | `repository` | `str` | URL or empty |
 | `primary_language` | `str` | |
 | `license` | `str` | |
@@ -55,7 +68,7 @@ Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by 
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `path` | `str` | Relative to `BEACON_DOCS_ROOT` — validator checks existence |
+| `path` | `str` | Relative to `BEACON_DOCS_ROOT`; absolute, parent-traversing, and symlink-escaping paths are rejected before reads |
 | `role` | `str` | `entrypoint` \| `architecture` \| `reference` \| `backlog` \| … |
 | `status` | `str` | Knowledge status |
 | `title` | `str` | Human title |
@@ -81,8 +94,8 @@ Traceable reference backing a claim. Used in both manifest types and answer resp
 | `title` | `str` | Human-readable label |
 | `path` | `str` | Relative file path |
 | `url` | `str` | URL if applicable |
-| `line_start` | `int \| None` | 1-based start line |
-| `line_end` | `int \| None` | 1-based end line |
+| `line_start` | `int \| None` | Positive, 1-based start line |
+| `line_end` | `int \| None` | Positive end line; cannot precede `line_start` |
 | `status` | `str` | Knowledge status at citation point |
 
 ### BeaconAgentGuidance
@@ -227,6 +240,22 @@ converts nested frozen dataclasses and tuples to dicts/lists ready for `json.dum
 `render_json(payload)` in `mcp/contracts.py` serializes with compact separators,
 sorted keys, and a `datetime.isoformat()` fallback.
 
+## Static HTTP Companion Catalogs
+
+`src/beacon/core/knowledge_resources.py` derives two immutable companion catalogs from the
+approved embedded snapshot's in-memory manifest data. `StaticKnowledgeCatalogs` contains
+`concepts` and `guardrails`; each `StaticKnowledgeCatalog` carries canonical index bytes, its
+SHA-256, and frozen `StaticKnowledgeResource` values containing opaque ID, canonical response
+bytes, and response SHA-256.
+
+Concept resource IDs use `k1-<32 hex>` and guardrail IDs use `g1-<32 hex>`, derived from kind plus
+logical manifest ID. Logical IDs remain response data and never become route structure. Index
+entries publish selector metadata, exact response bytes, and digest before retrieval. All index and
+resource responses are version 1.0, bounded by the snapshot byte ceiling, independently cacheable,
+and tied to a validated full-snapshot SHA-256 without changing snapshot schema 1.0. Construction
+requires the exact typed concept/guardrail/source record shapes, so every served record conforms to
+its published Draft 2020-12 resource schema.
+
 ---
 
 ## Validation Vocabulary
@@ -234,8 +263,91 @@ sorted keys, and a `datetime.isoformat()` fallback.
 `KNOWLEDGE_STATUSES` (validator.py) — valid values for manifest `status` fields:
 `current`, `experimental`, `planned`, `superseded`, `disputed`, `unknown`
 
+The same vocabulary is checked on project, canonical-document, concept, and nested source status
+fields. Explicit YAML `null` is not an alias for an omitted field: wrong scalar/container types
+raise `ManifestError` during parsing.
+
+Canonical document resolution is centralized in `core.paths.resolve_canonical_path()`. It returns
+an absolute resolved path only when the target remains under the resolved docs root; otherwise it
+raises `UnsafeCanonicalPath` with code `unsafe_canonical_path` and no target-path or file-content
+detail.
+
 `ANSWER_STATUSES` (schema.py) — valid values for answer `status` fields:
 `current`, `experimental`, `uncertain`, `mixed`
 
 `CONFIDENCE_LEVELS` (schema.py):
 `low`, `medium`, `high`
+
+---
+
+## Validation Diagnostics and Policy
+
+Defined in `src/beacon/core/validator.py` and `src/beacon/core/policy.py`.
+
+### ValidationIssue
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `severity` | `str` | `error` \| `warning` |
+| `where` | `str` | Manifest location of the finding |
+| `message` | `str` | Human-readable description |
+| `code` | `str` | Stable diagnostic code (e.g. `test_command_missing`); defaults to `legacy_issue` for legacy three-argument construction |
+
+The `code` field is additive; legacy `severity` / `where` / `message` consumers are
+unchanged. `ValidationReport` still exposes `errors`, `warnings`, and `ok`.
+
+Recognized stable codes: `project_name_missing`, `project_description_missing`,
+`beacon_version_missing`, `canonical_docs_missing`, `canonical_doc_duplicate`,
+`canonical_doc_missing_file`, `concept_id_duplicate`, `concept_definition_missing`,
+`related_concept_unknown`, `guardrail_id_duplicate`, `guardrail_severity_invalid`,
+`guardrails_missing`, `test_command_missing`, `knowledge_status_invalid`,
+`project_status_unknown`, `purpose_missing`, `legacy_issue`.
+
+`PUBLICATION_WARNING_CODES` is the exact addendum §5 set of warnings that block
+publication (strict validation / export) unless acknowledged. `VALIDATION_CODES` is every
+emittable code.
+
+### Acknowledgement (policy.py)
+
+| Field | Type |
+|-------|------|
+| `code` | `str` — allowlisted code being acknowledged |
+| `reason` | `str` — trimmed, non-empty, ≥10 characters |
+
+- `parse_acknowledgement(raw)` / `parse_acknowledgements(raws)` parse `CODE=REASON` and
+  reject malformed, unknown, duplicate, or unallowlisted codes via `AcknowledgementError`
+  with a stable code (`ack_malformed`, `ack_unknown_code`, `ack_unallowlisted_code`,
+  `ack_duplicate`, `ack_reason_empty`, `ack_reason_short`).
+- Only `test_command_missing` and `guardrails_missing` are acknowledgeable in v0.2.
+- Acknowledgements are in-memory only; they never modify `beacon.yaml`.
+
+### PolicyEvaluation (policy.py)
+
+| Field | Type |
+|-------|------|
+| `servable` | `bool` — no errors |
+| `publishable` | `bool` — no errors and no unresolved publication warnings |
+| `errors` | `tuple[ValidationIssue, ...]` |
+| `unresolved_publication_warnings` | `tuple[ValidationIssue, ...]` |
+| `acknowledged` | `tuple[tuple[ValidationIssue, Acknowledgement], ...]` |
+
+`evaluate_policy(report, *, acknowledgements=())` computes the disposition; acknowledged
+warnings preserve their original severity/code/where/message while recording the reason.
+
+---
+
+## Resource Limits
+
+Defined in `src/beacon/core/limits.py`. `ResourceLimits` is a frozen dataclass with the six
+overridable ceilings (`manifest_bytes`, `documents`, `document_bytes`,
+`total_document_bytes`, `chunks`, `snapshot_bytes`) plus seven fixed ceilings
+(`yaml_depth`, `yaml_nodes`, `yaml_aliases`, `path_bytes`, `query_bytes`, `result_limit`,
+`init_report_bytes`).
+
+- `resource_limits_from_env(env=None)` — defaults plus `BEACON_MAX_*` environment overrides.
+- `ResourceLimits.apply_overrides(mapping, where=...)` — returns a new instance with explicit
+  (e.g. CLI) overrides applied last (highest precedence).
+- `LimitError` — carries a stable non-secret `code` (e.g. `limit_manifest_bytes`,
+  `limit_yaml_nodes`, `limit_query_bytes`) and never embeds document content or secrets.
+- Invalid override values (negative, non-integer, overflowing) raise `LimitError` with
+  code `limit_invalid_value` instead of being silently truncated.
