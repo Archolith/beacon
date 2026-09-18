@@ -260,15 +260,26 @@ class GitSourceAdapter:
         walk = self._walk()
         head_date = walk[0].date if walk else ""
 
+        # Build every bounded projection BEFORE the head record: each of them
+        # can hit a cap and raise self._truncated, and the head record's
+        # payload is what reports truncation to consumers. Constructing it
+        # last guarantees the flag reflects the whole collection pass, while
+        # the record order (head first) stays stable.
+        tag_records = self._tag_records(tags)
+        commit_records = self._commit_records(walk)
+        file_history_records = self._file_history_records(walk)
+        activity_records = self._activity_records(walk, head_sha)
+        co_change_records = self._co_change_records(walk, head_sha)
+
         records: list[NormalizedRecord] = [
             self._head_record(head_sha, head_date, branch, dirty, dirty_paths, tracked_total, walk),
             self._inventory_record(tracked_total, tracked_dirs),
+            *tag_records,
+            *commit_records,
+            *file_history_records,
+            *activity_records,
+            *co_change_records,
         ]
-        records.extend(self._tag_records(tags))
-        records.extend(self._commit_records(walk))
-        records.extend(self._file_history_records(walk))
-        records.extend(self._activity_records(walk, head_sha))
-        records.extend(self._co_change_records(walk, head_sha))
         return tuple(records)
 
     # ------------------------------------------------------------------

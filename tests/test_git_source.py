@@ -297,6 +297,19 @@ def test_small_walk_cap_reports_truncation(repo: Path) -> None:
     assert head.payload["truncated"] is True
 
 
+def test_late_cap_hits_are_reflected_in_the_head_record(repo: Path) -> None:
+    """A cap hit by a projection built after the head record still reports."""
+    adapter = GitSourceAdapter(repo, caps=GitCaps(file_history_entries=1))
+    records = adapter.collect()
+    head = next(r for r in records if r.kind == "git_head")
+    file_histories = [r for r in records if r.kind == "git_file_history"]
+    # The cap genuinely clipped this projection (the fixture has 4 eligible
+    # files, and .env is excluded before the cap applies).
+    assert len(file_histories) == 1
+    assert head.payload["truncated"] is True
+    assert records_to_git_evidence(records)["truncated"] is True
+
+
 def test_invalid_caps_rejected() -> None:
     with pytest.raises(ValueError):
         GitCaps(recent_commits=0)
