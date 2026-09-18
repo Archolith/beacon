@@ -813,26 +813,41 @@ def _build_impl(
         )
 
     # -- resolve the output location and docs root ---------------------------
-    # A relative --out resolves against the repository root when one is given
-    # (the generated manifest belongs to that repo), otherwise the CWD.
+    # `--out -` streams the manifest YAML to stdout (no envelope, no file):
+    # the same convention as `beacon export --output -`, for embedding
+    # generators that own publication. A relative --out otherwise resolves
+    # against the repository root when one is given (the generated manifest
+    # belongs to that repo), otherwise the CWD.
+    to_stdout = out == "-"
+    if to_stdout and snapshot_out:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_stdout_snapshot_unsupported",
+            "snapshot output requires a file --out",
+        )
     base_dir = Path(repo) if repo else Path.cwd()
     root_dir = Path(docs_root) if docs_root else base_dir
-    try:
-        target = scaffold.resolve_output_path(root_dir, out)
-    except UnsafeCanonicalPath as exc:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, "unsafe_canonical_path", "unsafe output path"
-        ) from exc
-    except LimitError as exc:
-        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-    if target.exists() and (target.is_symlink() or target.is_dir()):
-        raise cli_support.CliFailure(
-            EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
-        )
-    if target.exists() and not force:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
-        )
+    target: Path | None = None
+    if to_stdout:
+        target = None
+    else:
+        try:
+            target = scaffold.resolve_output_path(root_dir, out)
+        except UnsafeCanonicalPath as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "unsafe_canonical_path", "unsafe output path"
+            ) from exc
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        if target.exists() and (target.is_symlink() or target.is_dir()):
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
+            )
+        if target.exists() and not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
+            )
+    docs_home = target.parent if target is not None else root_dir
 
     # -- collect the source tiers ---------------------------------------------
     menhir_records: tuple[Any, ...] = ()
@@ -876,13 +891,13 @@ def _build_impl(
             intent=intent_manifest,
             git_records=git_records,
             menhir_records=menhir_records,
-            docs_root=target.parent,
+            docs_root=docs_home,
             repo_root=Path(repo) if repo else None,
             git_origin=git_origin,
         )
         raw = build_raw_manifest(facts)
         manifest_obj = parse_manifest(raw)
-        require_valid_manifest(manifest_obj, docs_root=target.parent)
+        require_valid_manifest(manifest_obj, docs_root=docs_home)
     except BuildError as exc:
         raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
     except ManifestValidationError as exc:
@@ -891,6 +906,18 @@ def _build_impl(
         ) from exc
 
     data = render_manifest_yaml(raw, note=note)
+
+    if target is None:
+        # Raw manifest bytes to stdout: exactly one document, no envelope.
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is not None:
+            buffer.write(data)
+            buffer.flush()
+        else:  # pragma: no cover - defensive when stdout has no byte buffer
+            sys.stdout.write(data.decode("utf-8"))
+            sys.stdout.flush()
+        return EXIT_OK
+
     _atomic_write_bytes(target, data)
 
     # -- optional canonical snapshot (reuses the v0.2 writer end to end) ------
