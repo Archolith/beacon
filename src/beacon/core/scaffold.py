@@ -33,13 +33,16 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from beacon.core import discovery as _discovery
 from beacon.core.canonical_json import write_atomic as _write_json_atomic
 from beacon.core.discovery import (
+    KIND_GIT_REMOTE,
     DiscoveryResult,
     Evidence,
 )
@@ -56,10 +59,16 @@ from beacon.core.paths import (
     is_unsafe_path,
 )
 from beacon.core.security import SecurityFinding
+from beacon.sources.git import (
+    GitSourceAdapter,
+    GitSourceError,
+    GitSourceUnavailable,
+    records_to_git_evidence,
+)
 
 #: Machine name and version from the canonical schema ``$id``.
 SCHEMA_NAME = "beacon.init-report"
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 #: Default manifest filename written into the repository root.
 DEFAULT_MANIFEST_NAME = "beacon.yaml"
@@ -107,7 +116,15 @@ class ReviewItem:
 
 @dataclass(frozen=True)
 class InitReport:
-    """The immutable ``beacon.init-report`` v1.0 report."""
+    """The immutable ``beacon.init-report`` v1.1 report.
+
+    ``git_evidence`` is the optional, adapter-owned ``git_evidence`` section
+    (schema 1.1, additive): bounded local git history supplied by
+    :class:`~beacon.sources.git.GitSourceAdapter`. It is absent when the
+    repository has no usable git metadata. Git evidence is reality/history
+    for the maintainer's review; it never fills intent-bearing manifest
+    fields by itself.
+    """
 
     operation: str
     manifest_path: str
@@ -118,6 +135,7 @@ class InitReport:
     omitted: tuple[ReviewItem, ...] = ()
     review_required: tuple[ReviewItem, ...] = ()
     security_findings: tuple[SecurityFinding, ...] = ()
+    git_evidence: dict[str, Any] | None = None
     schema: str = SCHEMA_NAME
     schema_version: str = SCHEMA_VERSION
 
@@ -250,6 +268,7 @@ def init(
     """
     active = limits if limits is not None else ResourceLimits()
     discovery = _discovery.discover(root, limits=active)
+    discovery, git_evidence = _collect_git_evidence(root, discovery)
     normalized_path = _normalize_manifest_path(manifest_path)
     # Resolve/validate the manifest target up front (without writing) so an
     # over-long or unsafe path is refused even when no canonical doc exists and
@@ -268,6 +287,7 @@ def init(
             manifest_path=normalized_path,
             review_code=REFUSED_NO_CANONICAL_DOC,
             reason="no safe allowlisted entry document was found; nothing to record as canonical",
+            git_evidence=git_evidence,
         )
 
     writable, replace = _classify_target(target, force=force, limits=active, root=root_path)
@@ -291,6 +311,7 @@ def init(
         replaced=(not dry_run) and writable and replace,
         no_docs=False,
         extra_review=extra_review,
+        git_evidence=git_evidence,
     )
 
     if (not dry_run) and writable:
@@ -347,7 +368,7 @@ def write_report(
 
 def to_payload(report: InitReport) -> dict[str, object]:
     """Convert *report* to a JSON-ready dict matching the init-report schema."""
-    return {
+    payload: dict[str, object] = {
         "beacon_init_report_version": report.schema_version,
         "operation": report.operation,
         "repository_root": ".",
@@ -360,6 +381,9 @@ def to_payload(report: InitReport) -> dict[str, object]:
         "review_required": [_review_item_payload(i) for i in report.review_required],
         "security_findings": [_security_finding_payload(f) for f in report.security_findings],
     }
+    if report.git_evidence is not None:
+        payload["git_evidence"] = report.git_evidence
+    return payload
 
 
 def _discovered_field_payload(field: DiscoveredField) -> dict[str, object]:
@@ -498,6 +522,41 @@ def _select_operation(*, dry_run: bool, writable: bool, replace: bool) -> str:
     return OPERATION_REPLACE if replace else OPERATION_CREATE
 
 
+def _collect_git_evidence(
+    root: str | Path, discovery: DiscoveryResult
+) -> tuple[DiscoveryResult, dict[str, Any] | None]:
+    """Collect git evidence for init, preferring the adapter for the origin URL.
+
+    The adapter is the primary source of the repository URL (it resolves
+    worktrees and URL rewrites correctly); the pure ``.git/config`` read in
+    discovery remains the fallback when git evidence is unavailable. Any
+    adapter failure degrades to "no git section" rather than failing init:
+    the manifest never depends on git evidence, because git supplies
+    reality/history, never intent.
+    """
+    adapter = GitSourceAdapter(root)
+    try:
+        records = adapter.collect()
+    except (GitSourceUnavailable, GitSourceError):
+        return discovery, None
+    git_evidence = records_to_git_evidence(records)
+    url, url_findings = adapter.repository_url()
+    findings = discovery.security_findings
+    if url is not None:
+        discovery = dataclass_replace(
+            discovery,
+            repository=url,
+            git_evidence=Evidence(kind=KIND_GIT_REMOTE, path="."),
+        )
+        merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
+        for finding in (*findings, *url_findings):
+            merged[(finding.code, finding.path, finding.blocked)] = finding
+        findings = tuple(merged.values())
+    else:
+        discovery = dataclass_replace(discovery, security_findings=findings)
+    return discovery, git_evidence
+
+
 def _build_report(
     discovery: DiscoveryResult,
     *,
@@ -508,6 +567,7 @@ def _build_report(
     replaced: bool,
     no_docs: bool,
     extra_review: tuple[ReviewItem, ...] = (),
+    git_evidence: dict[str, Any] | None = None,
 ) -> InitReport:
     discovered = _discovered_fields(discovery, no_docs=no_docs)
     omitted = _omitted_items(discovery)
@@ -522,6 +582,7 @@ def _build_report(
         omitted=omitted,
         review_required=review,
         security_findings=discovery.security_findings,
+        git_evidence=git_evidence,
     )
 
 
@@ -612,6 +673,7 @@ def _refused_report(
     manifest_path: str,
     review_code: str,
     reason: str,
+    git_evidence: dict[str, Any] | None = None,
 ) -> InitReport:
     return InitReport(
         operation=OPERATION_REFUSED,
@@ -623,6 +685,7 @@ def _refused_report(
         omitted=_omitted_items(discovery),
         review_required=_review_items(discovery, no_docs=True),
         security_findings=discovery.security_findings,
+        git_evidence=git_evidence,
     )
 
 

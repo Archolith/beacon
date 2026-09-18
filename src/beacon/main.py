@@ -652,6 +652,13 @@ def _text_init(report: InitReport) -> None:
     typer.echo(
         f"Would write: {report.would_write}  Written: {report.written}  Replaced: {report.replaced}"
     )
+    if report.git_evidence is not None:
+        head = report.git_evidence.get("head")
+        if isinstance(head, dict):
+            branch = head.get("branch") or "detached"
+            commit = str(head.get("commit"))[:12]
+            dirty = "dirty" if head.get("dirty") else "clean"
+            typer.echo(f"Git: {branch} @ {commit} ({dirty})")
     for item in report.review_required:
         typer.echo(f"  ⚠ {item.code}: {item.reason}")
 
