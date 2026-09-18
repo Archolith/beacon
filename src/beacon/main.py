@@ -864,16 +864,18 @@ def _build_impl(
         git_adapter = GitSourceAdapter(repo)
         try:
             git_records = git_adapter.collect()
-        except GitSourceUnavailable as exc:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "build_repo_unusable", "no usable git repository at the given root"
-            ) from exc
+        except GitSourceUnavailable:
+            # Tier 1 is optional by design: no git repository means the
+            # repository tier is absent and the build degrades to the
+            # remaining sources (build-pipeline plan §3).
+            git_records = ()
         except GitSourceError as exc:
             raise cli_support.CliFailure(
                 EXIT_INPUT, "build_git_failed", "a bounded git query failed"
             ) from exc
-        url, _url_findings = git_adapter.repository_url()
-        git_origin = url
+        if git_records:
+            url, _url_findings = git_adapter.repository_url()
+            git_origin = url
 
     intent_manifest = None
     if intent:

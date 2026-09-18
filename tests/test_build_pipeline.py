@@ -511,6 +511,31 @@ def test_build_stdout_mode_emits_manifest_bytes(tmp_path: Path) -> None:
     assert "build_stdout_snapshot_unsupported" in refused.stderr
 
 
+def test_build_degrades_when_repo_has_no_git(tmp_path: Path) -> None:
+    """Tier 1 is optional: a non-git --repo degrades instead of failing."""
+    root = _fixture_repo(tmp_path, with_git=False)
+    evidence = _evidence_file(root, ["README.md"])
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "--repo",
+            str(root),
+            "--menhir-evidence",
+            str(evidence),
+            "--out",
+            "beacon.generated.yaml",
+            "--format",
+            "json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.stderr
+    payload = json.loads(result.output)["result"]
+    assert payload["git_head"] is None
+    assert payload["authorities"]["repository"] == ""
+
+
 def test_menhir_adapter_round_trips_through_build(tmp_path: Path) -> None:
     """The evidence file written for the CLI parses into the expected records."""
     root = _fixture_repo(tmp_path, with_git=False)
