@@ -144,9 +144,7 @@ def test_git_evidence_rejects_bad_commit_hex(init_schema: dict) -> None:
     errors = list(jsonschema.Draft202012Validator(init_schema).iter_errors(payload))
     assert errors
     # The nested pattern failure surfaces through the nullable head's anyOf.
-    assert any(
-        list(e.absolute_path)[-2:] == ["git_evidence", "head"] for e in errors
-    )
+    assert any(list(e.absolute_path)[-2:] == ["git_evidence", "head"] for e in errors)
 
 
 def test_git_evidence_rejects_unknown_field(init_schema: dict) -> None:

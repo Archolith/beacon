@@ -158,9 +158,92 @@ def test_recent_commits_and_tags_carry_provenance(repo: Path) -> None:
     assert commits
     for record in commits:
         assert record.citations[0].value == record.payload["commit"]
+        assert record.payload["subject_redacted"] is False
     tags = [r for r in records if r.kind == "git_tag"]
     assert [t.payload["name"] for t in tags] == ["v0.1.0"]
-    assert tags[0].payload["commit"]
+    # The fixture tags with `-a`, so git's %(objectname) is the tag object's
+    # own digest; the record must cite the peeled target commit instead.
+    tag_object = (
+        subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "v0.1.0"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    peeled = (
+        subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "v0.1.0^{commit}"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    assert tags[0].payload["commit"] == peeled
+    assert tag_object != peeled  # the fixture must actually exercise peeling
+    assert tags[0].citations[0].value == peeled
+
+
+def test_commit_subject_carrying_a_secret_is_redacted(repo: Path) -> None:
+    secret = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    assert len(secret) == 40  # ghp_ prefix plus the 36-character body
+    _git(repo, "commit", "-q", "--allow-empty", "-m", f"leak attempt {secret}")
+    records = GitSourceAdapter(repo).collect()
+    serialized = json.dumps([r.payload for r in records])
+    assert secret not in serialized
+    flagged = next(r for r in records if r.kind == "git_commit" if r.payload["subject_redacted"])
+    assert flagged.payload["subject"] == "[redacted]"
+    # Clean subjects pass through untouched and are flagged as such.
+    clean = next(
+        r
+        for r in records
+        if r.kind == "git_commit" and r.payload["commit"] == flagged.payload["commit"]
+    )
+    assert "leak attempt" not in clean.payload["subject"]
+    earlier = next(
+        r for r in records if r.kind == "git_commit" and "sensitive" in r.payload["subject"]
+    )
+    assert earlier.payload["subject_redacted"] is False
+
+
+def test_sha256_repository_accepted(tmp_path: Path) -> None:
+    root = tmp_path / "sha256-repo"
+    root.mkdir()
+    probe = subprocess.run(
+        ["git", "-C", str(root), "init", "-q", "--object-format=sha256"],
+        capture_output=True,
+        timeout=60,
+    )
+    if probe.returncode != 0:
+        pytest.skip("this git does not support --object-format=sha256")
+    (root / "README.md").write_text("# Sha256\n", encoding="utf-8")
+    _commit_all(root, "first commit")
+    records = GitSourceAdapter(root).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert len(head.payload["commit"]) == 64
+    assert all(c.value == head.payload["commit"] for c in head.citations if c.kind == "commit")
+    section = records_to_git_evidence(records)
+    jsonschema.validate(
+        {
+            "beacon_init_report_version": "1.1",
+            "git_evidence": section,
+            "operation": "create",
+            "repository_root": ".",
+            "manifest_path": "beacon.yaml",
+            "would_write": False,
+            "written": False,
+            "replaced": False,
+            "discovered": [],
+            "omitted": [],
+            "review_required": [],
+            "security_findings": [],
+        },
+        _v11_schema(),
+    )
 
 
 def test_co_change_pairs_require_two_co_occurrences(repo: Path) -> None:
@@ -177,7 +260,9 @@ def test_co_change_pairs_require_two_co_occurrences(repo: Path) -> None:
 
 def test_activity_buckets_by_top_level_directory(repo: Path) -> None:
     records = GitSourceAdapter(repo).collect()
-    activity = {r.payload["path"]: r.payload["commits"] for r in records if r.kind == "git_activity"}
+    activity = {
+        r.payload["path"]: r.payload["commits"] for r in records if r.kind == "git_activity"
+    }
     assert activity.get("src") == 3
     # Only the README commit buckets here: the .env commit is excluded from
     # path-bearing evidence by design, even though "." leaks nothing.
@@ -268,7 +353,12 @@ def test_collect_does_not_mutate_the_repository(repo: Path) -> None:
 
 
 def _v11_schema() -> dict:
-    path = Path(__file__).resolve().parents[1] / "docs" / "schemas" / "beacon-init-report-1.1.schema.json"
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "schemas"
+        / "beacon-init-report-1.1.schema.json"
+    )
     with path.open(encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -303,9 +393,7 @@ def test_init_prefers_adapter_url_over_config_read(tmp_path: Path, repo: Path) -
     )
     report = init(repo)
     assert report.git_evidence is not None
-    repository = next(
-        f for f in report.discovered if f.manifest_path == "project.repository"
-    )
+    repository = next(f for f in report.discovered if f.manifest_path == "project.repository")
     assert any(e.kind == "git_remote" for e in repository.evidence)
 
 

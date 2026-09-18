@@ -196,10 +196,6 @@
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
     },
-    "hex40": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
-    },
     "gitHead": {
       "type": "object",
       "additionalProperties": false,
@@ -211,7 +207,7 @@
       ],
       "properties": {
         "commit": {
-          "$ref": "#/$defs/hex40"
+          "$ref": "#/$defs/gitOid"
         },
         "branch": {
           "anyOf": [
@@ -249,7 +245,7 @@
           "maxLength": 256
         },
         "commit": {
-          "$ref": "#/$defs/hex40"
+          "$ref": "#/$defs/gitOid"
         },
         "date": {
           "$ref": "#/$defs/isoDate"
@@ -266,7 +262,7 @@
       ],
       "properties": {
         "commit": {
-          "$ref": "#/$defs/hex40"
+          "$ref": "#/$defs/gitOid"
         },
         "date": {
           "$ref": "#/$defs/isoDate"
@@ -274,6 +270,9 @@
         "subject": {
           "type": "string",
           "maxLength": 120
+        },
+        "subject_redacted": {
+          "type": "boolean"
         }
       }
     },
@@ -298,7 +297,7 @@
           "minimum": 1
         },
         "last_commit": {
-          "$ref": "#/$defs/hex40"
+          "$ref": "#/$defs/gitOid"
         },
         "last_date": {
           "$ref": "#/$defs/isoDate"
@@ -306,7 +305,7 @@
         "introduced_in": {
           "anyOf": [
             {
-              "$ref": "#/$defs/hex40"
+              "$ref": "#/$defs/gitOid"
             },
             {
               "type": "null"
@@ -316,7 +315,7 @@
         "removed_in": {
           "anyOf": [
             {
-              "$ref": "#/$defs/hex40"
+              "$ref": "#/$defs/gitOid"
             },
             {
               "type": "null"
@@ -469,6 +468,10 @@
           "type": "boolean"
         }
       }
+    },
+    "gitOid": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
     }
   }
 }

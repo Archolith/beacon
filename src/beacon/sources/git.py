@@ -48,6 +48,7 @@ from typing import assert_never
 from beacon.core.discovery import sanitize_remote_url
 from beacon.core.security import (
     SecurityFinding,
+    detect_sensitive_text,
     is_known_sensitive_path,
 )
 from beacon.sources.base import (
@@ -74,6 +75,32 @@ _RS = "\x1e"
 
 _GIT_TIMEOUT_SECONDS = 60
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
+
+#: Redaction marker for commit subjects that carry high-confidence secret
+#: material (mirroring Beacon's export-time secret policy). The commit digest
+#: remains the citation, so the underlying commit stays locally identifiable
+#: without the report reproducing the secret.
+REDACTED_SUBJECT = "[redacted]"
+
+
+def _is_git_oid(value: str) -> bool:
+    """True for a SHA-1 (40) or SHA-256 (64) hex object id.
+
+    Mirrors the v0.2 verified-status policy (`status.py`), which deliberately
+    accepts both object formats so SHA-256 repositories are not rejected.
+    """
+    return len(value) in (40, 64) and all(character in _HEX_RE_ALPHABET for character in value)
+
+
+def _strip_control(text: str) -> str:
+    return "".join(ch for ch in text if ord(ch) >= 0x20 and ord(ch) != 0x7F)
+
+
+def _epoch_or_zero(iso_date: str) -> float:
+    try:
+        return datetime.fromisoformat(iso_date).timestamp()
+    except ValueError:
+        return 0.0
 
 
 class GitSourceError(RuntimeError):
@@ -294,8 +321,8 @@ class GitSourceAdapter:
             ["rev-parse", "--verify", "HEAD"], self._caps.head_output_bytes, "rev-parse HEAD"
         )
         sha = out.decode("ascii", errors="replace").strip()
-        if len(sha) != 40 or any(ch not in _HEX_RE_ALPHABET for ch in sha):
-            raise GitSourceError("git head commit is not a 40-hex digest")
+        if not _is_git_oid(sha):
+            raise GitSourceError("git head commit is not a 40- or 64-hex digest")
         return sha
 
     def _branch(self) -> str:
@@ -366,8 +393,8 @@ class GitSourceAdapter:
             if len(parts) < 3 or not parts[0]:
                 raise GitSourceError("unparseable log header")
             sha, date, subject = parts[0], parts[1], _strip_control(parts[2])
-            if len(sha) != 40 or any(ch not in _HEX_RE_ALPHABET for ch in sha):
-                raise GitSourceError("git commit is not a 40-hex digest")
+            if not _is_git_oid(sha):
+                raise GitSourceError("git commit is not a 40- or 64-hex digest")
             if len(subject) > self._caps.subject_max_chars:
                 subject = subject[: self._caps.subject_max_chars]
                 self._truncated = True
@@ -380,14 +407,18 @@ class GitSourceAdapter:
                 if not status:
                     i += 1
                     continue
-                path = tokens[i + 1].decode("utf-8", errors="replace") if i + 1 < len(tokens) else ""
+                path = (
+                    tokens[i + 1].decode("utf-8", errors="replace") if i + 1 < len(tokens) else ""
+                )
                 orig: str | None = None
                 if status[:1] in ("R", "C") and i + 2 < len(tokens):
                     orig = tokens[i + 2].decode("utf-8", errors="replace")
                     i += 1
                 statuses.append((status[:1], path, orig))
                 i += 2
-            blocks.append(_WalkCommit(sha=sha, date=date, subject=subject, statuses=tuple(statuses)))
+            blocks.append(
+                _WalkCommit(sha=sha, date=date, subject=subject, statuses=tuple(statuses))
+            )
         if len(blocks) >= self._caps.log_commits:
             # The walk filled its cap, so older history may exist outside the
             # window; report that honestly instead of implying completeness.
@@ -395,11 +426,21 @@ class GitSourceAdapter:
         return blocks
 
     def _tags(self) -> list[tuple[str, str, str]]:
+        """Return bounded ``(name, peeled_commit, date)`` triples.
+
+        ``%(objectname)`` is the tag object's own digest for an annotated tag,
+        not the commit it names, so every tag is peeled to its target commit:
+        a lightweight tag's ``%(*objectname)`` is empty and ``%(objectname)``
+        already is the commit; an annotated tag pointing at a commit peels via
+        ``%(*objectname)``; a nested tag (tag -> tag) is peeled with one
+        ``rev-parse <ref>^{commit}`` call (bounded by the tag cap).
+        """
         out, _ = self._require_run(
             [
                 "tag",
                 "--sort=-creatordate",
-                "--format=%(refname:short)%09%(objectname)%09%(creatordate:iso-strict)",
+                "--format=%(refname:short)%09%(objectname)%09%(*objectname)"
+                "%09%(*objecttype)%09%(creatordate:iso-strict)",
             ],
             self._caps.tags_output_bytes,
             "tag list",
@@ -409,15 +450,39 @@ class GitSourceAdapter:
             if not line:
                 continue
             parts = line.split("\t")
-            if len(parts) != 3:
+            if len(parts) != 5:
                 raise GitSourceError("unparseable tag line")
-            name, sha, date = parts
-            parsed.append((name, sha, date, _epoch_or_zero(date)))
+            name, object_name, peeled, peeled_type, date = parts
+            if peeled and peeled_type == "commit":
+                commit = peeled
+            elif peeled and peeled_type == "tag":
+                commit = self._peel_tag(name) or peeled
+            elif not peeled:
+                commit = object_name
+            else:
+                # A tag pointing at a non-commit object; record the direct
+                # target honestly rather than guessing a commit.
+                commit = peeled
+            parsed.append((name, commit, date, _epoch_or_zero(date)))
         parsed.sort(key=lambda item: (-item[3], item[0]))
         if len(parsed) > self._caps.tags:
             self._truncated = True
             parsed = parsed[: self._caps.tags]
-        return [(name, sha, date) for name, sha, date, _ in parsed]
+        return [(name, commit, date) for name, commit, date, _ in parsed]
+
+    def _peel_tag(self, name: str) -> str | None:
+        """Fully peel one tag reference to its commit (or None on failure)."""
+        try:
+            out, truncated, code = self._run(
+                ["rev-parse", "--verify", "--quiet", f"refs/tags/{name}^{{commit}}"],
+                self._caps.head_output_bytes,
+            )
+        except GitSourceError:
+            return None
+        if code != 0 or truncated:
+            return None
+        commit = out.decode("ascii", errors="replace").strip()
+        return commit if _is_git_oid(commit) else None
 
     # ------------------------------------------------------------------
     # Record assembly
@@ -492,20 +557,33 @@ class GitSourceAdapter:
         ]
 
     def _commit_records(self, walk: list[_WalkCommit]) -> list[NormalizedRecord]:
-        return [
-            NormalizedRecord(
-                identity=f"git:commit:{commit.sha}",
-                kind=KIND_GIT_COMMIT,
-                payload={"commit": commit.sha, "date": commit.date, "subject": commit.subject},
-                citations=(Citation(CITATION_COMMIT, commit.sha),),
-                adapter=ADAPTER_NAME,
-                adapter_version=ADAPTER_VERSION,
-                confidence="high",
-                confidence_reason="read from the local git object database",
-                freshness=commit.date,
+        records = []
+        for commit in walk[: self._caps.recent_commits]:
+            # Commit subjects are attacker- and accident-controlled text that
+            # this adapter exists to publish, so they pass through Beacon's
+            # high-confidence secret detector before entering any artifact;
+            # unsafe subjects are redacted, never reproduced.
+            findings = detect_sensitive_text(commit.subject, path=commit.sha)
+            redacted = bool(findings)
+            records.append(
+                NormalizedRecord(
+                    identity=f"git:commit:{commit.sha}",
+                    kind=KIND_GIT_COMMIT,
+                    payload={
+                        "commit": commit.sha,
+                        "date": commit.date,
+                        "subject": REDACTED_SUBJECT if redacted else commit.subject,
+                        "subject_redacted": redacted,
+                    },
+                    citations=(Citation(CITATION_COMMIT, commit.sha),),
+                    adapter=ADAPTER_NAME,
+                    adapter_version=ADAPTER_VERSION,
+                    confidence="high",
+                    confidence_reason="read from the local git object database",
+                    freshness=commit.date,
+                )
             )
-            for commit in walk[: self._caps.recent_commits]
-        ]
+        return records
 
     def _file_history_records(self, walk: list[_WalkCommit]) -> list[NormalizedRecord]:
         aggregated = _aggregate_files(walk, self._caps)
@@ -575,9 +653,7 @@ class GitSourceAdapter:
             for top, count in ordered
         ]
 
-    def _co_change_records(
-        self, walk: list[_WalkCommit], head_sha: str
-    ) -> list[NormalizedRecord]:
+    def _co_change_records(self, walk: list[_WalkCommit], head_sha: str) -> list[NormalizedRecord]:
         pairs: Counter[tuple[str, str]] = Counter()
         for commit in walk:
             clean: list[str] = []
@@ -621,9 +697,7 @@ class GitSourceAdapter:
 # ----------------------------------------------------------------------
 
 
-def _aggregate_files(
-    walk: list[_WalkCommit], caps: GitCaps
-) -> dict[str, _FileHistory]:
+def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileHistory]:
     """Aggregate the reverse-chronological walk into per-path history.
 
     The first walk appearance of a path is its most recent change, so
@@ -649,7 +723,9 @@ def _aggregate_files(
         )
 
     def emit(path: str) -> bool:
-        return not is_known_sensitive_path(path) and len(path.encode("utf-8")) <= caps.path_max_bytes
+        return (
+            not is_known_sensitive_path(path) and len(path.encode("utf-8")) <= caps.path_max_bytes
+        )
 
     for commit in walk:
         touched: set[str] = set()
@@ -734,6 +810,7 @@ def records_to_git_evidence(records: tuple[NormalizedRecord, ...]) -> dict[str, 
                     "commit": record.payload["commit"],
                     "date": record.payload["date"],
                     "subject": record.payload["subject"],
+                    "subject_redacted": record.payload["subject_redacted"],
                 },
             ]
         elif kind == KIND_GIT_FILE_HISTORY:
@@ -753,17 +830,6 @@ def records_to_git_evidence(records: tuple[NormalizedRecord, ...]) -> dict[str, 
     return section
 
 
-def _strip_control(text: str) -> str:
-    return "".join(ch for ch in text if ord(ch) >= 0x20 and ord(ch) != 0x7F)
-
-
-def _epoch_or_zero(iso_date: str) -> float:
-    try:
-        return datetime.fromisoformat(iso_date).timestamp()
-    except ValueError:
-        return 0.0
-
-
 __all__ = [
     "ADAPTER_NAME",
     "ADAPTER_VERSION",
@@ -771,5 +837,6 @@ __all__ = [
     "GitSourceAdapter",
     "GitSourceError",
     "GitSourceUnavailable",
+    "REDACTED_SUBJECT",
     "records_to_git_evidence",
 ]
