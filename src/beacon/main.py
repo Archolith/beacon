@@ -26,6 +26,7 @@ import logging
 import os
 import socket
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,7 @@ from beacon.core.scaffold import OPERATION_REFUSED, InitReport
 from beacon.core.schema import to_payload as schema_payload
 from beacon.core.security import SecurityOverrideError, parse_security_overrides
 from beacon.core.status import StatusObservation, observe_project_status
+from beacon.sources.git import GitSourceAdapter, GitSourceError, GitSourceUnavailable
 
 EXIT_OK = cli_support.EXIT_OK
 EXIT_VALIDATION = cli_support.EXIT_VALIDATION
@@ -136,22 +138,30 @@ def _set_serve_env(context: cli_support.CommandContext) -> None:
 
 #: Environment variables the explicit ``serve`` path mutates (restored after run).
 _SERVE_MUTATED_ENV = (
-    ("BEACON_MANIFEST_PATH", "BEACON_DOCS_ROOT")
+    ("BEACON_MANIFEST_PATH", "BEACON_DOCS_ROOT", "BEACON_SNAPSHOT_PATH")
     + tuple(FIELD_ENV_VARS.values())
     + ("FASTMCP_CHECK_FOR_UPDATES", "FASTMCP_SHOW_SERVER_BANNER")
 )
 
 
-def _serve_with_env(context: cli_support.CommandContext) -> None:
+def _serve_with_env(
+    context: cli_support.CommandContext | None, *, snapshot_path: str | None = None
+) -> None:
     """Run the stdio server with *context* env overrides, restoring prior values.
 
     The manifest/docs-root/limit (and privacy) overrides are scoped to the
     server run so embedding callers and CliRunner never retain them afterward.
     Prior values are restored exactly, including variables that were absent.
+    When *snapshot_path* is given the server runs snapshot-only: the manifest
+    and document chunks come from the canonical snapshot and no source file
+    is read at startup.
     """
     saved = {var: os.environ.get(var) for var in _SERVE_MUTATED_ENV}
     try:
-        _set_serve_env(context)
+        if context is not None:
+            _set_serve_env(context)
+        if snapshot_path:
+            os.environ["BEACON_SNAPSHOT_PATH"] = snapshot_path
         _prepare_runtime()
         _run_mcp_server()
     finally:
@@ -196,6 +206,9 @@ def serve(
         None, "--manifest", "-m", help="Path to beacon.yaml (default: ./beacon.yaml)."
     ),
     docs_root: str | None = typer.Option(None, "--docs-root", help="Docs root directory."),
+    snapshot: str | None = typer.Option(
+        None, "--snapshot", help="Serve from a canonical snapshot instead of a manifest."
+    ),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
     max_documents: int | None = typer.Option(None, "--max-documents"),
     max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
@@ -204,16 +217,50 @@ def serve(
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
     """Validate servability, then run the same stdio server with the given inputs."""
+    cli_limits = _cli_limit_mapping(
+        max_manifest_bytes,
+        max_documents,
+        max_document_bytes,
+        max_total_document_bytes,
+        max_chunks,
+        max_snapshot_bytes,
+    )
+
+    if snapshot is not None:
+        # Snapshot-only serving: load and verify, then let the lifespan build
+        # the provider from the snapshot (no manifest read, no doc file reads).
+        try:
+            limits = cli_support.build_resource_limits(cli_limits)
+        except LimitError as exc:
+            typer.echo(f"✗ {exc.code}: {exc}", err=True)
+            raise typer.Exit(EXIT_INPUT) from exc
+        from beacon.build.snapshot import SnapshotReadError, load_snapshot
+        from beacon.provider.manifest_provider import ManifestBeaconProvider
+
+        try:
+            loaded = load_snapshot(snapshot, limits=limits)
+            ManifestBeaconProvider.from_snapshot(loaded, limits=limits)
+        except SnapshotReadError as exc:
+            typer.echo(f"✗ {exc.code}: {exc}", err=True)
+            raise typer.Exit(EXIT_INPUT) from exc
+        except Exception as exc:  # noqa: BLE001 - normalized safely for the CLI
+            fail = cli_support.normalize_internal(exc)
+            typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
+            raise typer.Exit(fail.exit_code) from exc
+        try:
+            _serve_with_env(None, snapshot_path=snapshot)
+        except cli_support.CliFailure as exc:
+            typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
+            raise typer.Exit(exc.exit_code) from exc
+        except Exception as exc:  # noqa: BLE001 - normalized safely for the CLI
+            fail = cli_support.normalize_internal(exc)
+            typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
+            raise typer.Exit(fail.exit_code) from exc
+        return
+
     try:
         context = cli_support.build_command_context(
-            cli_limits=_cli_limit_mapping(
-                max_manifest_bytes,
-                max_documents,
-                max_document_bytes,
-                max_total_document_bytes,
-                max_chunks,
-                max_snapshot_bytes,
-            ),
+            cli_limits=cli_limits,
             manifest_path=manifest,
             docs_root=docs_root,
         )
@@ -661,6 +708,353 @@ def _text_init(report: InitReport) -> None:
             typer.echo(f"Git: {branch} @ {commit} ({dirty})")
     for item in report.review_required:
         typer.echo(f"  ⚠ {item.code}: {item.reason}")
+
+
+# ---------------------------------------------------------------------------
+# beacon build
+# ---------------------------------------------------------------------------
+
+
+@app.command("build")
+def build(
+    intent: str | None = typer.Option(
+        None, "--intent", help="Hand-authored manifest merged as the intent authority."
+    ),
+    repo: str | None = typer.Option(
+        None, "--repo", help="Repository root for the git reality adapter."
+    ),
+    menhir_evidence: str | None = typer.Option(
+        None, "--menhir-evidence", help="Menhir evidence document (JSON) for the history tier."
+    ),
+    out: str = typer.Option(
+        "beacon.generated.yaml", "--out", help="Output manifest path (relative to --docs-root)."
+    ),
+    snapshot_out: str | None = typer.Option(
+        None, "--snapshot-out", help="Also write the canonical static snapshot to this path."
+    ),
+    docs_root: str | None = typer.Option(
+        None, "--docs-root", help="Docs root for canonical docs (default: output directory)."
+    ),
+    note: str | None = typer.Option(
+        None, "--note", help="Fixed provenance comment prepended to the generated manifest."
+    ),
+    force: bool = typer.Option(False, "--force", help="Replace an existing regular output file."),
+    format: str = typer.Option("text", "--format", help="Output format: text|json."),
+    max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
+    max_documents: int | None = typer.Option(None, "--max-documents"),
+    max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
+    max_total_document_bytes: int | None = typer.Option(None, "--max-total-document-bytes"),
+    max_chunks: int | None = typer.Option(None, "--max-chunks"),
+    max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
+) -> None:
+    """Build a manifest/snapshot from merged sources (exit 1/2 on refusal)."""
+    _require_format(format)
+    _safe(
+        "build",
+        format,
+        lambda: _build_impl(
+            intent=intent,
+            repo=repo,
+            menhir_evidence=menhir_evidence,
+            out=out,
+            snapshot_out=snapshot_out,
+            docs_root=docs_root,
+            note=note,
+            force=force,
+            fmt=format,
+            cli_limits=_six_limit_args(
+                max_manifest_bytes,
+                max_documents,
+                max_document_bytes,
+                max_total_document_bytes,
+                max_chunks,
+                max_snapshot_bytes,
+            ),
+        ),
+    )
+
+
+def _build_impl(
+    *,
+    intent: str | None,
+    repo: str | None,
+    menhir_evidence: str | None,
+    out: str,
+    snapshot_out: str | None,
+    docs_root: str | None,
+    note: str | None,
+    force: bool,
+    fmt: str,
+    cli_limits: dict[str, Any],
+) -> int:
+    from beacon.build.policy import BuildError, resolve_project_facts
+    from beacon.build.project import (
+        ACK_GUARDRAILS_MISSING,
+        ACK_TEST_COMMAND_MISSING,
+        build_raw_manifest,
+        manifest_bytes_sha256,
+        render_manifest_yaml,
+    )
+    from beacon.build.snapshot import load_snapshot
+    from beacon.core.loader import parse_manifest
+    from beacon.core.policy import Acknowledgement
+    from beacon.core.snapshot import SnapshotError as CoreSnapshotError
+    from beacon.core.validator import ManifestValidationError, require_valid_manifest
+    from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
+
+    try:
+        limits = cli_support.build_resource_limits(cli_limits)
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+
+    if intent is None and menhir_evidence is None and repo is None:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_no_sources", "build requires --intent, --menhir-evidence, or --repo"
+        )
+
+    # -- resolve the output location and docs root ---------------------------
+    # `--out -` streams the manifest YAML to stdout (no envelope, no file):
+    # the same convention as `beacon export --output -`, for embedding
+    # generators that own publication. A relative --out otherwise resolves
+    # against the repository root when one is given (the generated manifest
+    # belongs to that repo), otherwise the CWD.
+    to_stdout = out == "-"
+    if to_stdout and snapshot_out:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_stdout_snapshot_unsupported",
+            "snapshot output requires a file --out",
+        )
+    base_dir = Path(repo) if repo else Path.cwd()
+    root_dir = Path(docs_root) if docs_root else base_dir
+    target: Path | None = None
+    if to_stdout:
+        target = None
+    else:
+        try:
+            target = scaffold.resolve_output_path(root_dir, out)
+        except UnsafeCanonicalPath as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "unsafe_canonical_path", "unsafe output path"
+            ) from exc
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        if target.exists() and (target.is_symlink() or target.is_dir()):
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
+            )
+        if target.exists() and not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
+            )
+    docs_home = target.parent if target is not None else root_dir
+
+    # -- collect the source tiers ---------------------------------------------
+    menhir_records: tuple[Any, ...] = ()
+    if menhir_evidence:
+        adapter = MenhirSourceAdapter(menhir_evidence, limits=limits)
+        try:
+            menhir_records = adapter.collect()
+        except MenhirEvidenceError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, "menhir_evidence_invalid", str(exc)) from exc
+
+    git_records: tuple[Any, ...] = ()
+    git_origin: str | None = None
+    if repo:
+        git_adapter = GitSourceAdapter(repo)
+        try:
+            git_records = git_adapter.collect()
+        except GitSourceUnavailable:
+            # Tier 1 is optional by design: no git repository means the
+            # repository tier is absent and the build degrades to the
+            # remaining sources (build-pipeline plan §3).
+            git_records = ()
+        except GitSourceError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_git_failed", "a bounded git query failed"
+            ) from exc
+        if git_records:
+            url, _url_findings = git_adapter.repository_url()
+            git_origin = url
+
+    intent_manifest = None
+    if intent:
+        from beacon.core.loader import load_beacon_manifest
+
+        try:
+            intent_manifest = load_beacon_manifest(Path(intent), limits=limits)
+        except ManifestError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "intent_manifest_invalid", "malformed or invalid intent manifest"
+            ) from exc
+
+    try:
+        facts = resolve_project_facts(
+            intent=intent_manifest,
+            git_records=git_records,
+            menhir_records=menhir_records,
+            docs_root=docs_home,
+            repo_root=Path(repo) if repo else None,
+            git_origin=git_origin,
+        )
+        raw = build_raw_manifest(facts)
+        manifest_obj = parse_manifest(raw)
+        require_valid_manifest(manifest_obj, docs_root=docs_home)
+    except BuildError as exc:
+        raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
+    except ManifestValidationError as exc:
+        raise cli_support.CliFailure(
+            EXIT_VALIDATION, "build_projection_invalid", "projected manifest is invalid"
+        ) from exc
+
+    data = render_manifest_yaml(raw, note=note)
+
+    if target is None:
+        # Raw manifest bytes to stdout: exactly one document, no envelope.
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is not None:
+            buffer.write(data)
+            buffer.flush()
+        else:  # pragma: no cover - defensive when stdout has no byte buffer
+            sys.stdout.write(data.decode("utf-8"))
+            sys.stdout.flush()
+        return EXIT_OK
+
+    _atomic_write_bytes(target, data)
+
+    # -- optional canonical snapshot (reuses the v0.2 writer end to end) ------
+    snapshot_sha: str | None = None
+    snapshot_path: Path | None = None
+    if snapshot_out:
+        snapshot_path = Path(snapshot_out)
+        if not snapshot_path.is_absolute():
+            # Repo-relative snapshot outputs resolve next to the manifest.
+            snapshot_path = target.parent / snapshot_path
+        _preflight_build_snapshot_output(snapshot_path, target, manifest_obj, root_dir)
+        acknowledgements = (
+            Acknowledgement(code=ACK_GUARDRAILS_MISSING[0], reason=ACK_GUARDRAILS_MISSING[1]),
+            Acknowledgement(code=ACK_TEST_COMMAND_MISSING[0], reason=ACK_TEST_COMMAND_MISSING[1]),
+        )
+        try:
+            snap = snapshot_mod.build_snapshot(
+                target,
+                docs_root=target.parent,
+                content_mode=snapshot_mod.CONTENT_EMBEDDED,
+                acknowledgements=acknowledgements,
+                limits=limits,
+            )
+            snapshot_mod.write_snapshot_atomic(snapshot_path, snap, byte_ceiling=snap.byte_ceiling)
+        except CoreSnapshotError as exc:
+            raise cli_support.CliFailure(
+                EXIT_VALIDATION if "policy" in exc.code or "security" in exc.code else EXIT_INPUT,
+                exc.code,
+                str(exc),
+            ) from exc
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        except OSError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
+            ) from exc
+        # Load back through the reader to guarantee the artifact is servable.
+        try:
+            loaded = load_snapshot(snapshot_path, limits=limits)
+        except Exception as exc:  # noqa: BLE001 - reader errors are stable codes
+            raise cli_support.CliFailure(
+                EXIT_INTERNAL, "build_snapshot_unreadable", "written snapshot failed to load back"
+            ) from exc
+        snapshot_sha = loaded.manifest.source_sha256
+
+    payload = {
+        "manifest_path": str(target),
+        "manifest_sha256": manifest_bytes_sha256(data),
+        "manifest_bytes": len(data),
+        "snapshot_path": str(snapshot_path) if snapshot_path else None,
+        "snapshot_manifest_sha256": snapshot_sha,
+        "docs": len(facts.canonical_docs),
+        "concepts": 1 + len(facts.decisions) if facts.structure_summary else len(facts.decisions),
+        "guardrails": len(facts.guardrails),
+        "drift": [{"code": d.code, "detail": d.detail} for d in facts.drift],
+        "authorities": {
+            "name": facts.name_authority,
+            "description": facts.description_authority,
+            "repository": facts.repository_authority,
+            "language": facts.primary_language_authority,
+            "status": facts.status_authority,
+            "docs": facts.canonical_docs_authority,
+        },
+        "git_head": facts.git_head,
+    }
+    if fmt == "json":
+        _json("build", ok=True, result_payload=payload)
+    else:
+        _text_build(payload)
+    return EXIT_OK
+
+
+def _text_build(payload: dict[str, Any]) -> None:
+    typer.echo(f"✓ Built manifest at {payload['manifest_path']}")
+    typer.echo(
+        f"  sha256={payload['manifest_sha256'][:16]}…  docs={payload['docs']}  "
+        f"concepts={payload['concepts']}  guardrails={payload['guardrails']}"
+    )
+    authorities = payload["authorities"]
+    typer.echo(
+        f"  authorities: name={authorities['name']} description={authorities['description']} "
+        f"repository={authorities['repository']}"
+    )
+    for drift in payload["drift"]:
+        typer.echo(f"  ⚠ drift {drift['code']}: {drift['detail']}")
+    if payload["snapshot_path"]:
+        typer.echo(f"  snapshot: {payload['snapshot_path']}")
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Atomically replace *path* with *data* (temp file + fsync + rename)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb", dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp", delete=False
+    )
+    temp_name = handle.name
+    try:
+        with handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _preflight_build_snapshot_output(
+    snapshot_path: Path, manifest_target: Path, manifest_obj: Any, root_dir: Path
+) -> None:
+    """Refuse a snapshot output colliding with the manifest or a canonical doc."""
+    try:
+        out_resolved = snapshot_path.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_path_invalid", "invalid snapshot path"
+        ) from exc
+    if out_resolved == manifest_target.resolve():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with the manifest"
+        )
+    for doc in manifest_obj.canonical_docs:
+        try:
+            doc_target = resolve_canonical_path(root_dir, doc.path)
+        except UnsafeCanonicalPath:
+            continue
+        if out_resolved == doc_target.resolve():
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_collision",
+                "snapshot output collides with a canonical document",
+            )
 
 
 # ---------------------------------------------------------------------------

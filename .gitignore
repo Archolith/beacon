@@ -25,7 +25,10 @@ coverage.xml
 .nox/
 
 # Build / distribution / metadata
+# (except the beacon.build package: the v0.3 pipeline lives at src/beacon/build/)
 build/
+!src/beacon/build/
+!src/beacon/build/**
 dist/
 *.egg-info/
 *.egg

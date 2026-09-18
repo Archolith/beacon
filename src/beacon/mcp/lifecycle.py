@@ -43,18 +43,29 @@ async def beacon_lifespan(app: FastMCP[object]) -> AsyncIterator[dict[str, objec
     global _provider  # noqa: PLW0603
 
     settings = BeaconSettings.from_env()
-    _diag(f"Loading manifest from {settings.manifest_path} ...")
 
-    try:
-        provider = ManifestBeaconProvider.from_paths(
-            manifest_path=settings.manifest_path,
-            docs_root=settings.resolved_docs_root(),
-            validate=settings.validate_on_load,
-            limits=settings.limits,
-        )
-    except Exception as exc:
-        _diag(f"FATAL: could not load manifest — {exc}")
-        raise
+    if getattr(settings, "snapshot_path", ""):
+        _diag(f"Loading snapshot from {settings.snapshot_path} ...")
+        try:
+            from beacon.build.snapshot import load_snapshot
+
+            snapshot = load_snapshot(settings.snapshot_path, limits=settings.limits)
+            provider = ManifestBeaconProvider.from_snapshot(snapshot, limits=settings.limits)
+        except Exception as exc:
+            _diag(f"FATAL: could not load snapshot — {exc}")
+            raise
+    else:
+        _diag(f"Loading manifest from {settings.manifest_path} ...")
+        try:
+            provider = ManifestBeaconProvider.from_paths(
+                manifest_path=settings.manifest_path,
+                docs_root=settings.resolved_docs_root(),
+                validate=settings.validate_on_load,
+                limits=settings.limits,
+            )
+        except Exception as exc:
+            _diag(f"FATAL: could not load manifest — {exc}")
+            raise
 
     _provider = provider
     limits = provider.limits
