@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Archolith/beacon/master/docs/schemas/beacon-menhir-evidence-1.0.schema.json",
+  "title": "beacon-menhir-evidence",
+  "description": "Versioned evidence document Menhir dumps for one indexed project; consumed by Beacon's MenhirSourceAdapter. Every field is an indexed fact; absent sections emit no records. The consumer never invents facts to fill gaps.",
+  "type": "object",
+  "required": ["evidence_version", "project"],
+  "additionalProperties": false,
+  "properties": {
+    "evidence_version": {"const": "1.0"},
+    "project": {
+      "type": "object",
+      "required": ["name", "description", "scan_fingerprint"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "primary_language": {"type": "string"},
+        "root": {"type": "string", "description": "Indexed project root path; cross-checked against the build repository root when provided."},
+        "status": {"type": "string", "enum": ["current", "experimental", "planned", "superseded", "disputed", "unknown"]},
+        "scan_fingerprint": {"type": "string", "minLength": 1, "description": "Content address of the indexed state; doubles as the citation value for every record derived from this document."}
+      }
+    },
+    "documents": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "description": "Repo-relative path; the build verifies existence on disk before use."},
+          "title": {"type": "string"},
+          "document_type": {"type": "string"}
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "description": "e.g. entrypoint | file"},
+          "description": {"type": "string"}
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entities": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "edges": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "maxItems": 32,
+      "description": "Indexed decision outcomes; optional because the Menhir read surface may not expose them.",
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "summary": {"type": "string"},
+          "status": {"type": "string", "enum": ["current", "superseded"]},
+          "implementation_locations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "array",
+      "maxItems": 64,
+      "description": "Current-vs-superseded information; optional.",
+      "items": {
+        "type": "object",
+        "required": ["subject", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "subject": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["current", "superseded"]},
+          "superseded_by": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

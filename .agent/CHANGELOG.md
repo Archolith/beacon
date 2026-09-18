@@ -1,5 +1,40 @@
 # Changelog — beacon
 
+## 2026-09-18 — v0.3 build pipeline: `beacon build`, snapshot reader, Menhir evidence adapter, deterministic projection
+
+- `beacon build` (new command) — the v0.3 pipeline entry point: collects the git tier
+  (`GitSourceAdapter`, reused from `beacon init`), the Menhir tier (evidence document, below),
+  and an optional hand-authored `--intent` manifest; merges them under the authority policy
+  (intent = what should be true, git/files = what is true, Menhir = what was decided);
+  projects the resolved facts deterministically into a manifest (no LLM); validates it through
+  the one loader/validator pair; writes it atomically; and optionally emits the canonical
+  snapshot through the unchanged v0.2 writer (`--snapshot-out`, byte-identical rebuilds).
+  Known-absent intent (guardrails, test command) is recorded as acknowledged publication
+  warnings with fixed reasons — never synthesized. Divergence (an indexed doc or decision
+  location missing on disk) becomes a reported drift record and the claim is omitted;
+  unresolvable required fields fail closed with stable `build_*` codes.
+- `src/beacon/build/` (new package) — `policy.py` (authority resolution, drift, fail-closed
+  rules), `project.py` (deterministic projection + byte-stable YAML rendering with optional
+  provenance comment), `snapshot.py` (the snapshot reader: loads and structurally verifies
+  canonical snapshot v1.0 artifacts, refuses foreign versions and snapshots carrying errors).
+- `src/beacon/sources/menhir.py` (new) — `MenhirSourceAdapter` consumes the versioned Menhir
+  evidence document (`docs/schemas/beacon-menhir-evidence-1.0.schema.json`): identity,
+  structure, documents, files, and optional decisions/lifecycle as normalized records citing
+  the scan fingerprint. Bounded, deterministic, fail-closed on any defect; Menhir is never
+  imported (process/env boundary stays intact) and the built artifact never needs it again.
+- Snapshot-only serving — `beacon serve --snapshot` (and `BEACON_SNAPSHOT_PATH`) runs the MCP
+  stdio server from a canonical snapshot with zero source-file reads;
+  `ManifestBeaconProvider.from_snapshot` parses the embedded manifest through the one loader
+  and rebuilds the doc index from embedded chunks; `DocIndex.from_snapshot_documents` is the
+  snapshot-fed index constructor. Snapshot-served answers are verified identical to
+  manifest-served answers. The loader accepts explicit `null` line fields (the snapshot's
+  embedded asdict form); mappings stay strict and the provider adapts the embedded form.
+- `beacon-cli-result` envelope: the `build` command joins the fixed command set (schema enum
+  widened in place — additive; existing envelopes stay valid).
+- The deterministic projection + Menhir adapter are the MVP path that lets Menhir delete its
+  bespoke manifest-mapping bridge (planned gate recorded in the v0.3 plan: no LLM drafting
+  before this passes Menhir MVP E2E-6).
+
 ## 2026-09-17 — GitSourceAdapter: first v0.3 repository-source slice
 
 - `src/beacon/sources/` (new package) — `NormalizedRecord`/`SourceAdapter` boundary and

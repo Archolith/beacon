@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+from beacon.build.snapshot import Snapshot, SnapshotReadError
 from beacon.config.settings import BeaconSettings
 from beacon.core.doc_index import DocChunk, DocIndex
 from beacon.core.limits import (
@@ -23,7 +25,7 @@ from beacon.core.limits import (
     LimitError,
     ResourceLimits,
 )
-from beacon.core.loader import load_beacon_manifest
+from beacon.core.loader import load_beacon_manifest, parse_manifest
 from beacon.core.schema import (
     AgentOnboarding,
     BeaconConcept,
@@ -76,6 +78,32 @@ class ManifestBeaconProvider:
             validate=settings.validate_on_load,
             limits=settings.limits,
         )
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: Snapshot,
+        *,
+        limits: ResourceLimits | None = None,
+    ) -> ManifestBeaconProvider:
+        """Build the provider from a loaded canonical snapshot (no file reads).
+
+        The manifest is parsed from the snapshot's embedded canonical data
+        through the one manifest parser, and the doc index is rebuilt from the
+        snapshot's embedded chunk text. Metadata-only snapshots carry no
+        chunk bodies and cannot serve search-backed answers, so they are
+        refused.
+        """
+        if snapshot.content_mode != "embedded":
+            raise SnapshotReadError(
+                "snapshot_not_servable",
+                "metadata-only snapshots carry no document text; embedded content_mode is required",
+            )
+        active = limits if limits is not None else ResourceLimits()
+        manifest = parse_manifest(_strip_none_values(snapshot.manifest.data))
+        require_valid_manifest(manifest, docs_root=None)
+        doc_index = DocIndex.from_snapshot_documents(snapshot.documents, limits=active)
+        return cls(manifest=manifest, doc_index=doc_index, docs_root=Path("."), limits=active)
 
     # -- capabilities --------------------------------------------------------
 
@@ -387,6 +415,22 @@ def _dedupe_sources(sources: list[BeaconSource]) -> list[BeaconSource]:
             seen.add(key)
             out.append(s)
     return out
+
+
+def _strip_none_values(value: Any) -> Any:
+    """Remove ``None``-valued mapping entries recursively.
+
+    The snapshot embeds the manifest via ``dataclasses.asdict``, which
+    serializes absent optional fields (source line ranges, an absent
+    ``project_state.active_work``) as explicit ``null``. The loader treats
+    explicit nulls as malformed, so the snapshot-serving path adapts the
+    embedded form to the loader's "absent key" convention before parsing.
+    """
+    if isinstance(value, dict):
+        return {key: _strip_none_values(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_strip_none_values(item) for item in value]
+    return value
 
 
 # Backwards-friendly alias used by DocChunk typing imports.

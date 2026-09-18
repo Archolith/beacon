@@ -27,6 +27,9 @@ from typing import Protocol, runtime_checkable
 #: ``commit`` citation doubles as the source digest the record was derived from.
 CITATION_COMMIT = "commit"
 CITATION_PATH = "path"
+#: Citation to Menhir-held knowledge: the value is the evidence object's
+#: stable identifier (today the scan fingerprint, e.g. ``scan:<fingerprint>``).
+CITATION_MEMORY = "memory"
 
 #: Record kinds emitted by the git adapter.
 KIND_GIT_HEAD = "git_head"
@@ -36,6 +39,14 @@ KIND_GIT_COMMIT = "git_commit"
 KIND_GIT_FILE_HISTORY = "git_file_history"
 KIND_GIT_ACTIVITY = "git_activity"
 KIND_GIT_CO_CHANGE = "git_co_change"
+
+#: Record kinds emitted by the Menhir evidence adapter.
+KIND_MENHIR_IDENTITY = "menhir_identity"
+KIND_MENHIR_STRUCTURE = "menhir_structure"
+KIND_MENHIR_DOCUMENT = "menhir_document"
+KIND_MENHIR_FILE = "menhir_file"
+KIND_MENHIR_DECISION = "menhir_decision"
+KIND_MENHIR_LIFECYCLE = "menhir_lifecycle"
 
 
 @dataclass(frozen=True)
@@ -78,6 +89,7 @@ class SourceAdapter(Protocol):
 
 __all__ = [
     "CITATION_COMMIT",
+    "CITATION_MEMORY",
     "CITATION_PATH",
     "KIND_GIT_ACTIVITY",
     "KIND_GIT_CO_CHANGE",
@@ -86,6 +98,12 @@ __all__ = [
     "KIND_GIT_HEAD",
     "KIND_GIT_INVENTORY",
     "KIND_GIT_TAG",
+    "KIND_MENHIR_DECISION",
+    "KIND_MENHIR_DOCUMENT",
+    "KIND_MENHIR_FILE",
+    "KIND_MENHIR_IDENTITY",
+    "KIND_MENHIR_LIFECYCLE",
+    "KIND_MENHIR_STRUCTURE",
     "Citation",
     "NormalizedRecord",
     "SourceAdapter",
