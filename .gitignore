@@ -29,6 +29,11 @@ coverage.xml
 build/
 !src/beacon/build/
 !src/beacon/build/**
+# The negations above re-include bytecode caches created inside the package,
+# so re-ignore them after (later gitignore rules win).
+__pycache__/
+*.py[cod]
+*$py.class
 dist/
 *.egg-info/
 *.egg
