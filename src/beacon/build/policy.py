@@ -188,9 +188,7 @@ def resolve_project_facts(
     if intent is not None and (
         intent.purpose.one_sentence.strip() or intent.project.description.strip()
     ):
-        description = (
-            intent.purpose.one_sentence.strip() or intent.project.description.strip()
-        )
+        description = intent.purpose.one_sentence.strip() or intent.project.description.strip()
         description_authority = "intent"
     elif identity is not None and str(identity.payload.get("description") or "").strip():
         description = str(identity.payload.get("description") or "").strip()
@@ -265,8 +263,10 @@ def resolve_project_facts(
                 "title": str(record.payload.get("title") or path),
             }
         )
-    docs_authority = "intent+menhir" if intent is not None and menhir_docs else (
-        "intent" if intent is not None else "menhir"
+    docs_authority = (
+        "intent+menhir"
+        if intent is not None and menhir_docs
+        else ("intent" if intent is not None else "menhir")
     )
     if not docs:
         raise BuildError(

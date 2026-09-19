@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from beacon.core.canonical_json import dumps_canonical
-from beacon.core.limits import LimitError, ResourceLimits
+from beacon.core.limits import ResourceLimits
 from beacon.core.policy import PolicyEvaluation
 from beacon.core.snapshot import (
     CONTENT_EMBEDDED,
@@ -136,7 +136,9 @@ def snapshot_from_payload(payload: Any) -> Snapshot:
 
     manifest_data = manifest.get("data")
     if not isinstance(manifest_data, dict):
-        raise SnapshotReadError(SNAPSHOT_READER_MALFORMED, "snapshot manifest data must be an object")
+        raise SnapshotReadError(
+            SNAPSHOT_READER_MALFORMED, "snapshot manifest data must be an object"
+        )
     source_sha = str(manifest.get("source_sha256") or "")
     if len(source_sha) != 64 or any(char not in _HEX for char in source_sha):
         raise SnapshotReadError(SNAPSHOT_READER_MALFORMED, "invalid manifest source_sha256")
@@ -210,12 +212,15 @@ def _document(item: Any, index: int, content_mode: str) -> SnapshotDocument:
         )
     chunks_raw = item.get("chunks") or []
     if not isinstance(chunks_raw, list):
-        raise SnapshotReadError(SNAPSHOT_READER_MALFORMED, f"documents[{index}].chunks must be a list")
+        raise SnapshotReadError(
+            SNAPSHOT_READER_MALFORMED, f"documents[{index}].chunks must be a list"
+        )
     chunks: list[SnapshotChunk] = []
     for position, chunk in enumerate(chunks_raw):
         if not isinstance(chunk, dict):
             raise SnapshotReadError(
-                SNAPSHOT_READER_MALFORMED, f"documents[{index}].chunks[{position}] must be an object"
+                SNAPSHOT_READER_MALFORMED,
+                f"documents[{index}].chunks[{position}] must be an object",
             )
         heading = chunk.get("heading_path") or []
         if not isinstance(heading, list) or not all(isinstance(part, str) for part in heading):

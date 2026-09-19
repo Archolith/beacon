@@ -80,9 +80,7 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
             sources[0]["title"] = f"Menhir structure scan ({facts.structure_fingerprint})"
         if facts.git_head:
             short = facts.git_head[:12]
-            sources.append(
-                _source({"type": "commit", "title": f"git HEAD {short}", "url": ""})
-            )
+            sources.append(_source({"type": "commit", "title": f"git HEAD {short}", "url": ""}))
         concepts.append(
             {
                 "id": STRUCTURE_CONCEPT_ID,
@@ -161,7 +159,7 @@ def render_manifest_yaml(raw: dict[str, Any], *, note: str | None = None) -> byt
     if note:
         sanitized = " ".join(note.splitlines()).strip()
         if sanitized:
-            encoded = f"# {sanitized}\n".encode("utf-8") + encoded
+            encoded = f"# {sanitized}\n".encode() + encoded
     if not encoded.endswith(b"\n"):
         encoded += b"\n"
     return encoded
