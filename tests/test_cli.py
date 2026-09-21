@@ -643,6 +643,32 @@ class TestValidate:
         assert str(manifest_dir) not in result.output
         assert len(message) <= 400
 
+    @pytest.mark.parametrize("fmt", ["text", "json"])
+    def test_doc_path_near_path_limit_reports_missing_file(
+        self, manifest_dir: Path, fmt: str
+    ) -> None:
+        long_path = "d/" * 400 + "x" * 210 + ".md"  # 1013 bytes, under path_bytes=1024
+        assert len(long_path.encode("utf-8")) <= 1024
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(
+            VALID_YAML.replace("  - path: README.md", f"  - path: {long_path}"),
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["validate", str(manifest), "--format", fmt])
+        assert result.exit_code == 1, result.output
+        assert "internal_error" not in result.output
+        if fmt == "json":
+            payload = _assert_single_json_doc(result.output)
+            missing = [
+                d for d in payload["diagnostics"] if d["code"] == "canonical_doc_missing_file"
+            ]
+            assert len(missing) == 1
+            assert len(missing[0]["path"]) <= 1024
+            assert missing[0]["path"].startswith("canonical_docs[d/d/")
+            assert missing[0]["path"].endswith(".md]")
+        else:
+            assert "path does not exist" in result.output
+
     def test_manifest_error_redacts_quoted_yaml_values(self, manifest_dir: Path) -> None:
         manifest = manifest_dir / "beacon.yaml"
         manifest.write_text("project: *SECRETALIAS99\n", encoding="utf-8")
