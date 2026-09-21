@@ -613,3 +613,27 @@ def test_repository_clean_filter_never_runs(tmp_path: Path, repo: Path) -> None:
     assert not marker.exists()
     head = next(r for r in records if r.kind == "git_head")
     assert head.payload["dirty"] is True
+
+
+# ---------------------------------------------------------------------------
+# Walk framing and truncation honesty
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("control", ["\x1e", "\x1f"])
+def test_control_bytes_in_a_subject_do_not_drop_the_walk(
+    tmp_path: Path, repo: Path, control: str
+) -> None:
+    message = tmp_path / "message.txt"
+    message.write_bytes(f"odd {control} subject {control} here\n".encode())
+    (repo / "src" / "y.py").write_text("y = 5\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "--cleanup=verbatim", "-F", str(message))
+    records = GitSourceAdapter(repo).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["window_commits"] == 5
+    newest = next(r for r in records if r.kind == "git_commit")
+    assert newest.payload["subject"] == "odd  subject  here"
+    y = next(r for r in records if r.payload.get("path") == "src/y.py")
+    assert y.payload["changes"] == 4
+    assert init(repo, dry_run=True).git_evidence is not None

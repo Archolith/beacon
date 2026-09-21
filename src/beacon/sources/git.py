@@ -38,6 +38,7 @@ Safety contract:
 from __future__ import annotations
 
 import os
+import re
 import signal
 
 # Fixed local Git inspection is the only subprocess use here: fixed argv, no
@@ -75,10 +76,8 @@ from beacon.sources.base import (
 ADAPTER_NAME = "git"
 ADAPTER_VERSION = "1"
 
-#: Field separator inside one log header record.
-_US = "\x1f"
-#: Record separator starting one log block.
-_RS = "\x1e"
+#: A ``--name-status`` status token: one letter plus an optional score.
+_STATUS_TOKEN = re.compile(rb"[ACDMRTUXB][0-9]{0,3}")
 
 #: Wall-clock deadline for one git command, enforced while it runs.
 _GIT_TIMEOUT_SECONDS = 60
@@ -250,6 +249,17 @@ class _MutableFileHistory:
             removed_in=self.removed_in,
             renamed_from=tuple(self.renamed_from),
         )
+
+
+@dataclass(frozen=True)
+class _RawCommit:
+    """One commit exactly as framed by the walk output (before policy)."""
+
+    sha: str
+    date: str
+    parents: tuple[str, ...]
+    subject: str
+    statuses: tuple[tuple[str, str, str | None], ...]
 
 
 @dataclass(frozen=True)
@@ -587,48 +597,24 @@ class GitSourceAdapter:
                 "--name-status",
                 "-z",
                 "--no-renames" if partial else "-M",
-                # %xHH hex escapes: raw control bytes cannot survive Windows
-                # argv quoting, so git decodes them from literal format text.
-                "--format=%x1e%H%x1f%aI%x1f%s%x1f",
+                "--no-ext-diff",
+                # NUL-framed, positional header: a commit subject can hold
+                # any byte except NUL (and never a newline under %s), so no
+                # subject can forge a field or record boundary. %x00 is a hex
+                # escape because raw NULs cannot travel through argv.
+                "--format=%H%x00%aI%x00%P%x00%s",
             ],
             self._caps.walk_output_bytes,
             "log walk",
         )
         blocks: list[_WalkCommit] = []
-        for raw_block in out.split(b"\x1e"):
-            if not raw_block:
-                continue
-            tokens = raw_block.split(b"\x00")
-            header = tokens[0].lstrip(b"\n").decode("utf-8", errors="replace")
-            parts = header.split(_US)
-            if len(parts) < 3 or not parts[0]:
-                raise GitSourceError("unparseable log header")
-            sha, date, subject = parts[0], parts[1], _strip_control(parts[2])
-            if not _is_git_oid(sha):
-                raise GitSourceError("git commit is not a 40- or 64-hex digest")
+        for raw in _parse_walk(out):
+            subject = _strip_control(raw.subject)
             if len(subject) > self._caps.subject_max_chars:
                 subject = subject[: self._caps.subject_max_chars]
                 self._truncated = True
-            statuses: list[tuple[str, str, str | None]] = []
-            i = 1
-            while i < len(tokens):
-                # The first status token carries the newline that separates
-                # git's format output from the NUL-framed status records.
-                status = tokens[i].lstrip(b"\n").decode("utf-8", errors="replace")
-                if not status:
-                    i += 1
-                    continue
-                path = (
-                    tokens[i + 1].decode("utf-8", errors="replace") if i + 1 < len(tokens) else ""
-                )
-                orig: str | None = None
-                if status[:1] in ("R", "C") and i + 2 < len(tokens):
-                    orig = tokens[i + 2].decode("utf-8", errors="replace")
-                    i += 1
-                statuses.append((status[:1], path, orig))
-                i += 2
             blocks.append(
-                _WalkCommit(sha=sha, date=date, subject=subject, statuses=tuple(statuses))
+                _WalkCommit(sha=raw.sha, date=raw.date, subject=subject, statuses=raw.statuses)
             )
         if len(blocks) >= self._caps.log_commits:
             # The walk filled its cap, so older history may exist outside the
@@ -935,6 +921,56 @@ class GitSourceAdapter:
 # ----------------------------------------------------------------------
 # Walk aggregation and serialization helpers
 # ----------------------------------------------------------------------
+
+
+def _parse_walk(out: bytes) -> list[_RawCommit]:
+    """Parse ``log -z --name-status --format=%H%x00%aI%x00%P%x00%s`` output.
+
+    The stream is one NUL-separated token sequence. Each commit is four
+    positional header tokens (digest, date, parents, subject) followed by
+    zero or more status entries: a status token (``M``, ``A``, ``R100`` ...,
+    the first one prefixed by a newline) and then one path, or two for a
+    rename/copy. Header fields and paths are consumed by position, never by
+    content, so only a status token or a commit digest can start the next
+    entry, and the two cannot be confused (1-4 characters vs 40/64 hex).
+    """
+    tokens = out.split(b"\x00")
+    count = len(tokens)
+    commits: list[_RawCommit] = []
+    i = 0
+    while i < count:
+        token = tokens[i].lstrip(b"\n")
+        if not token:
+            i += 1
+            continue
+        sha = token.decode("ascii", errors="replace")
+        if not _is_git_oid(sha):
+            raise GitSourceError("unparseable log record")
+        if i + 3 >= count:
+            raise GitSourceError("unparseable log header")
+        date = tokens[i + 1].decode("ascii", errors="replace")
+        parents = tuple(tokens[i + 2].decode("ascii", errors="replace").split())
+        subject = tokens[i + 3].decode("utf-8", errors="replace")
+        i += 4
+        statuses: list[tuple[str, str, str | None]] = []
+        while i < count:
+            status = tokens[i].lstrip(b"\n")
+            if not _STATUS_TOKEN.fullmatch(status):
+                break
+            code = status[:1].decode("ascii")
+            width = 2 if code in ("R", "C") else 1
+            if i + width >= count:
+                raise GitSourceError("unparseable log status entry")
+            first = tokens[i + 1].decode("utf-8", errors="replace")
+            second = tokens[i + 2].decode("utf-8", errors="replace") if width == 2 else None
+            statuses.append((code, first, second))
+            i += 1 + width
+        commits.append(
+            _RawCommit(
+                sha=sha, date=date, parents=parents, subject=subject, statuses=tuple(statuses)
+            )
+        )
+    return commits
 
 
 def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileHistory]:
