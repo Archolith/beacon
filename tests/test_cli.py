@@ -555,6 +555,46 @@ class TestInit:
         assert payload["ok"] is True
         assert payload["result"]["operation"] in {"create", "replace"}
 
+    def test_report_write_failure_leaves_no_manifest(
+        self, manifest_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from beacon.core import scaffold
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(scaffold, "write_report", _fail)
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 2
+        assert "init_report_write_failed" in result.stderr
+        assert not (manifest_dir / "beacon.yaml").exists()
+        assert not report_path.exists()
+
+    def test_manifest_write_failure_removes_new_report(
+        self, manifest_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from beacon.core import scaffold
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(scaffold, "_write_manifest_atomic", _fail)
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 2
+        assert "init_write_failed" in result.stderr
+        assert not (manifest_dir / "beacon.yaml").exists()
+        assert not report_path.exists()
+
+    def test_report_records_written_manifest(self, manifest_dir: Path, tmp_path: Path) -> None:
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 0, result.output
+        raw = json.loads(report_path.read_text(encoding="utf-8"))
+        assert raw["written"] is True
+        assert (manifest_dir / "beacon.yaml").is_file()
+
     def test_report_persisted_raw(self, manifest_dir: Path, tmp_path: Path) -> None:
         report_path = tmp_path / "report.json"
         result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])

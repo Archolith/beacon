@@ -21,6 +21,7 @@ envelope or prose on stdout.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -579,10 +580,33 @@ def _init_impl(
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
         _preflight_report(report_path, manifest_target)
 
+    # The report is written *before* the manifest (via before_write) so a report
+    # failure never leaves a written manifest behind. The report path was
+    # preflighted as new, so it is safe to remove again if the manifest write
+    # then fails.
+    report_written = False
+
+    def _write_report_first(pending: InitReport) -> None:
+        nonlocal report_written
+        if report_path is not None:
+            _write_init_report(pending, report_path, limits)
+            report_written = True
+
     try:
-        report = scaffold.init(
-            root, dry_run=dry_run, force=force, manifest_path=output, limits=limits
-        )
+        try:
+            report = scaffold.init(
+                root,
+                dry_run=dry_run,
+                force=force,
+                manifest_path=output,
+                limits=limits,
+                before_write=_write_report_first,
+            )
+        except BaseException:
+            if report_written and report_path is not None:
+                with contextlib.suppress(OSError):
+                    Path(report_path).unlink(missing_ok=True)
+            raise
     except DiscoveryError as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "init_invalid_root", "repository root is not usable"
@@ -598,15 +622,9 @@ def _init_impl(
             EXIT_INPUT, "init_write_failed", "could not write manifest"
         ) from exc
 
-    if report_path is not None:
-        try:
-            scaffold.write_report(report, report_path, limits=limits)
-        except LimitError as exc:
-            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-        except OSError as exc:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "init_report_write_failed", "could not write report"
-            ) from exc
+    if report_path is not None and not report_written:
+        # Dry run or refusal: no manifest write happened, so write the report now.
+        _write_init_report(report, report_path, limits)
 
     ok = report.operation != OPERATION_REFUSED
     exit_code = EXIT_OK if ok else EXIT_INPUT
@@ -615,6 +633,17 @@ def _init_impl(
     else:
         _text_init(report)
     return exit_code
+
+
+def _write_init_report(report: InitReport, report_path: str, limits: ResourceLimits) -> None:
+    try:
+        scaffold.write_report(report, report_path, limits=limits)
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    except OSError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "init_report_write_failed", "could not write report"
+        ) from exc
 
 
 def _preflight_report(report_path: str, manifest_target: Path) -> None:
