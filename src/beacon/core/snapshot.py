@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -579,17 +580,21 @@ def _refuse_unsafe_manifest_paths(manifest: BeaconManifest) -> None:
     paths, guardrail applies-to, guidance read/avoid paths), local ``file://``
     URLs in the project repository or source URLs, and absolute paths inside
     build/test command fields are all checked. A violation raises
-    :class:`SnapshotError` with a stable code and no path detail.
+    :class:`SnapshotError` with a stable code whose message names the manifest
+    field (for example ``build_and_test.test``) but never the offending value.
     """
-    candidates: list[str] = []
+    candidates: list[tuple[str, str]] = []
     for concept in manifest.core_concepts:
-        candidates.extend(concept.implementation_locations)
-        candidates.extend(source.path for source in concept.sources)
-        candidates.extend(source.url for source in concept.sources)
+        candidates.extend(
+            ("core_concepts[].implementation_locations", value)
+            for value in concept.implementation_locations
+        )
+        candidates.extend(("core_concepts[].sources[].path", s.path) for s in concept.sources)
+        candidates.extend(("core_concepts[].sources[].url", s.url) for s in concept.sources)
     for guard in manifest.guardrails:
-        candidates.extend(guard.applies_to)
-        candidates.extend(source.path for source in guard.sources)
-        candidates.extend(source.url for source in guard.sources)
+        candidates.extend(("guardrails[].applies_to", value) for value in guard.applies_to)
+        candidates.extend(("guardrails[].sources[].path", s.path) for s in guard.sources)
+        candidates.extend(("guardrails[].sources[].url", s.url) for s in guard.sources)
     state_items = (
         (
             ()
@@ -601,30 +606,36 @@ def _refuse_unsafe_manifest_paths(manifest: BeaconManifest) -> None:
         + manifest.project_state.pending_decisions
     )
     for item in state_items:
-        candidates.extend(source.path for source in item.sources)
-        candidates.extend(source.url for source in item.sources)
-    candidates.extend(manifest.agent_guidance.read_first)
-    candidates.extend(manifest.agent_guidance.avoid_without_review)
-    for candidate in candidates:
+        candidates.extend(("project_state.sources[].path", s.path) for s in item.sources)
+        candidates.extend(("project_state.sources[].url", s.url) for s in item.sources)
+    candidates.extend(
+        ("agent_guidance.read_first", value) for value in manifest.agent_guidance.read_first
+    )
+    candidates.extend(
+        ("agent_guidance.avoid_without_review", value)
+        for value in manifest.agent_guidance.avoid_without_review
+    )
+    for field_name, candidate in candidates:
         if is_unsafe_path(candidate) or _is_local_file_url(candidate):
-            _raise_unsafe_manifest_path()
+            _raise_unsafe_manifest_path(field_name)
     if _is_local_file_url(manifest.project.repository) or is_unsafe_path(
         manifest.project.repository
     ):
-        _raise_unsafe_manifest_path()
-    for command in (
-        manifest.build_and_test.setup,
-        manifest.build_and_test.test,
-        manifest.build_and_test.benchmark,
+        _raise_unsafe_manifest_path("project.repository")
+    for field_name, command in (
+        ("build_and_test.setup", manifest.build_and_test.setup),
+        ("build_and_test.test", manifest.build_and_test.test),
+        ("build_and_test.benchmark", manifest.build_and_test.benchmark),
     ):
         if _command_has_absolute_path(command):
-            _raise_unsafe_manifest_path()
+            _raise_unsafe_manifest_path(field_name)
 
 
-def _raise_unsafe_manifest_path() -> None:
+def _raise_unsafe_manifest_path(field_name: str) -> None:
+    # *field_name* is a fixed manifest field name chosen by the caller, never a value.
     raise SnapshotError(
         SNAPSHOT_UNSAFE_MANIFEST_PATH,
-        "snapshot refused: absolute or escaping manifest path",
+        f"snapshot refused: absolute or escaping manifest path in {field_name}",
     )
 
 
@@ -653,9 +664,35 @@ def _unquote(token: str) -> str:
 
 
 def _is_absolute_like(token: str) -> bool:
-    if token.startswith(("/", "\\")):
+    """Return whether a command token is (or embeds) an absolute filesystem path.
+
+    Refused: a Windows drive path (``C:\\x``, ``C:/x``), a UNC or rooted
+    backslash path (``\\\\server\\share``, ``\\x``), a ``//`` network path,
+    the POSIX root ``/``, and any POSIX path with at least two segments
+    (``/usr/bin/python``). Not refused: switch-style tokens such as
+    ``/t:Build``, ``/p:Configuration=Release``, ``/nologo`` or ``/m``, and
+    non-path colons such as ``a:b`` or ``test:unit``. The value of a switch
+    (after ``:`` and ``=``) is still checked, so ``/p:OutDir=C:\\out`` is
+    refused.
+    """
+    if _WINDOWS_DRIVE_PATH_RE.match(token):
         return True
-    return len(token) >= 2 and token[0].isalpha() and token[1] == ":"
+    if token.startswith("\\") or token.startswith("//") or token == "/":
+        return True
+    if not token.startswith("/"):
+        return False
+    switch = _SWITCH_RE.match(token)
+    if switch is not None:
+        value = switch.group("value") or ""
+        _, _, assigned = value.partition("=")
+        return any(_is_absolute_like(part) for part in (value, assigned) if part)
+    return "/" in token[1:]
+
+
+#: ``C:\\...`` or ``C:/...`` (a drive letter followed by a separator).
+_WINDOWS_DRIVE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+#: A ``/name`` or ``/name:value`` switch (MSBuild/dotnet/cmd style).
+_SWITCH_RE = re.compile(r"^/(?P<name>[A-Za-z?][A-Za-z0-9_.?-]*)(?::(?P<value>.*))?$")
 
 
 def _json_safe(data: Any) -> Any:
