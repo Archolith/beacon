@@ -184,7 +184,7 @@ def test_identity_and_description_fail_closed_without_sources(tmp_path: Path) ->
     assert err.value.code == BUILD_DESCRIPTION_UNRESOLVED
 
 
-def test_intent_wins_over_menhir_for_identity_fields(tmp_path: Path) -> None:
+def test_menhir_supplies_identity_without_intent(tmp_path: Path) -> None:
     facts = resolve_project_facts(
         intent=None,
         git_records=(),
@@ -196,6 +196,36 @@ def test_intent_wins_over_menhir_for_identity_fields(tmp_path: Path) -> None:
     )
     assert facts.description == "From Menhir."
     assert facts.description_authority == "menhir"
+
+
+def test_intent_wins_over_menhir_for_identity_fields(tmp_path: Path) -> None:
+    intent = parse_manifest(
+        {
+            "beacon_version": "0.1",
+            "project": {
+                "name": "intent-name",
+                "description": "From intent.",
+                "status": "current",
+                "primary_language": "rust",
+            },
+            "canonical_docs": [{"path": "README.md", "role": "entrypoint"}],
+        }
+    )
+    facts = resolve_project_facts(
+        intent=intent,
+        git_records=(),
+        menhir_records=(
+            _menhir_identity(name="menhir-name", description="From Menhir."),
+            _menhir_document("README.md"),
+        ),
+        docs_root=_fixture_repo(tmp_path, with_git=False),
+    )
+    assert (facts.name, facts.name_authority) == ("intent-name", "intent")
+    assert (facts.description, facts.description_authority) == ("From intent.", "intent")
+    assert (facts.status, facts.status_authority) == ("current", "intent")
+    assert (facts.primary_language, facts.primary_language_authority) == ("rust", "intent")
+    # Intent's doc entry wins over Menhir's indexed row for the same path.
+    assert facts.canonical_docs[0]["role"] == "entrypoint"
 
 
 def test_missing_menhir_doc_becomes_drift_and_is_omitted(tmp_path: Path) -> None:
@@ -635,3 +665,145 @@ def test_colliding_decision_titles_get_deterministic_distinct_ids(tmp_path: Path
     assert all(i.startswith("decision-") for i in ids[4:])
     assert ids[4] != ids[5]
     assert _ids() == ids  # deterministic across rebuilds
+
+
+# ---------------------------------------------------------------------------
+# Intent manifests through the CLI (F7)
+# ---------------------------------------------------------------------------
+
+_INTENT = """\
+beacon_version: "0.1"
+project:
+  name: intent-project
+  tagline: The tagline the maintainer wrote.
+  description: Project description text.
+  status: current
+  license: MIT
+purpose:
+  one_sentence: One sentence from intent.
+  problem: The problem statement.
+audiences:
+  - maintainers
+core_concepts:
+  - id: my-concept
+    name: My concept
+    definition: A maintainer-authored concept.
+    status: current
+    sources:
+      - type: doc
+        title: Read me
+        path: README.md
+canonical_docs:
+  - path: README.md
+    role: entrypoint
+    status: current
+    title: Read me
+  - path: docs/architecture.md
+    role: architecture
+    status: superseded
+    title: Old architecture
+agent_guidance:
+  read_first:
+    - docs/architecture.md
+  safe_first_tasks:
+    - write tests
+  avoid_without_review:
+    - src/core
+  expected_behavior:
+    - keep diffs small
+build_and_test:
+  test: pytest -q
+guardrails:
+  - id: no-net
+    rule: No network access.
+    severity: low
+project_state:
+  active_work:
+    title: Shipping the build pipeline
+    summary: In progress.
+    sources:
+      - type: doc
+        path: README.md
+"""
+
+
+def test_build_cli_intent_preserves_intent_authored_fields(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    intent = root / "beacon.yaml"
+    intent.write_text(_INTENT, encoding="utf-8")
+    evidence = _evidence_file(root, ["README.md", "docs/architecture.md"])
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "--intent",
+            str(intent),
+            "--repo",
+            str(root),
+            "--menhir-evidence",
+            str(evidence),
+            "--format",
+            "json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)["result"]
+    assert report["authorities"]["name"] == "intent"
+    assert report["authorities"]["audiences"] == "intent"
+
+    raw = yaml.safe_load((root / "beacon.generated.yaml").read_text(encoding="utf-8"))
+    project = raw["project"]
+    assert project["name"] == "intent-project"
+    assert project["tagline"] == "The tagline the maintainer wrote."
+    assert project["license"] == "MIT"
+    assert project["description"] == "Project description text."
+    assert raw["purpose"]["one_sentence"] == "One sentence from intent."
+    assert raw["audiences"] == ["maintainers"]
+    concept_ids = [c["id"] for c in raw["core_concepts"]]
+    assert "my-concept" in concept_ids
+    assert "project-structure" in concept_ids
+    docs = {d["path"]: d for d in raw["canonical_docs"]}
+    assert docs["docs/architecture.md"]["status"] == "superseded"
+    assert docs["docs/architecture.md"]["title"] == "Old architecture"
+    guidance = raw["agent_guidance"]
+    assert guidance["read_first"] == ["docs/architecture.md"]
+    assert guidance["safe_first_tasks"] == ["write tests"]
+    assert guidance["avoid_without_review"] == ["src/core"]
+    assert guidance["expected_behavior"] == ["keep diffs small"]
+    assert raw["project_state"]["active_work"]["title"] == "Shipping the build pipeline"
+    assert raw["build_and_test"]["test"] == "pytest -q"
+    assert [g["id"] for g in raw["guardrails"]] == ["no-net"]
+
+    # The output is a valid manifest through the real CLI.
+    validated = runner.invoke(
+        app,
+        ["validate", str(root / "beacon.generated.yaml"), "--format", "json"],
+        catch_exceptions=False,
+    )
+    assert validated.exit_code == 0, validated.output
+
+
+def test_build_cli_intent_concept_id_reserves_generated_ids(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    intent = root / "beacon.yaml"
+    intent.write_text(_INTENT.replace("id: my-concept", "id: project-structure"), encoding="utf-8")
+    evidence = _evidence_file(root, ["README.md"])
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "--intent",
+            str(intent),
+            "--menhir-evidence",
+            str(evidence),
+            "--repo",
+            str(root),
+            "--out",
+            "-",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    ids = [c["id"] for c in yaml.safe_load(result.stdout)["core_concepts"]]
+    assert ids == ["project-structure", "project-structure-2"]

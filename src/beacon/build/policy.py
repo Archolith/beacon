@@ -4,7 +4,9 @@ The merge policy (build-pipeline plan §4) assigns each fact exactly one
 authority:
 
 * **Intent** -- the hand-authored manifest, when one is supplied. What
-  *should* be true: purpose, guardrails, non-goals, focus, commands.
+  *should* be true: purpose, guardrails, non-goals, focus, commands, and
+  the maintainer-authored concepts, agent guidance, tagline, license,
+  audiences, project state, and document currentness (carried verbatim).
 * **Reality** -- the repository (git adapter, filesystem existence checks).
   What *is* true: which files and documents actually exist.
 * **History** -- Menhir evidence. What was *decided* and what is indexed
@@ -26,9 +28,9 @@ Three consequences implemented here:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconManifest
@@ -120,6 +122,37 @@ class MergedProjectFacts:
     #: ``"intent"`` when the intent manifest names audiences, else ``""``
     #: (no source: the field is published empty, never defaulted).
     audiences_authority: str = ""
+    #: Intent-authored fields carried through verbatim (maintainer authority).
+    #: Empty when no intent manifest is supplied, so an evidence-only build is
+    #: unchanged by them.
+    project_description: str = ""
+    tagline: str = ""
+    license: str = ""
+    intent_concepts: tuple[dict[str, Any], ...] = ()
+    agent_guidance: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    project_state: dict[str, Any] | None = None
+
+
+def _plain(value: Any) -> Any:
+    """Return *value* as plain YAML data: tuples as lists, ``None`` entries dropped.
+
+    Mirrors the loader's "absent key" convention so a round-tripped intent
+    section parses exactly as the maintainer wrote it.
+    """
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list | tuple):
+        return [_plain(item) for item in value]
+    return value
+
+
+def _intent_project_state(intent: BeaconManifest) -> dict[str, Any] | None:
+    state = intent.project_state
+    if state.active_work is None and not (
+        state.recently_completed or state.blockers or state.pending_decisions
+    ):
+        return None
+    return cast(dict[str, Any], _plain(asdict(state)))
 
 
 def _doc_exists(docs_root: Path, path: str) -> bool:
@@ -243,7 +276,15 @@ def resolve_project_facts(
                 )
             if doc.path not in seen:
                 seen.add(doc.path)
-                docs.append({"path": doc.path, "role": doc.role, "title": doc.title})
+                docs.append(
+                    {
+                        "path": doc.path,
+                        "role": doc.role,
+                        "title": doc.title,
+                        # Intent owns currentness: a superseded doc stays superseded.
+                        "status": doc.status,
+                    }
+                )
     menhir_docs = sorted(
         (r for r in menhir_records if r.kind == KIND_MENHIR_DOCUMENT),
         key=lambda r: str(r.payload.get("path") or ""),
@@ -267,6 +308,7 @@ def resolve_project_facts(
                 "path": path,
                 "role": str(record.payload.get("document_type") or "reference"),
                 "title": str(record.payload.get("title") or path),
+                "status": "current",
             }
         )
     docs_authority = (
@@ -380,6 +422,16 @@ def resolve_project_facts(
         git_head = str(head.payload.get("commit") or "") or None
 
     read_first = tuple(doc["path"] for doc in docs[:_READ_FIRST_LIMIT])
+    agent_guidance: dict[str, tuple[str, ...]] = {}
+    if intent is not None:
+        guidance = intent.agent_guidance
+        if guidance.read_first:
+            read_first = tuple(guidance.read_first)
+        agent_guidance = {
+            "safe_first_tasks": tuple(guidance.safe_first_tasks),
+            "avoid_without_review": tuple(guidance.avoid_without_review),
+            "expected_behavior": tuple(guidance.expected_behavior),
+        }
 
     return MergedProjectFacts(
         name=name,
@@ -407,6 +459,16 @@ def resolve_project_facts(
         audiences=tuple(audiences),
         drift=tuple(drift),
         audiences_authority="intent" if audiences else "",
+        project_description=(intent.project.description.strip() if intent is not None else ""),
+        tagline=intent.project.tagline if intent is not None else "",
+        license=intent.project.license if intent is not None else "",
+        intent_concepts=(
+            tuple(cast(dict[str, Any], _plain(asdict(concept))) for concept in intent.core_concepts)
+            if intent is not None
+            else ()
+        ),
+        agent_guidance=agent_guidance,
+        project_state=_intent_project_state(intent) if intent is not None else None,
     )
 
 

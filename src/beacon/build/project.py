@@ -99,10 +99,10 @@ def _source(payload: dict[str, Any]) -> dict[str, Any]:
 
 def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     """Project resolved facts into the raw manifest mapping (deterministic)."""
-    concepts: list[dict[str, Any]] = []
-    # The structure concept id is always reserved so a decision titled
-    # "Project Structure" cannot collide with it.
-    used_ids: set[str] = {STRUCTURE_CONCEPT_ID}
+    # Intent-authored concepts come first, verbatim, and reserve their ids;
+    # generated concepts are disambiguated against them.
+    concepts: list[dict[str, Any]] = [dict(concept) for concept in facts.intent_concepts]
+    used_ids: set[str] = {str(concept.get("id", "")).lower() for concept in concepts}
 
     if facts.structure_summary is not None:
         sources = [_source({"type": "memory", "title": "Menhir structure scan"})]
@@ -113,7 +113,7 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
             sources.append(_source({"type": "commit", "title": f"git HEAD {short}", "url": ""}))
         concepts.append(
             {
-                "id": STRUCTURE_CONCEPT_ID,
+                "id": _unique_id(STRUCTURE_CONCEPT_ID, used_ids),
                 "name": "Project structure",
                 "definition": facts.structure_summary,
                 "why_it_exists": "",
@@ -124,6 +124,9 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
             }
         )
 
+    # The structure concept id stays reserved even without a structure
+    # concept, so a decision titled "Project Structure" never takes it.
+    used_ids.add(STRUCTURE_CONCEPT_ID)
     for decision in facts.decisions:
         concepts.append(
             {
@@ -145,12 +148,12 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
         "beacon_version": MANIFEST_SCHEMA_VERSION,
         "project": {
             "name": facts.name,
-            "tagline": "",
-            "description": facts.description,
+            "tagline": facts.tagline,
+            "description": facts.project_description or facts.description,
             "status": facts.status,
             "repository": facts.repository,
             "primary_language": facts.primary_language,
-            "license": "",
+            "license": facts.license,
         },
         "purpose": {
             "one_sentence": facts.description,
@@ -161,18 +164,25 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
         "current_focus": list(facts.current_focus),
         "core_concepts": concepts,
         "canonical_docs": [
-            {"path": doc["path"], "role": doc["role"], "status": "current", "title": doc["title"]}
+            {
+                "path": doc["path"],
+                "role": doc["role"],
+                "status": doc.get("status", "current"),
+                "title": doc["title"],
+            }
             for doc in facts.canonical_docs
         ],
         "agent_guidance": {
             "read_first": list(facts.read_first),
-            "safe_first_tasks": [],
-            "avoid_without_review": [],
-            "expected_behavior": [],
+            "safe_first_tasks": list(facts.agent_guidance.get("safe_first_tasks", ())),
+            "avoid_without_review": list(facts.agent_guidance.get("avoid_without_review", ())),
+            "expected_behavior": list(facts.agent_guidance.get("expected_behavior", ())),
         },
         "build_and_test": dict(facts.build_and_test),
         "guardrails": list(facts.guardrails),
     }
+    if facts.project_state is not None:
+        raw["project_state"] = facts.project_state
     return raw
 
 
