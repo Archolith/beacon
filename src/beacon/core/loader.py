@@ -8,6 +8,7 @@ in :mod:`beacon.core.validator`, not here.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,49 @@ _MAX_PROJECT_STATE_SOURCES = 64
 
 
 class ManifestError(ValueError):
-    """Raised when a manifest cannot be parsed into the typed schema."""
+    """Raised when a manifest cannot be parsed into the typed schema.
+
+    ``str(exc)`` keeps the full loader message for library callers. ``detail``
+    is the user-facing diagnostic that is safe to print in CLI output: it names
+    the field or YAML location and the error kind, but never the manifest path,
+    a source snippet, or the offending value. When *detail* is omitted the
+    message itself is the detail, which holds for every message built only from
+    field names and Python type names.
+    """
+
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = message if detail is None else detail
+
+
+#: Quoted fragments in PyYAML problem text that are grammar tokens, not user data.
+_YAML_TOKEN_RE = re.compile(r"^(?:<[a-z ]+>|[^A-Za-z0-9]{1,2}|\\[A-Za-z])$")
+_YAML_QUOTED_RE = re.compile(r"'([^']*)'")
+
+
+def _yaml_error_detail(exc: yaml.YAMLError) -> str:
+    """Return a value-free description of a YAML parse error.
+
+    Keeps the error kind, PyYAML's fixed problem wording, and the 1-based
+    line/column. Quoted fragments that could carry manifest content (alias
+    names, scalar text) are replaced by ``'<redacted>'``; only grammar tokens
+    such as ``']'`` or ``'<stream end>'`` are kept. The source snippet PyYAML
+    appends to ``str(exc)`` is never used.
+    """
+    kind = type(exc).__name__
+    problem = getattr(exc, "problem", None)
+    mark = getattr(exc, "problem_mark", None)
+    text = kind
+    if isinstance(problem, str) and problem.strip():
+
+        def _keep_token(match: re.Match[str]) -> str:
+            fragment = match.group(1)
+            return match.group(0) if _YAML_TOKEN_RE.match(fragment) else "'<redacted>'"
+
+        text = f"{kind}: {_YAML_QUOTED_RE.sub(_keep_token, problem.strip())}"
+    if mark is not None:
+        text = f"{text} at line {mark.line + 1}, column {mark.column + 1}"
+    return f"invalid YAML ({text})"
 
 
 class _BoundedSafeLoader(yaml.SafeLoader):
@@ -113,7 +156,7 @@ def load_beacon_manifest(
     active = limits if limits is not None else ResourceLimits()
     manifest_path = Path(path)
     if not manifest_path.is_file():
-        raise ManifestError(f"manifest not found: {manifest_path}")
+        raise ManifestError(f"manifest not found: {manifest_path}", detail="manifest not found")
     raw_bytes = read_bytes_bounded(
         manifest_path,
         ceiling=active.manifest_bytes,
@@ -123,14 +166,19 @@ def load_beacon_manifest(
     try:
         text = raw_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ManifestError(f"invalid UTF-8 in {manifest_path}: {exc}") from exc
+        raise ManifestError(
+            f"invalid UTF-8 in {manifest_path}: {exc}",
+            detail=f"invalid UTF-8 at byte offset {exc.start}",
+        ) from exc
     try:
         # _BoundedSafeLoader subclasses yaml.SafeLoader, so this yaml.load call
         # never uses the unsafe DefaultLoader; the explicit Loader also enforces
         # the depth/node/alias ceilings. nosec B506: safe loader guaranteed.
         raw = yaml.load(text, Loader=lambda s: _BoundedSafeLoader(s, limits=active))  # nosec B506
     except yaml.YAMLError as exc:  # pragma: no cover - passthrough detail
-        raise ManifestError(f"invalid YAML in {manifest_path}: {exc}") from exc
+        raise ManifestError(
+            f"invalid YAML in {manifest_path}: {exc}", detail=_yaml_error_detail(exc)
+        ) from exc
     if not isinstance(raw, dict):
         raise ManifestError(f"manifest root must be a mapping, got {type(raw).__name__}")
     manifest = parse_manifest(raw)

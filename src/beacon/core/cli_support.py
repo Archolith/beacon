@@ -126,6 +126,26 @@ def _failure_diagnostic(severity: Severity, code: str, message: str) -> Diagnost
     return _build_diagnostic(severity, code, message)
 
 
+#: Upper bound on the loader detail appended to a ``manifest_invalid`` message.
+MANIFEST_DETAIL_MAX = 240
+
+
+def manifest_failure(exc: ManifestError) -> CliFailure:
+    """Return the exit-2 ``manifest_invalid`` failure for a loader error.
+
+    The message carries the loader's safe ``detail`` (field or YAML location
+    plus error kind; never the manifest path, a source snippet, or a value),
+    bounded to :data:`MANIFEST_DETAIL_MAX` characters on a single line.
+    """
+    detail = " ".join(str(getattr(exc, "detail", "") or "").split())
+    if len(detail) > MANIFEST_DETAIL_MAX:
+        detail = detail[: MANIFEST_DETAIL_MAX - 3].rstrip() + "..."
+    message = "malformed or invalid manifest"
+    if detail:
+        message = f"{message}: {detail}"
+    return CliFailure(EXIT_INPUT, CODE_MANIFEST_INVALID, message, severity="error")
+
+
 def normalize_internal(exc: Exception | None = None) -> CliFailure:
     """Return a safe exit-3 failure for an unexpected exception.
 
@@ -287,9 +307,7 @@ def _build_command_context(
     except LimitError as exc:
         raise _limit_failure(exc) from exc
     except ManifestError as exc:
-        raise CliFailure(
-            EXIT_INPUT, CODE_MANIFEST_INVALID, "malformed or invalid manifest", severity="error"
-        ) from exc
+        raise manifest_failure(exc) from exc
 
     report = validate_beacon_manifest(manifest, docs_root=docs_root_resolved)
     policy = evaluate_policy(report, acknowledgements=acks)

@@ -344,9 +344,7 @@ def _serve_http_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     except ManifestError as exc:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, cli_support.CODE_MANIFEST_INVALID, "malformed or invalid manifest"
-        ) from exc
+        raise cli_support.manifest_failure(exc) from exc
     except UnsafeCanonicalPath as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"
@@ -1015,9 +1013,7 @@ def _export_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     except ManifestError as exc:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, cli_support.CODE_MANIFEST_INVALID, "malformed or invalid manifest"
-        ) from exc
+        raise cli_support.manifest_failure(exc) from exc
     except UnsafeCanonicalPath as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"

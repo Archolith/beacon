@@ -599,6 +599,70 @@ class TestValidate:
         result = runner.invoke(app, ["validate", str(tmp_path / "nope.yaml")])
         assert result.exit_code == 2
 
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        (
+            (
+                'beacon_version: "0.1"\nproject:\n  name: [SECRETVALUE123\n',
+                ("invalid YAML", "line 4", "column 1", "expected ',' or ']'"),
+            ),
+            (
+                VALID_YAML.replace('beacon_version: "0.1"', "beacon_version: 0.1"),
+                ("beacon_version must be a string, got float",),
+            ),
+            (
+                VALID_YAML.replace(
+                    "  tagline: A minimal test beacon.", "  tagline: # SECRETVALUE123"
+                ),
+                ("project.tagline must be a string, got NoneType",),
+            ),
+        ),
+        ids=("unclosed-flow-sequence", "unquoted-float-version", "null-tagline"),
+    )
+    @pytest.mark.parametrize("fmt", ["text", "json"])
+    def test_manifest_error_surfaces_safe_loader_detail(
+        self, manifest_dir: Path, source: str, expected: tuple[str, ...], fmt: str
+    ) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(source, encoding="utf-8")
+        result = runner.invoke(app, ["validate", str(manifest), "--format", fmt])
+        assert result.exit_code == 2, result.output
+        if fmt == "json":
+            payload = _assert_single_json_doc(result.output)
+            (diag,) = payload["diagnostics"]
+            assert diag["code"] == "manifest_invalid"
+            message = diag["message"]
+        else:
+            assert "manifest_invalid" in result.stderr
+            message = result.stderr
+        assert "malformed or invalid manifest" in message
+        for fragment in expected:
+            assert fragment in message
+        # Location/field/kind only: never the offending value, snippet, or the path.
+        assert "SECRETVALUE123" not in result.output
+        assert str(manifest_dir) not in result.output
+        assert len(message) <= 400
+
+    def test_manifest_error_redacts_quoted_yaml_values(self, manifest_dir: Path) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text("project: *SECRETALIAS99\n", encoding="utf-8")
+        result = runner.invoke(app, ["validate", str(manifest), "--format", "json"])
+        assert result.exit_code == 2
+        (diag,) = _assert_single_json_doc(result.output)["diagnostics"]
+        assert diag["code"] == "manifest_invalid"
+        assert "line 1" in diag["message"]
+        assert "SECRETALIAS99" not in result.output
+
+    def test_export_and_inspect_surface_manifest_error_detail(self, manifest_dir: Path) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(
+            VALID_YAML.replace('beacon_version: "0.1"', "beacon_version: 0.1"), encoding="utf-8"
+        )
+        for argv in (["export", str(manifest), "--output", "-"], ["inspect", str(manifest)]):
+            result = runner.invoke(app, argv)
+            assert result.exit_code == 2, result.output
+            assert "beacon_version must be a string, got float" in result.stderr
+
     def test_malformed_yaml_exits_two(self, tmp_path: Path) -> None:
         bad = tmp_path / "beacon.yaml"
         bad.write_text(MALFORMED_YAML, encoding="utf-8")
