@@ -92,7 +92,16 @@ _INHERITED_GIT_ENV = frozenset({"GIT_EXEC_PATH"})
 _CHILD_GIT_ENV: dict[str, str] = {
     # Never prompt for credentials.
     "GIT_TERMINAL_PROMPT": "0",
+    # Never fetch missing objects from a promisor remote (partial clones).
+    "GIT_NO_LAZY_FETCH": "1",
 }
+#: ``-c`` overrides applied to every git invocation. Command-line config
+#: outranks every config file, including the repository's own.
+_HARDENING_CONFIG: tuple[str, ...] = (
+    # Defense in depth for "local only": every transport is refused, so an
+    # older git that ignores GIT_NO_LAZY_FETCH still cannot reach a remote.
+    "protocol.allow=never",
+)
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
 
 #: Redaction marker for commit subjects that carry high-confidence secret
@@ -369,7 +378,8 @@ class GitSourceAdapter:
         anything; on expiry the process tree is killed and
         :class:`GitSourceError` is raised.
         """
-        argv = [self._git, "--no-optional-locks", *args]
+        config_args = [arg for item in _HARDENING_CONFIG for arg in ("-c", item)]
+        argv = [self._git, *config_args, "--no-optional-locks", *args]
         deadline = time.monotonic() + _GIT_TIMEOUT_SECONDS
         try:
             proc = subprocess.Popen(  # nosec B603
@@ -498,14 +508,23 @@ class GitSourceAdapter:
         return total, ordered
 
     def _walk(self) -> list[_WalkCommit]:
-        """Run the single bounded history walk in git's reverse-chronological order."""
+        """Run the single bounded history walk in git's reverse-chronological order.
+
+        In a partial clone, inexact rename detection would need blob contents
+        the clone does not hold, so the walk runs with ``--no-renames`` (lazy
+        fetching is disabled anyway) and the evidence is marked truncated:
+        renames then appear as a delete plus an add.
+        """
+        partial = self._is_partial_clone()
+        if partial:
+            self._truncated = True
         out, _ = self._require_run(
             [
                 "log",
                 f"-n{self._caps.log_commits}",
                 "--name-status",
                 "-z",
-                "-M",
+                "--no-renames" if partial else "-M",
                 # %xHH hex escapes: raw control bytes cannot survive Windows
                 # argv quoting, so git decodes them from literal format text.
                 "--format=%x1e%H%x1f%aI%x1f%s%x1f",
@@ -554,6 +573,35 @@ class GitSourceAdapter:
             # window; report that honestly instead of implying completeness.
             self._truncated = True
         return blocks
+
+    def _is_partial_clone(self) -> bool:
+        """True when the repository is a partial (promisor) clone.
+
+        Older git records ``extensions.partialClone``; current git marks the
+        promisor remote with ``remote.<name>.promisor``. Either counts, and an
+        unreadable answer is treated as partial (the safe direction).
+        """
+        out, truncated, code = self._run(
+            [
+                "config",
+                "-z",
+                "--get-regexp",
+                r"^(extensions\.partialclone|remote\..*\.promisor)$",
+            ],
+            self._caps.head_output_bytes,
+        )
+        if code == 1 and not out:
+            return False  # no such keys
+        if code != 0 or truncated:
+            return True
+        for entry in out.split(b"\x00"):
+            key, _, value = entry.decode("utf-8", errors="replace").partition("\n")
+            value = value.strip().lower()
+            if key.lower() == "extensions.partialclone" and value:
+                return True
+            if key.lower().endswith(".promisor") and value in ("", "true", "yes", "on", "1"):
+                return True
+        return False
 
     def _tags(self) -> list[tuple[str, str, str]]:
         """Return bounded ``(name, peeled_commit, date)`` triples.

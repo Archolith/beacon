@@ -536,3 +536,40 @@ def test_inherited_git_env_cannot_redirect_the_adapter(
     monkeypatch.delenv("GIT_INDEX_FILE")
     monkeypatch.delenv("GIT_CONFIG_PARAMETERS")
     assert head.payload["commit"] == _rev_parse_head(repo)
+
+
+def _object_store(git_dir: Path) -> dict[str, int]:
+    objects = git_dir / "objects"
+    return {
+        str(path.relative_to(objects)): path.stat().st_size
+        for path in objects.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_partial_clone_is_never_lazily_fetched(tmp_path: Path, repo: Path) -> None:
+    # An inexact rename (moved and edited) makes `log -M` compare blob
+    # contents, which a blobless clone does not have locally.
+    body = "".join(f"line {n}\n" for n in range(40))
+    (repo / "src" / "big.py").write_text(body, encoding="utf-8")
+    _commit_all(repo, "add big")
+    _git(repo, "mv", "src/big.py", "src/moved.py")
+    (repo / "src" / "moved.py").write_text(body + "edited\n", encoding="utf-8")
+    _commit_all(repo, "move and edit big")
+    _git(repo, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "blobless"
+    subprocess.run(
+        ["git", "clone", "-q", "--filter=blob:none", repo.as_uri(), str(clone)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    before = _object_store(clone / ".git")
+    records = GitSourceAdapter(clone).collect()
+    # No promisor contact: the object store is byte-for-byte unchanged.
+    assert _object_store(clone / ".git") == before
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["commit"] == _rev_parse_head(repo)
+    assert head.payload["window_commits"] == 6
+    # Rename detection was skipped, so the evidence is reported as partial.
+    assert head.payload["truncated"] is True
