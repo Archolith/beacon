@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -125,3 +127,59 @@ def test_write_sha256sums_external_output_path_creates_parent(sums, tmp_path: Pa
     assert not (dist / ".ci").exists()
     expected = f"{hashlib.sha256(b'bytes').hexdigest()}  artifact.whl\n"
     assert external.read_text(encoding="utf-8") == expected
+
+
+# ---------------------------------------------------------------------------
+# Release workflow: checksums are enforced, not only produced
+# ---------------------------------------------------------------------------
+
+_RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
+_SHA_PINNED = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
+
+
+def _release_jobs() -> dict[str, Any]:
+    workflow = yaml.safe_load(_RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    return workflow["jobs"]
+
+
+def _step_index(steps: list[dict[str, Any]], predicate: Any) -> int:
+    for index, step in enumerate(steps):
+        if predicate(step):
+            return index
+    raise AssertionError("expected workflow step not found")
+
+
+@pytest.mark.parametrize(
+    ("job", "is_release_step"),
+    (
+        ("publish", lambda step: "gh-action-pypi-publish" in step.get("uses", "")),
+        ("github-release", lambda step: "gh release create" in step.get("run", "")),
+    ),
+    ids=("publish", "github-release"),
+)
+def test_release_verifies_sha256sums_before_publishing(job: str, is_release_step: Any) -> None:
+    steps = _release_jobs()[job]["steps"]
+    download = _step_index(
+        steps,
+        lambda step: "actions/download-artifact" in step.get("uses", "")
+        and step.get("with", {}).get("name") == "release-checksums",
+    )
+    verify = _step_index(
+        steps,
+        lambda step: "sha256sum" in step.get("run", "")
+        and "--strict" in step.get("run", "")
+        and " -c " in step.get("run", ""),
+    )
+    release = _step_index(steps, is_release_step)
+    assert download < verify < release
+
+
+def test_release_actions_stay_sha_pinned_and_permissions_unchanged() -> None:
+    jobs = _release_jobs()
+    for job in jobs.values():
+        for step in job["steps"]:
+            if "uses" in step:
+                assert _SHA_PINNED.match(step["uses"]), step["uses"]
+    assert jobs["publish"]["permissions"] == {"contents": "read", "id-token": "write"}
+    assert jobs["github-release"]["permissions"] == {"contents": "write"}
+    assert "permissions" not in jobs["build"]
