@@ -9,13 +9,17 @@ exclusion, and honest degradation.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import jsonschema
 import pytest
 
+import beacon.sources.git as gitmod
 from beacon.core.scaffold import init, to_payload
 from beacon.sources.git import (
     GitCaps,
@@ -415,3 +419,79 @@ def test_records_to_git_evidence_is_a_pure_projection(repo: Path) -> None:
     first = records_to_git_evidence(records)
     second = records_to_git_evidence(records)
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# Hard deadline and process-tree kill
+# ---------------------------------------------------------------------------
+
+
+def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _fake_git(tmp_path: Path, body: str) -> Path:
+    """An executable stand-in for git that answers ``--version`` and runs *body*.
+
+    On Windows it is a ``.cmd`` wrapper around a Python child, which mirrors
+    Git for Windows' ``cmd\\git.exe`` wrapper: killing only the wrapper would
+    leave the child running.
+    """
+    script = tmp_path / "fake_git.py"
+    script.write_text(
+        "import os, sys, time\n"
+        "if '--version' in sys.argv:\n"
+        "    print('git version 2.99.0')\n"
+        "    sys.exit(0)\n" + body,
+        encoding="utf-8",
+    )
+    if sys.platform == "win32":
+        wrapper = tmp_path / "fake_git.cmd"
+        wrapper.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+        return wrapper
+    wrapper = tmp_path / "fake_git"
+    wrapper.write_text(f"#!{sys.executable}\n" + script.read_text(encoding="utf-8"))
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def test_silent_hung_git_is_killed_at_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "hung"
+    (root / ".git").mkdir(parents=True)
+    pidfile = tmp_path / "child.pid"
+    fake = _fake_git(
+        tmp_path,
+        f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\ntime.sleep(20)\n",
+    )
+    monkeypatch.setattr(gitmod, "_GIT_TIMEOUT_SECONDS", 1)
+    started = time.monotonic()
+    with pytest.raises(GitSourceError):
+        GitSourceAdapter(root, git_executable=str(fake)).collect()
+    elapsed = time.monotonic() - started
+    # The deadline covers the whole command, not just the wait after EOF.
+    assert elapsed < 10, f"collect() blocked for {elapsed:.1f}s past a 1s deadline"
+    # The kill reaches the process tree, not only a wrapper process.
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while _pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not _pid_alive(pid)

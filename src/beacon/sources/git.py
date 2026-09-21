@@ -38,10 +38,14 @@ Safety contract:
 from __future__ import annotations
 
 import os
+import signal
 
 # Fixed local Git inspection is the only subprocess use here: fixed argv, no
 # shell, no network, bounded output.
 import subprocess  # nosec B404
+import sys
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field, fields
 from datetime import datetime
@@ -76,7 +80,10 @@ _US = "\x1f"
 #: Record separator starting one log block.
 _RS = "\x1e"
 
+#: Wall-clock deadline for one git command, enforced while it runs.
 _GIT_TIMEOUT_SECONDS = 60
+#: Upper bound on waiting for a killed process tree to go away.
+_KILL_GRACE_SECONDS = 5
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
 
 #: Redaction marker for commit subjects that carry high-confidence secret
@@ -97,6 +104,43 @@ def _is_git_oid(value: str) -> bool:
 
 def _strip_control(text: str) -> str:
     return "".join(ch for ch in text if ord(ch) >= 0x20 and ord(ch) != 0x7F)
+
+
+def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Kill *proc* and its descendants, best effort.
+
+    ``Popen.kill()`` alone reaches only the direct child. On Windows that is
+    often Git for Windows' ``cmd\\git.exe`` launcher, whose real
+    ``mingw64\\bin\\git.exe`` child would survive, so the tree is killed with
+    ``taskkill /T``. On POSIX the child leads its own session (see
+    ``_run``), so its whole process group is signalled.
+    """
+    if proc.poll() is not None:
+        return
+    if sys.platform == "win32":
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        taskkill = str(Path(system_root) / "System32" / "taskkill.exe")
+        # Fixed argv naming the absolute system tool path; no shell.
+        try:
+            subprocess.run(  # nosec B603
+                [taskkill, "/F", "/T", "/PID", str(proc.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=_KILL_GRACE_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
 
 
 def _epoch_or_zero(iso_date: str) -> float:
@@ -296,50 +340,77 @@ class GitSourceAdapter:
     def _run(self, args: list[str], max_bytes: int) -> tuple[bytes, bool, int]:
         """Run one fixed git command; return ``(stdout, truncated, returncode)``.
 
-        Output is read incrementally and the child is killed once *max_bytes*
-        is reached (``truncated=True``), so no command can exhaust memory.
+        Output is read incrementally on a reader thread and the child is
+        killed once *max_bytes* is reached (``truncated=True``), so no command
+        can exhaust memory. ``_GIT_TIMEOUT_SECONDS`` is a wall-clock deadline
+        for the whole command, including a child that blocks without writing
+        anything; on expiry the process tree is killed and
+        :class:`GitSourceError` is raised.
         """
         argv = [self._git, "--no-optional-locks", *args]
+        deadline = time.monotonic() + _GIT_TIMEOUT_SECONDS
         try:
             proc = subprocess.Popen(  # nosec B603
                 argv,
                 cwd=self._root,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=self._env(),
+                # POSIX: a fresh session makes the whole tree killable as one
+                # process group (and leaves git no controlling terminal).
+                start_new_session=sys.platform != "win32",
             )
         except OSError as exc:
             raise GitSourceError(f"git executable unusable: {self._git}") from exc
+        stream = proc.stdout
+        if stream is None:  # pragma: no cover - guaranteed by stdout=PIPE
+            _kill_process_tree(proc)
+            raise GitSourceError("git produced no readable output stream")
         chunks: list[bytes] = []
-        total = 0
-        killed = False
+        capped = threading.Event()
+
+        def pump() -> None:
+            total = 0
+            try:
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        return
+                    total += len(chunk)
+                    if total >= max_bytes:
+                        chunks.append(chunk[: max_bytes - (total - len(chunk))])
+                        capped.set()
+                        _kill_process_tree(proc)
+                        return
+                    chunks.append(chunk)
+            except (OSError, ValueError):
+                return
+
+        reader = threading.Thread(target=pump, name="beacon-git-reader", daemon=True)
+        reader.start()
         try:
-            stream = proc.stdout
-            if stream is None:  # pragma: no cover - guaranteed by stdout=PIPE
-                raise GitSourceError("git produced no readable output stream")
-            while True:
-                chunk = stream.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total >= max_bytes:
-                    keep = max_bytes - (total - len(chunk))
-                    chunks.append(chunk[:keep])
-                    self._truncated = True
-                    proc.kill()
-                    killed = True
-                    break
-                chunks.append(chunk)
-            code = proc.wait(timeout=_GIT_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            proc.kill()
-            proc.wait()
-            raise GitSourceError("git command timed out") from exc
+            reader.join(max(deadline - time.monotonic(), 0.0))
+            if reader.is_alive():
+                raise GitSourceError("git command timed out")
+            try:
+                code = proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
+            except subprocess.TimeoutExpired as exc:
+                raise GitSourceError("git command timed out") from exc
         finally:
-            stream = proc.stdout
-            if stream is not None:
+            if proc.poll() is None:
+                _kill_process_tree(proc)
+                try:
+                    proc.wait(timeout=_KILL_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass
+            # Killing the tree closes the pipe's write end, which ends the
+            # reader; never close the stream under a still-blocked reader.
+            reader.join(_KILL_GRACE_SECONDS)
+            if not reader.is_alive():
                 stream.close()
-        if killed:
+        if capped.is_set():
+            self._truncated = True
             return b"".join(chunks), True, 0
         return b"".join(chunks), False, code
 
