@@ -117,6 +117,9 @@ class MergedProjectFacts:
     build_and_test: dict[str, str]
     audiences: tuple[str, ...]
     drift: tuple[DriftRecord, ...] = field(default_factory=tuple)
+    #: ``"intent"`` when the intent manifest names audiences, else ``""``
+    #: (no source: the field is published empty, never defaulted).
+    audiences_authority: str = ""
 
 
 def _doc_exists(docs_root: Path, path: str) -> bool:
@@ -217,6 +220,9 @@ def resolve_project_facts(
     elif git_origin:
         repository, repository_authority = git_origin, "git"
 
+    # project.status is always published (the manifest schema defaults it),
+    # so an absent source falls back to Beacon's own default -- reported as
+    # authority "default", never attributed to a source that did not say it.
     status = "experimental"
     status_authority = "default"
     if intent is not None and intent.project.status.strip():
@@ -388,8 +394,9 @@ def resolve_project_facts(
         current_focus=tuple(current_focus),
         read_first=read_first,
         build_and_test=build_and_test,
-        audiences=tuple(audiences) or ("coding-agents",),
+        audiences=tuple(audiences),
         drift=tuple(drift),
+        audiences_authority="intent" if audiences else "",
     )
 
 

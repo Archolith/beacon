@@ -982,6 +982,7 @@ def _build_impl(
             "language": facts.primary_language_authority,
             "status": facts.status_authority,
             "docs": facts.canonical_docs_authority,
+            "audiences": facts.audiences_authority,
         },
         "git_head": facts.git_head,
     }

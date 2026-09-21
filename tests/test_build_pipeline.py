@@ -12,6 +12,7 @@ import subprocess  # nosec B404 - fixed-argv local git fixture setup only
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from beacon.build.policy import (
@@ -544,3 +545,57 @@ def test_menhir_adapter_round_trips_through_build(tmp_path: Path) -> None:
     kinds = {record.kind for record in records}
     assert KIND_MENHIR_IDENTITY in kinds
     assert KIND_MENHIR_DOCUMENT in kinds
+
+
+# ---------------------------------------------------------------------------
+# Provenance of defaults (F6)
+# ---------------------------------------------------------------------------
+
+
+def _build_json(root: Path, evidence: Path, *extra: str) -> dict[str, object]:
+    result = runner.invoke(
+        app,
+        ["build", "--repo", str(root), "--menhir-evidence", str(evidence), "--format", "json"]
+        + list(extra),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)["result"]
+
+
+def test_absent_evidence_status_is_attributed_to_beacon_default(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    del payload["project"]["status"]
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    result = _build_json(root, evidence)
+    authorities = result["authorities"]
+    assert isinstance(authorities, dict)
+    # The schema-required project.status is still filled, but the report says
+    # it is Beacon's default -- never a claim attributed to Menhir.
+    assert authorities["status"] == "default"
+    manifest = parse_manifest(
+        yaml.safe_load((root / "beacon.generated.yaml").read_text(encoding="utf-8"))
+    )
+    assert manifest.project.status == "experimental"
+
+
+def test_evidence_status_is_attributed_to_menhir(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    authorities = _build_json(root, evidence)["authorities"]
+    assert isinstance(authorities, dict)
+    assert authorities["status"] == "menhir"
+
+
+def test_audiences_are_omitted_without_a_source(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    result = _build_json(root, evidence)
+    authorities = result["authorities"]
+    assert isinstance(authorities, dict)
+    assert authorities["audiences"] == ""
+    text = (root / "beacon.generated.yaml").read_text(encoding="utf-8")
+    assert "coding-agents" not in text
+    assert "audiences: []" in text

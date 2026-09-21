@@ -411,7 +411,9 @@ def parse_evidence_document(
         primary_language=project.get("primary_language", ""),
         root=project.get("root", ""),
         scan_fingerprint=fingerprint,
-        project_status=project.get("status", "experimental"),
+        # Absent stays absent: the build policy fills its own default and
+        # attributes it to Beacon ("default"), never to Menhir.
+        project_status=project.get("status", ""),
         documents=documents,
         files=files,
         entities=entities,
