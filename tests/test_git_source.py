@@ -495,3 +495,44 @@ def test_silent_hung_git_is_killed_at_the_deadline(
     while _pid_alive(pid) and time.monotonic() < deadline:
         time.sleep(0.1)
     assert not _pid_alive(pid)
+
+
+# ---------------------------------------------------------------------------
+# Child environment and repository-config hardening
+# ---------------------------------------------------------------------------
+
+
+def _rev_parse_head(root: Path) -> str:
+    return (
+        subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+
+
+def test_inherited_git_env_cannot_redirect_the_adapter(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = tmp_path / "other-repo"
+    other.mkdir()
+    _git(other, "init", "-q")
+    (other / "other.txt").write_text("other\n", encoding="utf-8")
+    _commit_all(other, "a different repository")
+    assert _rev_parse_head(other) != _rev_parse_head(repo)
+    # A git hook (or any wrapper) exports these for its children.
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'core.bare'='true'")
+    records = GitSourceAdapter(repo).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    monkeypatch.delenv("GIT_DIR")
+    monkeypatch.delenv("GIT_WORK_TREE")
+    monkeypatch.delenv("GIT_INDEX_FILE")
+    monkeypatch.delenv("GIT_CONFIG_PARAMETERS")
+    assert head.payload["commit"] == _rev_parse_head(repo)

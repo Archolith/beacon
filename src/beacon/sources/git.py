@@ -84,6 +84,15 @@ _RS = "\x1e"
 _GIT_TIMEOUT_SECONDS = 60
 #: Upper bound on waiting for a killed process tree to go away.
 _KILL_GRACE_SECONDS = 5
+
+#: The only inherited ``GIT_*`` variable passed through to git: it locates
+#: git's own helper programs and never selects a repository or config.
+_INHERITED_GIT_ENV = frozenset({"GIT_EXEC_PATH"})
+#: ``GIT_*`` variables the adapter sets for every child.
+_CHILD_GIT_ENV: dict[str, str] = {
+    # Never prompt for credentials.
+    "GIT_TERMINAL_PROMPT": "0",
+}
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
 
 #: Redaction marker for commit subjects that carry high-confidence secret
@@ -331,8 +340,21 @@ class GitSourceAdapter:
     # ------------------------------------------------------------------
 
     def _env(self) -> dict[str, str]:
-        env = dict(os.environ)
-        env["GIT_TERMINAL_PROMPT"] = "0"
+        """Build the child environment.
+
+        Every inherited ``GIT_*`` variable is dropped except the explicit
+        allowlist: ``GIT_DIR``, ``GIT_WORK_TREE``, ``GIT_INDEX_FILE``,
+        ``GIT_OBJECT_DIRECTORY``, ``GIT_CONFIG_*`` and friends (which git
+        hooks and wrappers export) would otherwise point the adapter at a
+        different repository or inject config. The adapter then sets only
+        the variables in :data:`_CHILD_GIT_ENV`.
+        """
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.upper().startswith("GIT_") or key.upper() in _INHERITED_GIT_ENV
+        }
+        env.update(_CHILD_GIT_ENV)
         env["LC_ALL"] = "C"
         env["LANG"] = "C"
         return env
