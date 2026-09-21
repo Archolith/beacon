@@ -441,6 +441,27 @@ class TestServeHttp:
         assert result.exit_code == 0, result.output
         assert len(run.call_args.args[0].validation.security_overrides) == 1
 
+    def test_scopeless_guardrail_manifest_builds_http_app(self, valid_manifest: Path) -> None:
+        """A guardrail without ``scope`` is valid to the loader and must not crash startup."""
+        valid_manifest.write_text(
+            VALID_YAML.replace("    scope: core\n", ""), encoding="utf-8"
+        )
+        assert "scope:" not in valid_manifest.read_text(encoding="utf-8")
+        validated = runner.invoke(
+            app, ["validate", str(valid_manifest), "--strict-warnings", "--format", "json"]
+        )
+        assert validated.exit_code == 0, validated.output
+        # Run the real startup path (snapshot -> create_http_app -> bind); only the
+        # blocking uvicorn loop is replaced.
+        with mock.patch("uvicorn.Server") as server:
+            result = runner.invoke(
+                app, ["serve-http", "--manifest", str(valid_manifest), "--port", "0"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "internal_error" not in result.stderr
+        assert "Beacon HTTP ready" in result.stderr
+        server.return_value.run.assert_called_once()
+
     def test_startup_exception_is_redacted(self, valid_manifest: Path) -> None:
         with mock.patch(
             "beacon.main._serve_http_snapshot", side_effect=RuntimeError("private startup detail")
