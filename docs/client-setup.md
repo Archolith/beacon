@@ -59,6 +59,11 @@ beacon inspect --task-hint "add a regression test"
 beacon export
 ```
 
+`export` writes `beacon.snapshot.json` (or `--output PATH`, or `--output -` for
+stdout). It replaces a previous Beacon snapshot at that path, but refuses any
+other existing file with exit 2 (`export_output_exists`) unless you pass
+`--force`; it never overwrites the manifest or a canonical document.
+
 If validation reports warnings, they are honest "needs a real answer" items, not
 guesses to silence. Publication is gated on a clean strict validation.
 

@@ -930,6 +930,7 @@ class TestExport:
             app, ["export", str(valid_manifest), "--output", str(valid_manifest)]
         )
         assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
         assert valid_manifest.read_text(encoding="utf-8") == before
 
     def test_doc_output_collision_refused(self, valid_manifest: Path) -> None:
@@ -937,7 +938,67 @@ class TestExport:
         before = doc.read_text(encoding="utf-8")
         result = runner.invoke(app, ["export", str(valid_manifest), "--output", str(doc)])
         assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
         assert doc.read_text(encoding="utf-8") == before
+
+    @pytest.mark.parametrize("target", ["manifest", "doc"])
+    def test_force_never_overrides_source_collision(
+        self, valid_manifest: Path, target: str
+    ) -> None:
+        path = valid_manifest if target == "manifest" else valid_manifest.parent / "README.md"
+        before = path.read_bytes()
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(path), "--force"]
+        )
+        assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize("name", ["pyproject.toml", "notes.md"])
+    def test_existing_unrelated_file_refused_without_force(
+        self, valid_manifest: Path, name: str
+    ) -> None:
+        other = valid_manifest.parent / name
+        other.write_bytes(b"[project]\nname = 'keep-me'\n")
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(other), "--format", "json"]
+        )
+        assert result.exit_code == 2, result.output
+        payload = _assert_single_json_doc(result.output)
+        assert [d["code"] for d in payload["diagnostics"]] == ["export_output_exists"]
+        assert str(other) not in result.output
+        assert other.read_bytes() == b"[project]\nname = 'keep-me'\n"
+
+    def test_force_replaces_existing_unrelated_file(self, valid_manifest: Path) -> None:
+        other = valid_manifest.parent / "notes.md"
+        other.write_text("scratch", encoding="utf-8")
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(other), "--force"]
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(other.read_text(encoding="utf-8"))["beacon_snapshot_version"] == "1.0"
+
+    def test_rerun_replaces_previous_snapshot_without_force(
+        self, valid_manifest: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "snapshot.json"
+        first = runner.invoke(app, ["export", str(valid_manifest), "--output", str(out)])
+        assert first.exit_code == 0, first.output
+        second = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(out), "--metadata-only"]
+        )
+        assert second.exit_code == 0, second.output
+        assert json.loads(out.read_text(encoding="utf-8"))["content_mode"] == "metadata_only"
+
+    def test_existing_directory_refused_without_force(
+        self, valid_manifest: Path, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "outdir"
+        target.mkdir()
+        result = runner.invoke(app, ["export", str(valid_manifest), "--output", str(target)])
+        assert result.exit_code == 2
+        assert "export_output_exists" in result.stderr
+        assert target.is_dir()
 
     def test_text_security_refusal_reports_location(self, manifest_dir: Path) -> None:
         (manifest_dir / "beacon.yaml").write_text(VALID_YAML, encoding="utf-8")
