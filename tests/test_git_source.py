@@ -573,3 +573,43 @@ def test_partial_clone_is_never_lazily_fetched(tmp_path: Path, repo: Path) -> No
     assert head.payload["window_commits"] == 6
     # Rename detection was skipped, so the evidence is reported as partial.
     assert head.payload["truncated"] is True
+
+
+def _marker_command(tmp_path: Path, marker: Path, *, echo_stdin: bool = False) -> str:
+    """A git config command value that records its execution in *marker*."""
+    script = tmp_path / f"{marker.stem}-hook.py"
+    script.write_text(
+        "import sys\n"
+        f"open({str(marker)!r}, 'a').write('ran')\n"
+        + ("sys.stdout.write(sys.stdin.read())\n" if echo_stdin else ""),
+        encoding="utf-8",
+    )
+    return f'"{sys.executable}" "{script}"'.replace("\\", "/")
+
+
+def test_repository_fsmonitor_hook_never_runs(tmp_path: Path, repo: Path) -> None:
+    marker = tmp_path / "fsmonitor.marker"
+    _git(repo, "config", "core.fsmonitor", _marker_command(tmp_path, marker))
+    # Sanity: a plain `git status` in this repository does run the hook.
+    subprocess.run(["git", "-C", str(repo), "status"], capture_output=True, timeout=60)
+    assert marker.exists(), "fixture hook is not wired; the test would prove nothing"
+    marker.unlink()
+    GitSourceAdapter(repo).collect()
+    assert not marker.exists()
+    init(repo, dry_run=True)
+    assert not marker.exists()
+
+
+def test_repository_clean_filter_never_runs(tmp_path: Path, repo: Path) -> None:
+    marker = tmp_path / "filter.marker"
+    (repo / ".gitattributes").write_text("*.txt filter=evil\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("one\n", encoding="utf-8")
+    _commit_all(repo, "add filtered file")
+    _git(repo, "config", "filter.evil.clean", _marker_command(tmp_path, marker, echo_stdin=True))
+    _git(repo, "config", "filter.evil.required", "true")
+    # A content change git must hash (through the clean filter) to report.
+    (repo / "notes.txt").write_text("two\n", encoding="utf-8")
+    records = GitSourceAdapter(repo).collect()
+    assert not marker.exists()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["dirty"] is True

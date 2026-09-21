@@ -101,7 +101,21 @@ _HARDENING_CONFIG: tuple[str, ...] = (
     # Defense in depth for "local only": every transport is refused, so an
     # older git that ignores GIT_NO_LAZY_FETCH still cannot reach a remote.
     "protocol.allow=never",
+    # A repository's own .git/config must not run programs: `status` (and
+    # any index read) would execute a configured fsmonitor hook.
+    "core.fsmonitor=false",
+    # No hook runs for these read-only commands; pin that anyway.
+    f"core.hooksPath={os.devnull}",
+    # `log` would run gpg (and splice its output into stdout) otherwise.
+    "log.showSignature=false",
 )
+#: Per-driver keys neutralized for every filter driver configured by the
+#: repository itself (clean/smudge/process programs run during `status`).
+_FILTER_DRIVER_OVERRIDES: tuple[str, ...] = ("clean=", "smudge=", "process=", "required=false")
+#: Config scopes whose filter drivers are user-trusted and left alone.
+_TRUSTED_CONFIG_SCOPES = frozenset({"system", "global"})
+#: Output bound for the filter-driver config listing.
+_CONFIG_LIST_OUTPUT_BYTES = 64 * 1024
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
 
 #: Redaction marker for commit subjects that carry high-confidence secret
@@ -368,7 +382,9 @@ class GitSourceAdapter:
         env["LANG"] = "C"
         return env
 
-    def _run(self, args: list[str], max_bytes: int) -> tuple[bytes, bool, int]:
+    def _run(
+        self, args: list[str], max_bytes: int, *, extra_config: tuple[str, ...] = ()
+    ) -> tuple[bytes, bool, int]:
         """Run one fixed git command; return ``(stdout, truncated, returncode)``.
 
         Output is read incrementally on a reader thread and the child is
@@ -378,8 +394,8 @@ class GitSourceAdapter:
         anything; on expiry the process tree is killed and
         :class:`GitSourceError` is raised.
         """
-        config_args = [arg for item in _HARDENING_CONFIG for arg in ("-c", item)]
-        argv = [self._git, *config_args, "--no-optional-locks", *args]
+        config_args = [arg for item in (*_HARDENING_CONFIG, *extra_config) for arg in ("-c", item)]
+        argv = [self._git, "--no-pager", *config_args, "--no-optional-locks", *args]
         deadline = time.monotonic() + _GIT_TIMEOUT_SECONDS
         try:
             proc = subprocess.Popen(  # nosec B603
@@ -446,8 +462,15 @@ class GitSourceAdapter:
             return b"".join(chunks), True, 0
         return b"".join(chunks), False, code
 
-    def _require_run(self, args: list[str], max_bytes: int, what: str) -> tuple[bytes, bool]:
-        out, truncated, code = self._run(args, max_bytes)
+    def _require_run(
+        self,
+        args: list[str],
+        max_bytes: int,
+        what: str,
+        *,
+        extra_config: tuple[str, ...] = (),
+    ) -> tuple[bytes, bool]:
+        out, truncated, code = self._run(args, max_bytes, extra_config=extra_config)
         if code != 0:
             raise GitSourceError(f"git query failed: {what}")
         return out, truncated
@@ -479,9 +502,48 @@ class GitSourceAdapter:
             self._truncated = True
         return _strip_control(name)
 
+    def _repository_filter_overrides(self) -> tuple[str, ...]:
+        """``-c`` overrides disabling every repository-configured filter driver.
+
+        ``status`` hashes changed files through ``filter.<driver>.clean`` (or
+        ``.process``), so a repository could otherwise run a program of its
+        choosing. Drivers from system/global config are the user's own and
+        stay active; drivers from repository (local, worktree, or included)
+        config are emptied, which git treats as "no filter". A driver name
+        that cannot be expressed as a ``-c`` key fails closed.
+        """
+        out, truncated, code = self._run(
+            ["config", "-z", "--show-scope", "--name-only", "--get-regexp", r"^filter\."],
+            _CONFIG_LIST_OUTPUT_BYTES,
+        )
+        if code == 1 and not out:
+            return ()  # no filter configuration at all
+        if code != 0 or truncated:
+            raise GitSourceError("could not list filter drivers")
+        tokens = out.decode("utf-8", errors="replace").split("\x00")
+        drivers: set[str] = set()
+        for scope, key in zip(tokens[0::2], tokens[1::2], strict=False):
+            if not key or scope in _TRUSTED_CONFIG_SCOPES:
+                continue
+            section, _, rest = key.partition(".")
+            driver, dot, _variable = rest.rpartition(".")
+            if section.lower() != "filter" or not dot or not driver:
+                continue
+            if "=" in driver or "\n" in driver:
+                raise GitSourceError("unsupported filter driver name")
+            drivers.add(driver)
+        return tuple(
+            f"filter.{driver}.{override}"
+            for driver in sorted(drivers)
+            for override in _FILTER_DRIVER_OVERRIDES
+        )
+
     def _dirty_state(self) -> tuple[bool, int]:
         out, _truncated = self._require_run(
-            ["status", "--porcelain=v1", "-z"], self._caps.status_output_bytes, "status"
+            ["status", "--porcelain=v1", "-z"],
+            self._caps.status_output_bytes,
+            "status",
+            extra_config=self._repository_filter_overrides(),
         )
         count = sum(1 for token in out.split(b"\x00") if token)
         return count > 0, count
