@@ -599,3 +599,39 @@ def test_audiences_are_omitted_without_a_source(tmp_path: Path) -> None:
     text = (root / "beacon.generated.yaml").read_text(encoding="utf-8")
     assert "coding-agents" not in text
     assert "audiences: []" in text
+
+
+# ---------------------------------------------------------------------------
+# Decision id collisions (F5)
+# ---------------------------------------------------------------------------
+
+
+def test_colliding_decision_titles_get_deterministic_distinct_ids(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["decisions"] = [
+        {"title": title, "summary": f"Summary of {title}."}
+        for title in ("keep-one-root", "Keep One Root", "日本", "中文", "Project Structure")
+    ]
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    def _ids() -> list[str]:
+        result = runner.invoke(
+            app,
+            ["build", "--repo", str(root), "--menhir-evidence", str(evidence), "--out", "-"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        raw = yaml.safe_load(result.stdout)
+        return [concept["id"] for concept in raw["core_concepts"]]
+
+    ids = _ids()
+    assert len(ids) == len({i.lower() for i in ids}) == 6
+    assert ids[0] == "project-structure"
+    # Sorted-title order; case variants and the reserved structure id get a
+    # stable numeric suffix, non-ASCII titles a stable content-derived slug.
+    assert ids[1:4] == ["keep-one-root", "project-structure-2", "keep-one-root-2"]
+    assert all(i.startswith("decision-") for i in ids[4:])
+    assert ids[4] != ids[5]
+    assert _ids() == ids  # deterministic across rebuilds

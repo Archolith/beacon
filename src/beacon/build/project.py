@@ -45,12 +45,39 @@ ACK_TEST_COMMAND_MISSING = (
 )
 
 _SLUG_ALPHABET_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+#: Hex characters of the content-derived slug for titles with no ASCII slug.
+_HASH_SLUG_CHARS = 10
 
 
 def _slug(text: str) -> str:
+    """Return the ASCII slug of *text*, or a stable content-derived id.
+
+    A title with no ASCII letters or digits (e.g. a non-English title) would
+    otherwise collapse to one shared id; it instead gets
+    ``decision-<sha256 prefix>`` so the id is stable and non-lossy.
+    """
     lowered = text.strip().lower()
-    slug = "".join(char if char in _SLUG_ALPHABET_OK else "-" for char in lowered)
-    return slug.strip("-") or "decision"
+    slug = "".join(char if char in _SLUG_ALPHABET_OK else "-" for char in lowered).strip("-")
+    if slug:
+        return slug
+    digest = hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:_HASH_SLUG_CHARS]
+    return f"decision-{digest}"
+
+
+def _unique_id(base: str, used: set[str]) -> str:
+    """Return *base*, or *base*-2, -3, ... -- the first id not in *used*.
+
+    Ids compare case-insensitively (the validator's ``concept_id_duplicate``
+    rule). Callers visit decisions in the policy's sorted order, so the
+    suffix a colliding title receives is deterministic.
+    """
+    candidate = base
+    counter = 2
+    while candidate.lower() in used:
+        candidate = f"{base}-{counter}"
+        counter += 1
+    used.add(candidate.lower())
+    return candidate
 
 
 def _source(payload: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +100,9 @@ def _source(payload: dict[str, Any]) -> dict[str, Any]:
 def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     """Project resolved facts into the raw manifest mapping (deterministic)."""
     concepts: list[dict[str, Any]] = []
+    # The structure concept id is always reserved so a decision titled
+    # "Project Structure" cannot collide with it.
+    used_ids: set[str] = {STRUCTURE_CONCEPT_ID}
 
     if facts.structure_summary is not None:
         sources = [_source({"type": "memory", "title": "Menhir structure scan"})]
@@ -97,7 +127,7 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     for decision in facts.decisions:
         concepts.append(
             {
-                "id": _slug(decision.title),
+                "id": _unique_id(_slug(decision.title), used_ids),
                 "name": decision.title,
                 "definition": decision.summary,
                 "why_it_exists": "",

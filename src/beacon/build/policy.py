@@ -297,9 +297,19 @@ def resolve_project_facts(
 
     # -- decisions (history) with location reality checks ---------------------
     decisions: list[DecisionFact] = []
+    # Sorted on the full record content so the order -- and therefore the
+    # id suffix a colliding title receives -- never depends on input order.
     decision_records = sorted(
         (r for r in menhir_records if r.kind == KIND_MENHIR_DECISION),
-        key=lambda r: str(r.payload.get("title") or ""),
+        key=lambda r: (
+            str(r.payload.get("title") or ""),
+            str(r.payload.get("summary") or ""),
+            str(r.payload.get("status") or ""),
+            tuple(
+                str(item)
+                for item in cast(list[object], r.payload.get("implementation_locations") or [])
+            ),
+        ),
     )
     for record in decision_records[:_MAX_DECISIONS]:
         raw_locations = cast(list[object], record.payload.get("implementation_locations") or [])
