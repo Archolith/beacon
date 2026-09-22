@@ -43,7 +43,7 @@ _INTENT: dict[str, Any] = {
     "project": {
         "name": "fixture-intent",
         "description": "Fixture project described by its own maintainers.",
-        "status": "active",
+        "status": "current",
         "license": "MIT",
     },
     "purpose": {
@@ -143,18 +143,76 @@ def test_default_intent_also_reaches_stdout_builds(tmp_path: Path) -> None:
     assert yaml.safe_load(result.output)["project"]["name"] == "fixture-intent"
 
 
-def test_explicit_intent_overrides_the_repo_manifest(tmp_path: Path) -> None:
-    root = _fixture_repo(tmp_path)
-    _write_intent(root)
-    other = dict(_INTENT, project=dict(_INTENT["project"], name="explicit-intent"))
+def _elsewhere(tmp_path: Path, **project: Any) -> Path:
+    other = dict(_INTENT, project=dict(_INTENT["project"], **project))
     explicit = tmp_path / "elsewhere.yaml"
     explicit.write_text(yaml.safe_dump(other, sort_keys=False), encoding="utf-8")
+    return explicit
+
+
+@pytest.mark.parametrize("repo_manifest", ["valid", "malformed"])
+def test_explicit_intent_cannot_replace_the_repo_manifest(
+    tmp_path: Path, repo_manifest: str
+) -> None:
+    root = _fixture_repo(tmp_path / "repo")
+    if repo_manifest == "valid":
+        _write_intent(root)
+    else:
+        (root / "beacon.yaml").write_text("project: [unterminated\n", encoding="utf-8")
+    explicit = _elsewhere(tmp_path, name="explicit-intent")
+
+    code, payload = _invoke(root, "--intent", str(explicit))
+
+    assert code == 2
+    assert payload["diagnostics"][0]["code"] == "intent_manifest_conflict"
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_explicit_intent_naming_the_repo_manifest_is_accepted(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    intent_path = _write_intent(root)
+
+    code, payload = _invoke(root, "--intent", str(intent_path))
+
+    assert code == 0, payload
+    assert payload["result"]["intent"] == {"path": str(intent_path), "source": "repo_default"}
+
+
+def test_explicit_intent_serves_a_repo_without_its_own_manifest(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path / "repo")
+    explicit = _elsewhere(tmp_path, name="explicit-intent")
 
     code, payload = _invoke(root, "--intent", str(explicit))
 
     assert code == 0, payload
     assert payload["result"]["intent"] == {"path": str(explicit), "source": "explicit"}
     assert _manifest(root)["project"]["name"] == "explicit-intent"
+
+
+def test_omitted_status_is_not_a_maintainer_statement(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    project = {k: v for k, v in _INTENT["project"].items() if k != "status"}
+    _write_intent(root, dict(_INTENT, project=project))
+
+    code, payload = _invoke(root, "--gaps-only", evidence=False)
+    assert code == 0, payload
+    assert _rows(payload)["project.status"]["status"] == "default"
+    assert "project_status_unknown" in _gap_codes(payload)
+
+    code, payload = _invoke(root)
+    assert code == 0, payload
+    assert _rows(payload)["project.status"]["supplied_by"] == ["memory"]
+
+
+def test_stated_status_is_the_maintainers(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+
+    code, payload = _invoke(root)
+
+    assert code == 0, payload
+    assert _rows(payload)["project.status"]["supplied_by"] == ["intent"]
+    assert _manifest(root)["project"]["status"] == "current"
 
 
 def test_there_is_no_option_to_ignore_the_project_manifest(tmp_path: Path) -> None:
@@ -429,3 +487,81 @@ def test_symlink_check_is_enforced_on_every_platform(
     assert code == 2
     assert payload["diagnostics"][0]["code"] == "intent_manifest_unsafe"
     assert not (root / "beacon.generated.yaml").exists()
+
+
+def _edit_intent_during(
+    monkeypatch: pytest.MonkeyPatch, module: Any, name: str, intent_path: Path
+) -> None:
+    original = getattr(module, name)
+
+    def _edit_then_call(*args: Any, **kwargs: Any) -> Any:
+        edited = dict(_INTENT, project=dict(_INTENT["project"], name="edited-mid-build"))
+        intent_path.write_text(yaml.safe_dump(edited, sort_keys=False), encoding="utf-8")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, _edit_then_call)
+
+
+def test_gap_report_refuses_when_the_manifest_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _fixture_repo(tmp_path)
+    intent_path = _write_intent(root)
+    _edit_intent_during(monkeypatch, policy_mod, "resolve_project_facts", intent_path)
+
+    code, payload = _invoke(root, "--gaps-only")
+
+    assert code == 2
+    assert payload["diagnostics"][0]["code"] == "intent_manifest_changed"
+
+
+def test_snapshot_build_refuses_when_the_manifest_changes_during_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import beacon.main as main_mod
+
+    root = _fixture_repo(tmp_path)
+    intent_path = _write_intent(root)
+    _edit_intent_during(monkeypatch, main_mod, "_build_verified_snapshot", intent_path)
+
+    code, payload = _invoke(root, "--snapshot-out", "beacon.snapshot.json")
+
+    assert code == 2
+    assert payload["diagnostics"][0]["code"] == "intent_manifest_changed"
+    assert not (root / "beacon.generated.yaml").exists()
+    assert not (root / "beacon.snapshot.json").exists()
+
+
+@pytest.mark.parametrize("prior", [False, True])
+def test_failed_manifest_replace_restores_the_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prior: bool
+) -> None:
+    import beacon.main as main_mod
+
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+    manifest = root / "beacon.generated.yaml"
+    snapshot = root / "beacon.snapshot.json"
+    if prior:
+        code, payload = _invoke(root, "--snapshot-out", "beacon.snapshot.json")
+        assert code == 0, payload
+        _write_intent(root, dict(_INTENT, project=dict(_INTENT["project"], name="second")))
+    before = {p: p.read_bytes() for p in (manifest, snapshot) if p.exists()}
+
+    real_replace = os.replace
+
+    def _fail_manifest(src: Any, dst: Any) -> None:
+        if Path(dst) == manifest:
+            raise OSError("simulated manifest replace failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(main_mod.os, "replace", _fail_manifest)
+    code, payload = _invoke(root, "--snapshot-out", "beacon.snapshot.json")
+    monkeypatch.setattr(main_mod.os, "replace", real_replace)
+
+    assert code == 2
+    assert payload["diagnostics"][0]["code"] == "build_manifest_write_failed"
+    after = {p: p.read_bytes() for p in (manifest, snapshot) if p.exists()}
+    assert after == before
+    leftovers = [p.name for p in root.iterdir() if p.name.endswith(".tmp")]
+    assert leftovers == []

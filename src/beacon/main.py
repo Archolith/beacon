@@ -869,12 +869,12 @@ def _build_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
 
-    # The project owns its own data: its beacon.yaml is the intent authority
-    # unless the caller names another maintainer-authored manifest. There is no
-    # opt-out: ignoring it would publish a beacon without the project's
-    # guardrails. A symlinked one is refused, never followed or skipped.
+    # The project owns its own data: when the repository has a beacon.yaml it is
+    # the only intent a build of that repository may use. --intent may name it,
+    # or supply intent for a repository that has none; it can never replace it.
+    # A symlinked one is refused, never followed or skipped.
     intent_source: str | None = "explicit" if intent else None
-    if intent is None and repo:
+    if repo:
         candidate = Path(repo) / scaffold.DEFAULT_MANIFEST_NAME
         if candidate.is_symlink():
             raise cli_support.CliFailure(
@@ -883,6 +883,12 @@ def _build_impl(
                 "the repository's beacon.yaml is a symlink; replace it with a regular file",
             )
         if candidate.is_file():
+            if intent is not None and not _same_file(Path(intent), candidate):
+                raise cli_support.CliFailure(
+                    EXIT_INPUT,
+                    "intent_manifest_conflict",
+                    "the repository has its own beacon.yaml; a build of it cannot use another",
+                )
             intent = str(candidate)
             intent_source = "repo_default"
 
@@ -989,6 +995,7 @@ def _build_impl(
             raise cli_support.CliFailure(EXIT_INPUT, "intent_manifest_invalid", message) from exc
         # The parsed manifest must be the bytes that were fingerprinted.
         _require_intent_unchanged(Path(intent), intent_digest, limits)
+        intent_manifest = _clear_defaulted_status(intent_manifest, Path(intent), intent_digest)
 
     intent_payload = {"path": intent, "source": intent_source}
 
@@ -1013,6 +1020,8 @@ def _build_impl(
             "requirements": report,
             "gaps": gaps,
         }
+        if intent and intent_digest is not None:
+            _require_intent_unchanged(Path(intent), intent_digest, limits)
         if fmt == "json":
             _json("build", ok=True, result_payload=gaps_payload)
         else:
@@ -1076,7 +1085,14 @@ def _build_impl(
         _preflight_build_snapshot_target(
             snapshot_path, target, force=force, limits=limits, protected=protected_inputs
         )
-    snapshot_sha = _write_build_outputs(target, data, snapshot_path, limits)
+
+    def _final_fence() -> None:
+        if intent and intent_digest is not None:
+            _require_intent_unchanged(Path(intent), intent_digest, limits)
+
+    snapshot_sha = _write_build_outputs(
+        target, data, snapshot_path, limits, before_commit=_final_fence
+    )
 
     payload = {
         "manifest_path": str(target),
@@ -1136,6 +1152,40 @@ def _intent_digest(path: Path, limits: Any) -> str | None:
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     return hashlib.sha256(raw).hexdigest()
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    try:
+        return left.samefile(right)
+    except OSError:
+        return left.resolve() == right.resolve()
+
+
+def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None) -> Any:
+    """Blank ``project.status`` when the file never stated it.
+
+    The loader fills an omitted status with the schema default; for the build
+    that default is Beacon's, not the maintainers', so it must not carry
+    intent authority. The bytes re-read here are the fingerprinted ones.
+    """
+    import dataclasses
+
+    import yaml
+
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "intent_manifest_changed",
+            "the intent manifest changed during the build; nothing was written, rebuild",
+        )
+    document = yaml.safe_load(raw)
+    project = document.get("project") if isinstance(document, dict) else None
+    if isinstance(project, dict) and "status" not in project:
+        return dataclasses.replace(
+            manifest, project=dataclasses.replace(manifest.project, status="")
+        )
+    return manifest
 
 
 def _require_intent_unchanged(path: Path, digest: str | None, limits: Any) -> None:
@@ -1216,7 +1266,12 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
 
 
 def _write_build_outputs(
-    target: Path, data: bytes, snapshot_path: Path | None, limits: ResourceLimits
+    target: Path,
+    data: bytes,
+    snapshot_path: Path | None,
+    limits: ResourceLimits,
+    *,
+    before_commit: Callable[[], None] | None = None,
 ) -> str | None:
     """Write the manifest and optional snapshot; every gate has already passed.
 
@@ -1226,15 +1281,28 @@ def _write_build_outputs(
     reader, and only then is the snapshot written and the manifest renamed
     into place. Any refusal removes the temporary file and replaces nothing.
     Returns the snapshot's recorded manifest digest, or ``None``.
+
+    *before_commit* runs after the snapshot is built and verified, immediately
+    before the first replacement. If replacing the manifest fails after the
+    snapshot was written, the previous snapshot is restored (or the new one
+    removed), so a refused build never leaves a new snapshot beside an old
+    manifest. A process killed between the two renames can still do so.
     """
     if snapshot_path is None:
+        if before_commit is not None:
+            before_commit()
         _atomic_write_bytes(target, data)
         return None
     target.parent.mkdir(parents=True, exist_ok=True)
     temp_name = _write_temp_sibling(target, data)
+    backup_name: str | None = None
     committed = False
     try:
         snap, snapshot_sha = _build_verified_snapshot(Path(temp_name), target.parent, limits)
+        if before_commit is not None:
+            before_commit()
+        if snapshot_path.is_file():
+            backup_name = _write_temp_sibling(snapshot_path, snapshot_path.read_bytes())
         try:
             snapshot_mod.write_snapshot_atomic(snapshot_path, snap, byte_ceiling=snap.byte_ceiling)
         except LimitError as exc:
@@ -1243,11 +1311,25 @@ def _write_build_outputs(
             raise cli_support.CliFailure(
                 EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
             ) from exc
-        os.replace(temp_name, target)
+        try:
+            os.replace(temp_name, target)
+        except OSError as exc:
+            if backup_name is not None:
+                os.replace(backup_name, snapshot_path)
+                backup_name = None
+            else:
+                _unlink_quietly(str(snapshot_path))
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_manifest_write_failed",
+                "could not write the manifest; the previous snapshot was restored",
+            ) from exc
         committed = True
     finally:
         if not committed:
             _unlink_quietly(temp_name)
+        if backup_name is not None:
+            _unlink_quietly(backup_name)
     return snapshot_sha
 
 

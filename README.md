@@ -205,13 +205,15 @@ beacon init                        # starter beacon.yaml + the gaps it could not
 beacon build --repo .              # writes beacon.generated.yaml and reports remaining gaps
 ```
 
-- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority by default;
-  `--intent PATH` names another maintainer-authored manifest. There is no switch to ignore the
-  project's own manifest. A malformed or symlinked `beacon.yaml`, or one that changes during the
-  build, refuses the build and nothing is written.
+- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority. When it exists it is
+  the only intent that build may use: `--intent` may name it, or supply intent for a repository
+  that has none, but never replace it (`intent_manifest_conflict`). A malformed or symlinked
+  `beacon.yaml`, or one that changes during the build, refuses the build and nothing is written.
 - `beacon build --repo R --gaps-only` writes nothing and reports, for every field, whether it was
   supplied, by which source, and what is still missing -- including when a required field (name,
-  description, canonical docs) is unresolved and a real build would refuse.
+  description, canonical docs) is unresolved and a real build would refuse. Inconsistent inputs
+  (the indexed root differs from `--repo`, or the manifest cites a document missing on disk) are
+  errors to fix first, not gaps.
 - Without a `beacon.yaml` a build succeeds only when a memory provider supplies the required
   fields; the result is thin and lists every empty field as a gap. With neither, the build
   refuses and points to `--gaps-only`.
