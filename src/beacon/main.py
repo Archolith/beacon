@@ -22,6 +22,7 @@ envelope or prose on stdout.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import socket
@@ -36,7 +37,13 @@ import typer
 from beacon.core import cli_result, cli_support, scaffold
 from beacon.core import snapshot as snapshot_mod
 from beacon.core.discovery import DiscoveryError
-from beacon.core.limits import FIELD_ENV_VARS, LimitError, ResourceLimits
+from beacon.core.limits import (
+    FIELD_ENV_VARS,
+    LIMIT_SNAPSHOT_BYTES,
+    LimitError,
+    ResourceLimits,
+    read_bytes_bounded,
+)
 from beacon.core.loader import ManifestError
 from beacon.core.paths import UnsafeCanonicalPath, resolve_canonical_path
 from beacon.core.scaffold import OPERATION_REFUSED, InitReport
@@ -789,16 +796,11 @@ def _build_impl(
 ) -> int:
     from beacon.build.policy import BuildError, resolve_project_facts
     from beacon.build.project import (
-        ACK_GUARDRAILS_MISSING,
-        ACK_TEST_COMMAND_MISSING,
         build_raw_manifest,
         manifest_bytes_sha256,
         render_manifest_yaml,
     )
-    from beacon.build.snapshot import load_snapshot
     from beacon.core.loader import parse_manifest
-    from beacon.core.policy import Acknowledgement
-    from beacon.core.snapshot import SnapshotError as CoreSnapshotError
     from beacon.core.validator import ManifestValidationError, require_valid_manifest
     from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
 
@@ -827,10 +829,11 @@ def _build_impl(
         )
     base_dir = Path(repo) if repo else Path.cwd()
     root_dir = Path(docs_root) if docs_root else base_dir
+    # The build's own inputs are never output targets, not even with --force.
+    protected_inputs = tuple(Path(path) for path in (menhir_evidence, intent) if path)
     target: Path | None = None
-    if to_stdout:
-        target = None
-    else:
+    snapshot_path: Path | None = None
+    if not to_stdout:
         try:
             target = scaffold.resolve_output_path(root_dir, out)
         except UnsafeCanonicalPath as exc:
@@ -839,13 +842,24 @@ def _build_impl(
             ) from exc
         except LimitError as exc:
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-        if target.exists() and (target.is_symlink() or target.is_dir()):
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
-            )
-        if target.exists() and not force:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
+        _preflight_build_manifest_target(
+            target, force=force, limits=limits, protected=protected_inputs
+        )
+        if snapshot_out:
+            # The snapshot output resolves next to the manifest and must stay
+            # inside the same root --out is confined to (--repo, or
+            # --docs-root when given).
+            snapshot_path = _resolve_build_snapshot_path(snapshot_out, target, root_dir)
+            # A snapshot target that is a build input or the manifest is refused
+            # here; the exists/--force rule runs after projection so that a
+            # collision with a canonical document is reported as such.
+            _preflight_build_snapshot_target(
+                snapshot_path,
+                target,
+                force=True,
+                limits=limits,
+                protected=protected_inputs,
+                check_existing=False,
             )
     docs_home = target.parent if target is not None else root_dir
 
@@ -920,50 +934,22 @@ def _build_impl(
             sys.stdout.flush()
         return EXIT_OK
 
-    _atomic_write_bytes(target, data)
-
-    # -- optional canonical snapshot (reuses the v0.2 writer end to end) ------
-    snapshot_sha: str | None = None
-    snapshot_path: Path | None = None
-    if snapshot_out:
-        snapshot_path = Path(snapshot_out)
-        if not snapshot_path.is_absolute():
-            # Repo-relative snapshot outputs resolve next to the manifest.
-            snapshot_path = target.parent / snapshot_path
-        _preflight_build_snapshot_output(snapshot_path, target, manifest_obj, root_dir)
-        acknowledgements = (
-            Acknowledgement(code=ACK_GUARDRAILS_MISSING[0], reason=ACK_GUARDRAILS_MISSING[1]),
-            Acknowledgement(code=ACK_TEST_COMMAND_MISSING[0], reason=ACK_TEST_COMMAND_MISSING[1]),
+    # -- every remaining gate runs before any write ----------------------------
+    # The output checks are repeated (source collection may have taken a
+    # while) and extended with the projected canonical documents; the
+    # snapshot policy gate and the reader check run on a temporary sibling of
+    # the manifest. Only when all of them pass is anything replaced, so a
+    # refused build leaves the previous manifest and snapshot untouched.
+    _preflight_build_manifest_target(target, force=force, limits=limits, protected=protected_inputs)
+    _refuse_build_output_over_canonical_doc(target, manifest_obj, docs_home)
+    if snapshot_path is not None:
+        # Collision with a canonical document is reported before the generic
+        # exists/--force rule: it names the actual hazard.
+        _preflight_build_snapshot_output(snapshot_path, target, manifest_obj, docs_home)
+        _preflight_build_snapshot_target(
+            snapshot_path, target, force=force, limits=limits, protected=protected_inputs
         )
-        try:
-            snap = snapshot_mod.build_snapshot(
-                target,
-                docs_root=target.parent,
-                content_mode=snapshot_mod.CONTENT_EMBEDDED,
-                acknowledgements=acknowledgements,
-                limits=limits,
-            )
-            snapshot_mod.write_snapshot_atomic(snapshot_path, snap, byte_ceiling=snap.byte_ceiling)
-        except CoreSnapshotError as exc:
-            raise cli_support.CliFailure(
-                EXIT_VALIDATION if "policy" in exc.code or "security" in exc.code else EXIT_INPUT,
-                exc.code,
-                str(exc),
-            ) from exc
-        except LimitError as exc:
-            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-        except OSError as exc:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
-            ) from exc
-        # Load back through the reader to guarantee the artifact is servable.
-        try:
-            loaded = load_snapshot(snapshot_path, limits=limits)
-        except Exception as exc:  # noqa: BLE001 - reader errors are stable codes
-            raise cli_support.CliFailure(
-                EXIT_INTERNAL, "build_snapshot_unreadable", "written snapshot failed to load back"
-            ) from exc
-        snapshot_sha = loaded.manifest.source_sha256
+    snapshot_sha = _write_build_outputs(target, data, snapshot_path, limits)
 
     payload = {
         "manifest_path": str(target),
@@ -1010,9 +996,15 @@ def _text_build(payload: dict[str, Any]) -> None:
         typer.echo(f"  snapshot: {payload['snapshot_path']}")
 
 
-def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    """Atomically replace *path* with *data* (temp file + fsync + rename)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _write_temp_sibling(path: Path, data: bytes) -> str:
+    """Write *data* to a fsynced temporary file next to *path*; return its name."""
     handle = tempfile.NamedTemporaryFile(
         mode="wb", dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp", delete=False
     )
@@ -1022,35 +1014,256 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+    except BaseException:
+        _unlink_quietly(temp_name)
+        raise
+    return temp_name
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Atomically replace *path* with *data* (temp file + fsync + rename)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = _write_temp_sibling(path, data)
+    try:
         os.replace(temp_name, path)
-    except OSError:
-        try:
-            os.unlink(temp_name)
-        except OSError:
-            pass
+    except BaseException:
+        _unlink_quietly(temp_name)
         raise
 
 
-def _preflight_build_snapshot_output(
-    snapshot_path: Path, manifest_target: Path, manifest_obj: Any, root_dir: Path
-) -> None:
-    """Refuse a snapshot output colliding with the manifest or a canonical doc."""
+def _write_build_outputs(
+    target: Path, data: bytes, snapshot_path: Path | None, limits: ResourceLimits
+) -> str | None:
+    """Write the manifest and optional snapshot; every gate has already passed.
+
+    With a snapshot, the manifest bytes go to a temporary sibling first (so
+    canonical docs resolve exactly as they will for the final file), the
+    snapshot is built -- policy gate included -- and verified through the
+    reader, and only then is the snapshot written and the manifest renamed
+    into place. Any refusal removes the temporary file and replaces nothing.
+    Returns the snapshot's recorded manifest digest, or ``None``.
+    """
+    if snapshot_path is None:
+        _atomic_write_bytes(target, data)
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = _write_temp_sibling(target, data)
+    committed = False
     try:
-        out_resolved = snapshot_path.resolve()
+        snap, snapshot_sha = _build_verified_snapshot(Path(temp_name), target.parent, limits)
+        try:
+            snapshot_mod.write_snapshot_atomic(snapshot_path, snap, byte_ceiling=snap.byte_ceiling)
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        except OSError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
+            ) from exc
+        os.replace(temp_name, target)
+        committed = True
+    finally:
+        if not committed:
+            _unlink_quietly(temp_name)
+    return snapshot_sha
+
+
+def _build_verified_snapshot(
+    manifest_file: Path, docs_root: Path, limits: ResourceLimits
+) -> tuple[snapshot_mod.Snapshot, str]:
+    """Build the canonical snapshot (v0.2 writer end to end) and verify it loads."""
+    from beacon.build.project import ACK_GUARDRAILS_MISSING, ACK_TEST_COMMAND_MISSING
+    from beacon.build.snapshot import snapshot_from_payload
+    from beacon.core.policy import Acknowledgement
+
+    acknowledgements = (
+        Acknowledgement(code=ACK_GUARDRAILS_MISSING[0], reason=ACK_GUARDRAILS_MISSING[1]),
+        Acknowledgement(code=ACK_TEST_COMMAND_MISSING[0], reason=ACK_TEST_COMMAND_MISSING[1]),
+    )
+    try:
+        snap = snapshot_mod.build_snapshot(
+            manifest_file,
+            docs_root=docs_root,
+            content_mode=snapshot_mod.CONTENT_EMBEDDED,
+            acknowledgements=acknowledgements,
+            limits=limits,
+        )
+        encoded = snapshot_mod.snapshot_bytes(snap)
+    except snapshot_mod.SnapshotError as exc:
+        raise cli_support.CliFailure(
+            EXIT_VALIDATION if "policy" in exc.code or "security" in exc.code else EXIT_INPUT,
+            exc.code,
+            str(exc),
+        ) from exc
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    except OSError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
+        ) from exc
+    # Load the exact bytes back through the reader before anything is written,
+    # so an artifact that would not be servable is never published.
+    try:
+        verified = snapshot_from_payload(json.loads(encoded.decode("utf-8")))
+    except Exception as exc:  # noqa: BLE001 - reader errors are stable codes
+        raise cli_support.CliFailure(
+            EXIT_INTERNAL, "build_snapshot_unreadable", "built snapshot failed to load back"
+        ) from exc
+    return snap, verified.manifest.source_sha256
+
+
+def _same_path(first: Path, second: Path) -> bool:
+    """Return whether two paths name the same file (symlinks and case aware)."""
+    try:
+        if first.exists() and second.exists():
+            return os.path.samefile(first, second)
+        return os.path.normcase(str(first.resolve())) == os.path.normcase(str(second.resolve()))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _preflight_build_manifest_target(
+    target: Path, *, force: bool, limits: ResourceLimits, protected: tuple[Path, ...]
+) -> None:
+    """Refuse a manifest output that is a build input, unusable, or not replaceable.
+
+    ``--force`` replaces only a file that is recognizably a Beacon manifest
+    (the v0.2 ``init --force`` rule); a build input is never replaced.
+    """
+    if any(_same_path(target, path) for path in protected):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_output_protected", "output path is a build input"
+        )
+    if target.is_symlink() or target.is_dir():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
+        )
+    if target.exists():
+        if not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
+            )
+        if not scaffold.is_recognizable_manifest(target, limits=limits):
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_output_not_manifest",
+                "existing output is not a Beacon manifest; --force replaces only a manifest",
+            )
+
+
+def _refuse_build_output_over_canonical_doc(
+    target: Path, manifest_obj: Any, docs_root: Path
+) -> None:
+    """Refuse a manifest output that is one of the projected canonical documents."""
+    for doc in manifest_obj.canonical_docs:
+        try:
+            doc_target = resolve_canonical_path(docs_root, doc.path)
+        except UnsafeCanonicalPath:
+            continue
+        if _same_path(target, doc_target):
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_protected", "output path is a canonical document"
+            )
+
+
+def _resolve_build_snapshot_path(snapshot_out: str, target: Path, root_dir: Path) -> Path:
+    """Resolve ``--snapshot-out`` next to the manifest, contained in *root_dir*.
+
+    Relative paths resolve against the manifest's directory; absolute paths
+    are accepted only inside *root_dir*. Containment is checked on the fully
+    resolved path, so ``..`` and symlinked components cannot escape.
+    """
+    candidate = Path(snapshot_out)
+    if not candidate.is_absolute():
+        candidate = target.parent / candidate
+    try:
+        resolved = candidate.resolve()
+        root_resolved = root_dir.resolve()
     except (OSError, RuntimeError) as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "build_snapshot_path_invalid", "invalid snapshot path"
         ) from exc
-    if out_resolved == manifest_target.resolve():
+    if resolved == root_resolved or not resolved.is_relative_to(root_resolved):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_path_invalid", "snapshot output escapes the output root"
+        )
+    if candidate.is_symlink() or resolved.is_dir():
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_snapshot_path_invalid",
+            "snapshot output exists and is not a regular file",
+        )
+    return resolved
+
+
+def _is_beacon_snapshot(path: Path, limits: ResourceLimits) -> bool:
+    """Return whether *path* is recognizably a Beacon snapshot (bounded read)."""
+    try:
+        raw = read_bytes_bounded(
+            path, ceiling=limits.snapshot_bytes, code=LIMIT_SNAPSHOT_BYTES, field="snapshot_bytes"
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, LimitError, UnicodeDecodeError, ValueError):
+        return False
+    return isinstance(payload, dict) and "beacon_snapshot_version" in payload
+
+
+def _preflight_build_snapshot_target(
+    snapshot_path: Path,
+    manifest_target: Path,
+    *,
+    force: bool,
+    limits: ResourceLimits,
+    protected: tuple[Path, ...],
+    check_existing: bool = True,
+) -> None:
+    """Refuse a snapshot output that collides with an input or is not replaceable.
+
+    Overwriting requires ``--force``, and ``--force`` replaces only a file
+    that is recognizably a Beacon snapshot (skipped when *check_existing* is
+    false; the caller runs that rule later).
+    """
+    if _same_path(snapshot_path, manifest_target):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with the manifest"
+        )
+    if any(_same_path(snapshot_path, path) for path in protected):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with a build input"
+        )
+    if check_existing and snapshot_path.exists():
+        if not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_output_exists",
+                "snapshot output already exists (use --force to replace)",
+            )
+        if not _is_beacon_snapshot(snapshot_path, limits):
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_not_replaceable",
+                "existing snapshot output is not a Beacon snapshot; --force replaces only one",
+            )
+
+
+def _preflight_build_snapshot_output(
+    snapshot_path: Path, manifest_target: Path, manifest_obj: Any, docs_root: Path
+) -> None:
+    """Refuse a snapshot output colliding with the manifest or a canonical doc.
+
+    Canonical documents resolve against *docs_root* -- the directory the
+    manifest is written to, exactly as the projection and the snapshot
+    builder resolve them.
+    """
+    if _same_path(snapshot_path, manifest_target):
         raise cli_support.CliFailure(
             EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with the manifest"
         )
     for doc in manifest_obj.canonical_docs:
         try:
-            doc_target = resolve_canonical_path(root_dir, doc.path)
+            doc_target = resolve_canonical_path(docs_root, doc.path)
         except UnsafeCanonicalPath:
             continue
-        if out_resolved == doc_target.resolve():
+        if _same_path(snapshot_path, doc_target):
             raise cli_support.CliFailure(
                 EXIT_INPUT,
                 "build_snapshot_collision",

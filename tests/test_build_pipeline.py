@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404 - fixed-argv local git fixture setup only
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -807,3 +808,242 @@ def test_build_cli_intent_concept_id_reserves_generated_ids(tmp_path: Path) -> N
     assert result.exit_code == 0, result.output
     ids = [c["id"] for c in yaml.safe_load(result.stdout)["core_concepts"]]
     assert ids == ["project-structure", "project-structure-2"]
+
+
+# ---------------------------------------------------------------------------
+# Output safety (F1-F4)
+# ---------------------------------------------------------------------------
+
+
+def _codes(result: Any) -> set[str]:
+    envelope = json.loads(result.output)
+    return {d["code"] for d in envelope["diagnostics"]}
+
+
+def _build_args(root: Path, evidence: Path, *extra: str) -> list[str]:
+    return [
+        "build",
+        "--repo",
+        str(root),
+        "--menhir-evidence",
+        str(evidence),
+        "--format",
+        "json",
+        *extra,
+    ]
+
+
+def _with_undocumented_decision(evidence: Path) -> None:
+    # A decision without a summary is a concept_definition_missing publication
+    # warning: the snapshot policy gate refuses it.
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["decisions"] = [{"title": "Undocumented decision"}]
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_snapshot_out_cannot_overwrite_canonical_doc_of_nested_manifest(tmp_path: Path) -> None:
+    """F1 repro: docs resolve against the --out directory, so must the guard."""
+    root = _fixture_repo(tmp_path)
+    (root / "sub").mkdir()
+    nested_readme = root / "sub" / "README.md"
+    nested_readme.write_text("# Nested\nThe real source doc.\n", encoding="utf-8")
+    evidence = _evidence_file(root, ["README.md"])
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--out", "sub/gen.yaml", "--snapshot-out", "README.md"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_collision" in _codes(result)
+    assert nested_readme.read_text(encoding="utf-8") == "# Nested\nThe real source doc.\n"
+    assert not (root / "sub" / "gen.yaml").exists()
+
+
+@pytest.mark.parametrize("escape", ["../escaped.json", "../../escaped.json"])
+def test_snapshot_out_is_contained_in_the_repo(tmp_path: Path, escape: str) -> None:
+    root = _fixture_repo(tmp_path / "work" / "repo")
+    evidence = _evidence_file(root, ["README.md"])
+    result = runner.invoke(
+        app, _build_args(root, evidence, "--snapshot-out", escape), catch_exceptions=False
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_path_invalid" in _codes(result)
+    assert not (root / escape).resolve().exists()
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_snapshot_out_absolute_path_outside_repo_is_refused(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path / "repo")
+    evidence = _evidence_file(root, ["README.md"])
+    outside = tmp_path / "elsewhere.json"
+    result = runner.invoke(
+        app, _build_args(root, evidence, "--snapshot-out", str(outside)), catch_exceptions=False
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_path_invalid" in _codes(result)
+    assert not outside.exists()
+
+
+def test_snapshot_out_refuses_existing_file_without_force(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    important = root / "important.json"
+    important.write_text('{"keep": true}', encoding="utf-8")
+    result = runner.invoke(
+        app, _build_args(root, evidence, "--snapshot-out", "important.json"), catch_exceptions=False
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_output_exists" in _codes(result)
+    assert important.read_text(encoding="utf-8") == '{"keep": true}'
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_snapshot_out_force_replaces_only_a_beacon_snapshot(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    important = root / "important.json"
+    important.write_text('{"keep": true}', encoding="utf-8")
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--snapshot-out", "important.json", "--force"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_not_replaceable" in _codes(result)
+    assert important.read_text(encoding="utf-8") == '{"keep": true}'
+
+
+def test_snapshot_out_cannot_overwrite_the_evidence_input(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    before = evidence.read_bytes()
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--snapshot-out", evidence.name, "--force"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_snapshot_collision" in _codes(result)
+    assert evidence.read_bytes() == before
+
+
+def test_force_does_not_replace_a_canonical_doc(tmp_path: Path) -> None:
+    """F3 repro: --out README.md --force used to replace the source doc."""
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    before = (root / "README.md").read_bytes()
+    result = runner.invoke(
+        app, _build_args(root, evidence, "--out", "README.md", "--force"), catch_exceptions=False
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_output_not_manifest" in _codes(result)
+    assert (root / "README.md").read_bytes() == before
+
+
+def test_force_does_not_replace_a_manifest_shaped_canonical_doc(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    other = root / "other.yaml"
+    other.write_text(
+        'beacon_version: "0.1"\nproject:\n  name: other\n  description: Other.\n',
+        encoding="utf-8",
+    )
+    evidence = _evidence_file(root, ["README.md", "other.yaml"])
+    before = other.read_bytes()
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--out", "other.yaml", "--force"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_output_protected" in _codes(result)
+    assert other.read_bytes() == before
+
+
+def test_force_does_not_replace_the_evidence_input(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    before = evidence.read_bytes()
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--out", evidence.name, "--force"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_output_protected" in _codes(result)
+    assert evidence.read_bytes() == before
+
+
+def test_force_does_not_replace_the_intent_input(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    intent = root / "beacon.yaml"
+    intent.write_text(_INTENT, encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "--intent",
+            str(intent),
+            "--repo",
+            str(root),
+            "--out",
+            "beacon.yaml",
+            "--force",
+            "--format",
+            "json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "build_output_protected" in _codes(result)
+    assert intent.read_text(encoding="utf-8") == _INTENT
+
+
+def test_force_replaces_a_previous_generated_manifest(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    assert runner.invoke(app, _build_args(root, evidence)).exit_code == 0
+    again = runner.invoke(app, _build_args(root, evidence, "--force"), catch_exceptions=False)
+    assert again.exit_code == 0, again.output
+
+
+def test_failed_snapshot_policy_leaves_no_manifest(tmp_path: Path) -> None:
+    """F4: every gate runs before any write; a refused build changes nothing."""
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    _with_undocumented_decision(evidence)
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--snapshot-out", "beacon.snapshot.json"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1, result.output
+    assert "snapshot_blocked_policy" in _codes(result)
+    assert not (root / "beacon.generated.yaml").exists()
+    assert not (root / "beacon.snapshot.json").exists()
+    assert not [p.name for p in root.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_failed_snapshot_policy_keeps_previous_manifest_under_force(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    assert runner.invoke(app, _build_args(root, evidence)).exit_code == 0
+    manifest = root / "beacon.generated.yaml"
+    good = manifest.read_bytes()
+    _with_undocumented_decision(evidence)
+    result = runner.invoke(
+        app,
+        _build_args(root, evidence, "--snapshot-out", "beacon.snapshot.json", "--force"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1, result.output
+    assert manifest.read_bytes() == good
+
+
+def test_snapshot_collision_leaves_no_manifest(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    result = runner.invoke(
+        app, _build_args(root, evidence, "--snapshot-out", "README.md"), catch_exceptions=False
+    )
+    assert result.exit_code == 2, result.output
+    assert not (root / "beacon.generated.yaml").exists()
