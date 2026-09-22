@@ -1,0 +1,74 @@
+{
+  "beacon_snapshot_version": "1.0",
+  "generator": {
+    "distribution": "archolith-beacon",
+    "version": "0.2.0rc1"
+  },
+  "content_mode": "embedded",
+  "project": {
+    "name": "snapshot-fixture-project",
+    "status": "current",
+    "repository": "https://example.com/org/snapshot-fixture-project"
+  },
+  "manifest": {
+    "beacon_version": "0.1",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "data": {
+      "beacon_version": "0.1",
+      "project": {
+        "name": "snapshot-fixture-project",
+        "description": "A fixture project for snapshot schema tests.",
+        "status": "current"
+      },
+      "purpose": {
+        "one_sentence": "Exercise the canonical snapshot schema."
+      },
+      "audiences": ["agent"],
+      "current_focus": ["snapshots"],
+      "core_concepts": [
+        {
+          "id": "concept-a",
+          "name": "Concept A",
+          "definition": "A fixture concept definition.",
+          "status": "current"
+        }
+      ],
+      "canonical_docs": [
+        {
+          "path": "README.md",
+          "role": "entrypoint",
+          "status": "current",
+          "title": "Read Me"
+        }
+      ]
+    }
+  },
+  "documents": [
+    {
+      "path": "README.md",
+      "role": "entrypoint",
+      "status": "current",
+      "title": "Read Me",
+      "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "chunks": [
+        {
+          "heading_path": ["One"],
+          "line_start": 3,
+          "line_end": 3,
+          "text": "body one."
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "errors": 0,
+    "warnings": 1,
+    "acknowledgements": [
+      {
+        "code": "test_command_missing",
+        "reason": "Manual smoke tests cover this fixture."
+      }
+    ],
+    "security_overrides": []
+  }
+}

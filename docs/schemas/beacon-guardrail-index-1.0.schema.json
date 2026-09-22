@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:guardrail-index:1.0",
+  "title": "Beacon Guardrail Index 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["guardrail_index_version", "beacon_version", "snapshot", "item_url_template", "count", "guardrails"],
+  "properties": {
+    "guardrail_index_version": {"const": "1.0"},
+    "beacon_version": {"type": "string", "minLength": 1},
+    "snapshot": {"$ref": "#/$defs/snapshot"},
+    "item_url_template": {"const": "/v1/guardrails/{id}"},
+    "count": {"type": "integer", "minimum": 0},
+    "guardrails": {"type": "array", "items": {"$ref": "#/$defs/guardrailEntry"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resourceId": {"type": "string", "pattern": "^g1-[0-9a-f]{32}$"},
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "schema_version"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"const": "1.0"}
+      }
+    },
+    "guardrailEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "id", "severity", "scope", "bytes", "sha256"],
+      "properties": {
+        "resource_id": {"$ref": "#/$defs/resourceId"},
+        "id": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "minLength": 1},
+        "scope": {"type": "string"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

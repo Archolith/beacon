@@ -21,7 +21,5 @@ class AgentOnboardingTool(BeaconBaseTool):
         risk_tolerance: str = "low",
     ) -> str:
         provider = self.get_provider()
-        result = provider.agent_onboarding(
-            task_hint=task_hint, risk_tolerance=risk_tolerance
-        )
+        result = provider.agent_onboarding(task_hint=task_hint, risk_tolerance=risk_tolerance)
         return self.render_answer(result)

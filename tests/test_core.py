@@ -8,15 +8,19 @@ from pathlib import Path
 import pytest
 import yaml
 
+from beacon.core.doc_index import DocIndex
 from beacon.core.loader import ManifestError, load_beacon_manifest, parse_manifest
+from beacon.core.paths import (
+    CODE_UNSAFE_CANONICAL_PATH,
+    UnsafeCanonicalPath,
+    resolve_canonical_path,
+)
 from beacon.core.schema import BeaconManifest
 from beacon.core.validator import (
     ManifestValidationError,
     require_valid_manifest,
     validate_beacon_manifest,
 )
-from beacon.core.doc_index import DocIndex
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -87,14 +91,64 @@ def test_loader_parses_concepts(tmp_path: Path) -> None:
 
 def test_loader_parses_guardrails(tmp_path: Path) -> None:
     raw = dict(MINIMAL_RAW)
-    raw["guardrails"] = [
-        {"id": "g1", "rule": "Never do X.", "severity": "high", "scope": "schema"}
-    ]
+    raw["guardrails"] = [{"id": "g1", "rule": "Never do X.", "severity": "high", "scope": "schema"}]
     _write_readme(tmp_path)
     manifest = parse_manifest(raw)
     assert len(manifest.guardrails) == 1
     assert manifest.guardrails[0].id == "g1"
     assert manifest.guardrails[0].severity == "high"
+
+
+def test_loader_parses_optional_project_state() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {
+        "active_work": {
+            "title": "Ship status",
+            "summary": "Expose current work.",
+            "next_step": "Add the route.",
+            "sources": [{"path": "README.md", "line_start": 1, "line_end": 2}],
+        },
+        "recently_completed": [{"title": "Chunk retrieval"}],
+        "blockers": [],
+        "pending_decisions": [{"title": "Summary budget"}],
+    }
+
+    state = parse_manifest(raw).project_state
+
+    assert state.active_work is not None
+    assert state.active_work.title == "Ship status"
+    assert state.active_work.next_step == "Add the route."
+    assert state.active_work.sources[0].path == "README.md"
+    assert state.recently_completed[0].title == "Chunk retrieval"
+    assert state.pending_decisions[0].title == "Summary budget"
+
+
+@pytest.mark.parametrize(
+    ("project_state", "match"),
+    (
+        (None, "project_state must be a mapping"),
+        ({"active_work": None}, "project_state.active_work must be a mapping"),
+        ({"active_work": {}}, "needs a 'title'"),
+        ({"blockers": None}, "project_state.blockers must be a list"),
+        ({"blockers": [{"title": 42}]}, "title must be a string"),
+    ),
+)
+def test_loader_rejects_malformed_project_state(project_state: object, match: str) -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = project_state
+    with pytest.raises(ManifestError, match=match):
+        parse_manifest(raw)
+
+
+def test_loader_bounds_project_state_items_and_text() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {"blockers": [{"title": "x"}] * 65}
+    with pytest.raises(ManifestError, match="at most 64 items"):
+        parse_manifest(raw)
+
+    raw["project_state"] = {"active_work": {"title": "x" * 513}}
+    with pytest.raises(ManifestError, match="at most 512 characters"):
+        parse_manifest(raw)
 
 
 def test_loader_concept_requires_id(tmp_path: Path) -> None:
@@ -108,6 +162,112 @@ def test_loader_doc_requires_path(tmp_path: Path) -> None:
     raw = dict(MINIMAL_RAW)
     raw["canonical_docs"] = [{"role": "entrypoint"}]
     with pytest.raises(ManifestError, match="path"):
+        parse_manifest(raw)
+
+
+# ---------------------------------------------------------------------------
+# Loader strict typing — no scalar/list coercion to str, no raw ValueError
+# ---------------------------------------------------------------------------
+
+
+def test_loader_accepts_typed_string_values(tmp_path: Path) -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [
+        {
+            "id": "c",
+            "name": "C",
+            "description": "def",
+            "sources": [{"type": "doc", "path": "a.md", "line_start": 1, "line_end": 5}],
+        }
+    ]
+    manifest = parse_manifest(raw)
+    src = manifest.core_concepts[0].sources[0]
+    assert src.line_start == 1
+    assert src.line_end == 5
+    assert src.type == "doc"
+
+
+def test_loader_rejects_non_string_project_name() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project"] = {"name": 123, "description": "d"}
+    with pytest.raises(ManifestError, match="project.name"):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_bool_beacon_version() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["beacon_version"] = True
+    with pytest.raises(ManifestError, match="beacon_version"):
+        parse_manifest(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("beacon_version", None, "beacon_version"),
+        ("audiences", None, "string or list"),
+        ("purpose", None, "purpose must be a mapping"),
+    ],
+)
+def test_loader_rejects_explicit_null(field: str, value: object, match: str) -> None:
+    raw = dict(MINIMAL_RAW)
+    raw[field] = value
+    with pytest.raises(ManifestError, match=match):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_non_string_list_element() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["audiences"] = ["agents", 42]
+    with pytest.raises(ManifestError, match="non-string"):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_non_string_definition() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [{"id": "c", "name": "C", "description": ["not a string"]}]
+    with pytest.raises(ManifestError, match="definition"):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_line_start_bool() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [
+        {"id": "c", "name": "C", "description": "d", "sources": [{"line_start": True}]}
+    ]
+    with pytest.raises(ManifestError, match="line_start"):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_non_positive_line() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [
+        {"id": "c", "name": "C", "description": "d", "sources": [{"line_start": 0}]}
+    ]
+    with pytest.raises(ManifestError, match="line_start"):
+        parse_manifest(raw)
+
+
+def test_loader_rejects_line_end_before_start() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [
+        {
+            "id": "c",
+            "name": "C",
+            "description": "d",
+            "sources": [{"line_start": 10, "line_end": 3}],
+        }
+    ]
+    with pytest.raises(ManifestError, match="line_end"):
+        parse_manifest(raw)
+
+
+def test_loader_line_malformed_raises_manifest_error_not_valueerror() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["core_concepts"] = [
+        {"id": "c", "name": "C", "description": "d", "sources": [{"line_start": "abc"}]}
+    ]
+    with pytest.raises(ManifestError):
         parse_manifest(raw)
 
 
@@ -154,6 +314,34 @@ def test_validator_duplicate_concept_id() -> None:
     assert any("duplicate concept id" in e.message for e in report.errors)
 
 
+def test_validator_reports_missing_doc_when_stat_raises_name_too_long(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canonical doc path past the platform PATH_MAX must be a missing-file error.
+
+    On macOS (PATH_MAX 1024) ``stat`` raises ENAMETOOLONG for a resolved path just
+    under Beacon's own 1024-byte ``path_bytes`` limit, and ``Path.is_file`` before
+    Python 3.14 re-raises it: CI run 35671989668 showed ``validate`` exiting 3
+    ``internal_error`` on the macOS 3.12/3.13 legs only. Injected here so every
+    platform pins the behaviour without needing a filesystem that enforces it.
+    """
+    import errno
+
+    _write_readme(tmp_path)
+    manifest = parse_manifest(dict(MINIMAL_RAW))
+    original_is_file = Path.is_file
+
+    def _is_file(self: Path, *args: object, **kwargs: object) -> bool:
+        if self.name == "README.md":
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+        return original_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", _is_file)
+    report = validate_beacon_manifest(manifest, docs_root=tmp_path)
+    codes = [issue.code for issue in report.errors]
+    assert "canonical_doc_missing_file" in codes
+
+
 def test_validator_missing_canonical_docs() -> None:
     raw = dict(MINIMAL_RAW)
     raw["canonical_docs"] = []
@@ -183,13 +371,105 @@ def test_require_valid_manifest_raises_on_error() -> None:
 
 def test_validator_unknown_status_is_warning() -> None:
     raw = dict(MINIMAL_RAW)
-    raw["core_concepts"] = [
-        {"id": "x", "name": "X", "description": "d", "status": "banana"}
-    ]
+    raw["core_concepts"] = [{"id": "x", "name": "X", "description": "d", "status": "banana"}]
     manifest = parse_manifest(raw)
     report = validate_beacon_manifest(manifest)
     assert report.ok  # warning only, not error
     assert any("unknown status" in w.message for w in report.warnings)
+
+
+def test_validator_checks_project_and_source_statuses() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project"] = {
+        "name": "test-project",
+        "description": "A test.",
+        "status": "banana",
+    }
+    raw["core_concepts"] = [
+        {
+            "id": "x",
+            "description": "d",
+            "sources": [{"path": "README.md", "status": "banana"}],
+        }
+    ]
+    report = validate_beacon_manifest(parse_manifest(raw))
+
+    invalid = [issue.where for issue in report.warnings if "unknown status" in issue.message]
+    assert "project.status" in invalid
+    assert "core_concepts[x].sources[].status" in invalid
+
+
+def test_validator_requires_sources_for_declared_project_state() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["project_state"] = {"active_work": {"title": "Unsourced active work"}}
+    report = validate_beacon_manifest(parse_manifest(raw))
+
+    assert any(issue.code == "project_state_sources_missing" for issue in report.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Canonical path boundary — absolute / traversal / symlink escape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "/etc/passwd",
+        "C:\\Windows\\secret.txt",
+        "C:/Windows/secret.txt",
+        "\\\\server\\share\\secret",
+        "//server/share",
+        "../outside.md",
+        "sub/../../outside.md",
+        "..\\outside.md",
+    ],
+)
+def test_validator_rejects_unsafe_canonical_path(tmp_path: Path, unsafe: str) -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["canonical_docs"] = [{"path": unsafe, "status": "current"}]
+    manifest = parse_manifest(raw)
+    report = validate_beacon_manifest(manifest, docs_root=tmp_path)
+    unsafe_issues = [e for e in report.errors if e.code == CODE_UNSAFE_CANONICAL_PATH]
+    assert unsafe_issues, f"expected unsafe_canonical_path for {unsafe!r}"
+    for issue in unsafe_issues:
+        assert unsafe not in issue.message  # never leak the escaped path
+
+
+def test_validator_unsafe_path_is_error_without_docs_root() -> None:
+    raw = dict(MINIMAL_RAW)
+    raw["canonical_docs"] = [{"path": "../escape.md", "status": "current"}]
+    manifest = parse_manifest(raw)
+    report = validate_beacon_manifest(manifest)
+    assert any(e.code == CODE_UNSAFE_CANONICAL_PATH for e in report.errors)
+
+
+def test_resolve_canonical_path_preserves_valid_relative(tmp_path: Path) -> None:
+    resolved = resolve_canonical_path(tmp_path, "subdir/file.md")
+    assert resolved == tmp_path.resolve() / "subdir" / "file.md"
+
+
+def test_doc_index_rejects_unsafe_path_even_without_validation(tmp_path: Path) -> None:
+    from beacon.core.schema import BeaconDoc
+
+    docs = [BeaconDoc(path="../escape.md")]
+    with pytest.raises(UnsafeCanonicalPath):
+        DocIndex.from_docs(docs, docs_root=tmp_path)
+
+
+def test_doc_index_rejects_symlink_escape(tmp_path: Path) -> None:
+    from beacon.core.schema import BeaconDoc
+
+    outside = tmp_path.parent / "outside.md"
+    outside.write_text("secret", encoding="utf-8")
+    link = tmp_path / "link.md"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation not permitted on this platform")
+    docs = [BeaconDoc(path="link.md")]
+    with pytest.raises(UnsafeCanonicalPath):
+        DocIndex.from_docs(docs, docs_root=tmp_path)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+# Beacon exports (snapshot source_sha256, artifact digests, /v1/status source
+# evidence) are computed over the exact on-disk bytes of beacon.yaml and the
+# canonical documents. Pin LF for every file that can feed an export so a
+# Windows checkout (core.autocrlf=true) produces the same bytes as Linux/macOS.
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+examples/** text eol=lf
+tests/fixtures/** text eol=lf

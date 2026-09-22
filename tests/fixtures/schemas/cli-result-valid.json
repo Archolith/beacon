@@ -1,0 +1,35 @@
+{
+  "schema": "beacon.cli-result",
+  "schema_version": "1.0",
+  "command": "validate",
+  "ok": false,
+  "result": {
+    "servable": false,
+    "publishable": false,
+    "errors": 1,
+    "warnings": 2,
+    "acknowledged": 1
+  },
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "project_name_missing",
+      "path": "project.name",
+      "line": 3,
+      "message": "is required"
+    },
+    {
+      "severity": "warning",
+      "code": "test_command_missing",
+      "path": "build_and_test.test",
+      "message": "no test command declared",
+      "acknowledged": true,
+      "acknowledgement_reason": "Manual smoke tests cover this package today."
+    },
+    {
+      "severity": "info",
+      "code": "limit_result_limit",
+      "message": "search results capped at configured ceiling"
+    }
+  ]
+}

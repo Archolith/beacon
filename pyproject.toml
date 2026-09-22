@@ -1,30 +1,78 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "beacon"
-version = "0.1.0"
-license = "MIT"
+name = "archolith-beacon"
+dynamic = ["version"]
 description = "Self-describing, machine-readable project knowledge surface for coding agents."
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Archolith" },
+]
+maintainers = [
+    { name = "Archolith" },
+]
+keywords = [
+    "mcp",
+    "coding-agent",
+    "agent",
+    "project-knowledge",
+    "manifest",
+    "documentation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "archolith-mcp-framework>=0.3.0",
     "fastmcp>=3.2.4,<4",
-    "pydantic>=2.0,<3",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
+    "starlette>=1.0.1,<2",
     "typer>=0.12,<1",
+    "uvicorn>=0.35,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/Archolith/beacon"
+Repository = "https://github.com/Archolith/beacon"
+Issues = "https://github.com/Archolith/beacon/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "build>=1.2",
+    "twine>=6",
+    "jsonschema>=4.20",
+    "ruff>=0.12",
+    "mypy>=1.15",
+]
+audit = [
+    "bandit>=1.8",
+    "pip-audit>=2.9",
+    "check-wheel-contents>=0.6",
+    "validate-pyproject[all]>=0.24",
 ]
 
 [project.scripts]
 beacon = "beacon.main:main"
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-]
+[tool.setuptools.dynamic]
+version = { attr = "beacon.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -33,12 +81,17 @@ where = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
 [tool.ruff.lint]
-# Declared explicitly rather than inherited from whatever the installed ruff
-# defaults to. Ruff 0.16 widened its default set, which is what turned
-# archolith-bench's CI red for two months with no code change: under 0.16
-# defaults this repo reports 24 findings, under the classic set it reports none.
-# Pinning the rule set here makes the gate depend on this file, not on the
-# linter version that happens to resolve. Widening it is a deliberate,
-# separate change with its own cleanup.
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+ignore = [
+    # Typer uses calls in defaults to declare CLI arguments and options.
+    "B008",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

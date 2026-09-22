@@ -42,11 +42,60 @@ audiences:
 
 current_focus:
   - manifest-driven MCP tools (v0, shipped)
+  - agent-first static HTTP tiers and selective knowledge retrieval
   - functional product roadmap from local publishing through an operable v1
   - CLI validation and inspection commands
   - demo transcript and client setup docs
   - example manifests for different project shapes
   - golden-output tests for each tool
+
+project_state:
+  active_work:
+    title: Bounded architecture summaries for HTTP orientation
+    summary: >
+      Turn the metadata-only orientation tier from a precise table of contents into a bounded
+      transfer of essential architecture and data-flow knowledge without forcing full-snapshot
+      retrieval.
+    next_step: >
+      Define the summary authoring, provenance, and byte-budget contract before adding summary
+      bodies to the orientation representation.
+    sources:
+      - type: doc
+        title: Functional product roadmap
+        path: docs/beacon-functional-product-roadmap.md
+        status: current
+  recently_completed:
+    - title: Verified project-status HTTP companion
+      summary: >
+        Added a source-cited declared-state model and immutable startup evidence for Git and source
+        freshness, with explicit self-reported trust semantics.
+      next_step: Restart the dogfood server from the committed tree and inspect the live payload.
+      sources:
+        - type: file
+          title: Status resource implementation
+          path: src/beacon/core/status.py
+          status: current
+  blockers:
+    - title: Genuinely unaided developer trial remains outstanding
+      summary: >
+        The external cold-start trial is still required before the v0.2 release gate can be closed.
+      next_step: Recruit an unaided participant and record the maintained scorecard.
+      sources:
+        - type: doc
+          title: Public release status
+          path: README.md
+          status: current
+  pending_decisions:
+    - title: Orientation summary authoring and byte budget
+      summary: >
+        Decide which summaries are human-authored, mechanically extracted, or conditionally
+        synthesized, and cap their cost before changing the orientation tier.
+      next_step: Write and review the companion contract before implementation.
+      sources:
+        - type: doc
+          title: Functional product roadmap
+          path: docs/beacon-functional-product-roadmap.md
+          status: current
 
 core_concepts:
   - id: beacon_manifest
@@ -61,6 +110,17 @@ core_concepts:
       Projects need a machine-readable front door. A human-authored YAML
       manifest is inspectable, version-controlled, and requires no external
       service.
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/core/loader.py
+      - src/beacon/core/validator.py
+    sources:
+      - type: file
+        title: BeaconManifest typed schema
+        path: src/beacon/core/schema.py
+        line_start: 139
+        line_end: 159
+        status: current
 
   - id: beacon_provider
     name: Beacon Provider
@@ -76,6 +136,16 @@ core_concepts:
       interface.
     related_concepts:
       - beacon_manifest
+    implementation_locations:
+      - src/beacon/provider/base.py
+      - src/beacon/provider/manifest_provider.py
+    sources:
+      - type: file
+        title: BeaconProvider Protocol
+        path: src/beacon/provider/base.py
+        line_start: 27
+        line_end: 59
+        status: current
 
   - id: answer_contract
     name: Answer Contract
@@ -90,6 +160,22 @@ core_concepts:
       answer contract makes every claim traceable and every uncertainty explicit.
     related_concepts:
       - beacon_provider
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/mcp/contracts.py
+    sources:
+      - type: file
+        title: Beacon answer-contract dataclasses
+        path: src/beacon/core/schema.py
+        line_start: 168
+        line_end: 238
+        status: current
+      - type: file
+        title: MCP answer rendering boundary
+        path: src/beacon/mcp/contracts.py
+        line_start: 46
+        line_end: 98
+        status: current
 
   - id: doc_index
     name: Doc Index
@@ -104,6 +190,22 @@ core_concepts:
       Heading-chunked keyword search is fast, honest, and easy to test.
     related_concepts:
       - beacon_manifest
+    implementation_locations:
+      - src/beacon/core/doc_index.py
+      - src/beacon/core/chunk_resources.py
+    sources:
+      - type: file
+        title: Deterministic Markdown DocIndex
+        path: src/beacon/core/doc_index.py
+        line_start: 68
+        line_end: 145
+        status: current
+      - type: file
+        title: Static chunk companion index and resources
+        path: src/beacon/core/chunk_resources.py
+        line_start: 40
+        line_end: 130
+        status: current
 
   - id: guardrails
     name: Guardrails
@@ -115,6 +217,30 @@ core_concepts:
     why_it_exists: >
       Agents need structured, machine-readable rules — not just a prose warning
       in a README that may or may not be read.
+    implementation_locations:
+      - src/beacon/core/schema.py
+      - src/beacon/provider/manifest_provider.py
+      - src/beacon/mcp/tools/guardrails.py
+      - src/beacon/core/knowledge_resources.py
+    sources:
+      - type: file
+        title: BeaconGuardrail schema
+        path: src/beacon/core/schema.py
+        line_start: 85
+        line_end: 94
+        status: current
+      - type: file
+        title: Guardrail answer composition
+        path: src/beacon/provider/manifest_provider.py
+        line_start: 254
+        line_end: 275
+        status: current
+      - type: file
+        title: Static concept and guardrail companion resources
+        path: src/beacon/core/knowledge_resources.py
+        line_start: 1
+        line_end: 284
+        status: current
 
 canonical_docs:
   - path: README.md
@@ -201,6 +327,13 @@ guardrails:
     applies_to:
       - src/beacon/provider/base.py
       - src/beacon/core/schema.py
+    sources:
+      - type: file
+        title: BeaconProvider public protocol
+        path: src/beacon/provider/base.py
+        line_start: 27
+        line_end: 59
+        status: current
 
   - id: no_manifest_schema_change
     scope: manifest_schema
@@ -213,6 +346,13 @@ guardrails:
       - src/beacon/core/loader.py
       - src/beacon/core/schema.py
       - src/beacon/core/validator.py
+    sources:
+      - type: file
+        title: BeaconManifest compatibility boundary
+        path: src/beacon/core/schema.py
+        line_start: 139
+        line_end: 159
+        status: current
 
   - id: no_new_tool_before_docs
     scope: mcp_surface
@@ -224,6 +364,19 @@ guardrails:
     applies_to:
       - src/beacon/mcp/tools/
       - src/beacon/mcp/server.py
+    sources:
+      - type: file
+        title: Five-tool registry
+        path: src/beacon/mcp/tools/__init__.py
+        line_start: 24
+        line_end: 36
+        status: current
+      - type: doc
+        title: Contribution surface policy
+        path: README.md
+        line_start: 473
+        line_end: 479
+        status: current
 
   - id: test_before_commit
     scope: development_process
@@ -234,3 +387,10 @@ guardrails:
     applies_to:
       - tests/
       - src/beacon/
+    sources:
+      - type: doc
+        title: Development test command
+        path: README.md
+        line_start: 481
+        line_end: 491
+        status: current

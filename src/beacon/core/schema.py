@@ -136,6 +136,26 @@ class BeaconBuildTest:
 
 
 @dataclass(frozen=True)
+class BeaconStateItem:
+    """One source-cited unit of maintainer-declared project state."""
+
+    title: str
+    summary: str = ""
+    next_step: str = ""
+    sources: tuple[BeaconSource, ...] = ()
+
+
+@dataclass(frozen=True)
+class BeaconProjectState:
+    """Optional current-work state published separately from project identity."""
+
+    active_work: BeaconStateItem | None = None
+    recently_completed: tuple[BeaconStateItem, ...] = ()
+    blockers: tuple[BeaconStateItem, ...] = ()
+    pending_decisions: tuple[BeaconStateItem, ...] = ()
+
+
+@dataclass(frozen=True)
 class BeaconManifest:
     """The parsed, typed representation of ``beacon.yaml``."""
 
@@ -149,6 +169,7 @@ class BeaconManifest:
     agent_guidance: BeaconAgentGuidance = field(default_factory=BeaconAgentGuidance)
     build_and_test: BeaconBuildTest = field(default_factory=BeaconBuildTest)
     guardrails: tuple[BeaconGuardrail, ...] = ()
+    project_state: BeaconProjectState = field(default_factory=BeaconProjectState)
 
     def concept_by_id(self, concept_id: str) -> BeaconConcept | None:
         """Return the concept whose id matches (case-insensitive), or None."""

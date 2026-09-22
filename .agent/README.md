@@ -19,6 +19,9 @@ Read everything in this directory before starting work.
 - Update `data_models.md` when any entity, DTO, or enum changes.
 - Update `architecture.md` when adding services, integrations, or structural changes.
 - Update the relevant workflow file when operational behavior changes.
+- Update `project_state` in `beacon.yaml` at task closeout when active work, recent completions,
+  blockers, pending decisions, or the next step changed. Omission is allowed only when the task is
+  proven `not_affected`; unresolved semantic state is `needs_review`.
 - Add a `CHANGELOG.md` entry at the end of every session with meaningful changes.
   Format: `## YYYY-MM-DD — <short description>` with bullet points per file changed.
 - Push to git regularly — at minimum at the end of each working session.

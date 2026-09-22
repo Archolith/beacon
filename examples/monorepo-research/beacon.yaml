@@ -1,0 +1,119 @@
+beacon_version: "0.1"
+
+project:
+  name: tide-tables
+  tagline: Analyze multi-station tide-gauge records to estimate relative sea-level trends.
+  status: experimental
+  description: >
+    A research and analysis monorepo that assembles a reproducible pipeline over
+    historical tide-gauge records from several coastal stations. Each station's
+    raw observations are normalized, checked for gaps and outliers, and
+    summarized into trends and figures. The repository mixes analysis code,
+    pinned environments, raw-data references, and generated reports under one
+    roof with clear boundaries between them.
+  repository: https://github.com/example/tide-tables
+  primary_language: python
+  license: CC-BY-4.0
+
+purpose:
+  one_sentence: >
+    Turn uneven historical tide-gauge records from multiple stations into
+    reproducible, well-documented estimates of relative sea-level change.
+  problem: >
+    Tide-gauge records are uneven: sampling cadence, datum offsets, and gaps
+    differ by station and over time. Reproducing a result without a pinned
+    environment and a documented data lineage is unreliable, and analysts waste
+    time re-cleaning data by hand.
+  non_goals:
+    - Serving live or real-time tide data.
+    - Making real-time predictions or forecasts.
+    - Publishing authoritative sea-level claims without peer review.
+
+core_concepts:
+  - id: station
+    name: Station
+    status: current
+    definition: A single tide-gauge site with its own raw observation record.
+    why_it_exists: The station is the natural unit of data ownership and comparison.
+    implementation_locations:
+      - data/
+      - analysis/
+  - id: record_cleaning
+    name: Record Cleaning
+    status: current
+    definition: The deterministic normalization of gaps, datum offsets, and outliers in a record.
+    why_it_exists: Consistent cleaning is the precondition for comparing stations fairly.
+    implementation_locations:
+      - analysis/cleaning.py
+  - id: reproducibility
+    name: Reproducibility
+    status: current
+    definition: The practice of pinning the environment and documenting data provenance so results can be rebuilt.
+    why_it_exists: A research artifact no one can rebuild is not trustworthy, and Beacon points agents at it.
+    implementation_locations:
+      - analysis/
+      - requirements.txt
+
+canonical_docs:
+  - path: README.md
+    role: entrypoint
+    status: current
+    title: Monorepo README
+  - path: docs/methodology.md
+    role: research
+    status: current
+    title: Analysis methodology
+  - path: docs/data.md
+    role: research
+    status: current
+    title: Data sources and lineage
+
+agent_guidance:
+  read_first:
+    - README.md
+    - docs/methodology.md
+    - docs/data.md
+  safe_first_tasks:
+    - Add a unit test for a new gap-filling rule.
+    - Document the provenance of a newly added station dataset.
+  avoid_without_review:
+    - data/
+    - analysis/cleaning.py
+
+build_and_test:
+  setup: python -m pip install -r requirements.txt
+  test: python -m pytest tests/
+
+guardrails:
+  - id: data_read_only
+    scope: raw data
+    severity: high
+    rule: >
+      Never modify a raw data file under data/. Raw records are immutable
+      inputs; cleaning writes derived copies, never in place.
+    applies_to:
+      - data/
+  - id: outputs_not_committed
+    scope: reports
+    severity: high
+    rule: >
+      Do not commit generated plots, tables, or figure files. They are built
+      from the pipeline and belong in git-ignored output directories.
+    applies_to:
+      - reports/
+  - id: cite_data_provenance
+    scope: documentation
+    severity: medium
+    rule: >
+      Document the source, license, and retrieval date of every dataset before
+      relying on it in an analysis.
+    applies_to:
+      - docs/data.md
+  - id: pinned_environment
+    scope: reproducibility
+    severity: medium
+    rule: >
+      Record dependency pins in requirements.txt. Do not rely on globally
+      installed packages to produce a result.
+    applies_to:
+      - requirements.txt

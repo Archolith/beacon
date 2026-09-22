@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:archolith:beacon:schema:concept-resource:1.0",
+  "title": "Beacon Concept Resource 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["concept_resource_version", "beacon_version", "snapshot_sha256", "resource_id", "concept"],
+  "properties": {
+    "concept_resource_version": {"const": "1.0"},
+    "beacon_version": {"type": "string", "minLength": 1},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "resource_id": {"$ref": "#/$defs/resourceId"},
+    "concept": {"$ref": "#/$defs/concept"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resourceId": {"type": "string", "pattern": "^k1-[0-9a-f]{32}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "title", "path", "url", "line_start", "line_end", "status"],
+      "properties": {
+        "type": {"type": "string"},
+        "title": {"type": "string"},
+        "path": {"type": "string"},
+        "url": {"type": "string"},
+        "line_start": {"type": ["integer", "null"], "minimum": 1},
+        "line_end": {"type": ["integer", "null"], "minimum": 1},
+        "status": {"type": "string"}
+      }
+    },
+    "concept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "definition", "why_it_exists", "status", "related_concepts", "implementation_locations", "sources"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "definition": {"type": "string"},
+        "why_it_exists": {"type": "string"},
+        "status": {"type": "string", "minLength": 1},
+        "related_concepts": {"type": "array", "items": {"type": "string"}},
+        "implementation_locations": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}}
+      }
+    }
+  }
+}

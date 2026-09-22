@@ -8,7 +8,9 @@ starts from just ``BEACON_MANIFEST_PATH``.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from beacon.core.limits import ResourceLimits, resource_limits_from_env
 
 
 def _getenv(*names: str, default: str = "") -> str:
@@ -38,21 +40,23 @@ class BeaconSettings:
     host: str = "127.0.0.1"
     port: int = 8788
 
+    # Immutable resource-limit profile (defaults; overridable via BEACON_MAX_*).
+    limits: ResourceLimits = field(default_factory=ResourceLimits)
+
     def __post_init__(self) -> None:
         if not self.manifest_path:
-            raise ValueError(
-                "BEACON_MANIFEST_PATH must be set to the beacon.yaml path"
-            )
+            raise ValueError("BEACON_MANIFEST_PATH must be set to the beacon.yaml path")
 
     def resolved_docs_root(self) -> str:
         """Derive docs_root from manifest_path when not explicitly set."""
         if self.docs_root:
             return self.docs_root
         import pathlib
+
         return str(pathlib.Path(self.manifest_path).parent)
 
     @classmethod
-    def from_env(cls) -> "BeaconSettings":
+    def from_env(cls) -> BeaconSettings:
         """Load settings from environment variables."""
         validate_raw = _getenv("BEACON_VALIDATE_ON_LOAD", default="true").lower()
         return cls(
@@ -61,4 +65,5 @@ class BeaconSettings:
             validate_on_load=validate_raw not in ("false", "0", "no"),
             host=_getenv("BEACON_HOST", default="127.0.0.1"),
             port=int(_getenv("BEACON_PORT", default="8788")),
+            limits=resource_limits_from_env(),
         )
