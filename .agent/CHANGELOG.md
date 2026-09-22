@@ -1,5 +1,38 @@
 # Changelog — beacon
 
+## 2026-09-21 — v0.3 build pipeline review fixes (PR #10)
+
+- `beacon build` output safety — `--snapshot-out` is contained within the output root
+  (`--repo`, or `--docs-root`) on the resolved path, refuses an existing file without
+  `--force` (`build_snapshot_output_exists`), and with `--force` replaces only a recognizable
+  Beacon snapshot (`build_snapshot_not_replaceable`); canonical-doc collisions resolve against
+  the manifest's directory (the root the projection uses). `--force` on `--out` replaces only a
+  recognizable Beacon manifest (`build_output_not_manifest`); the evidence input, the intent
+  input, and any projected canonical document are never output targets
+  (`build_output_protected`). The build is transactional: every gate (including the snapshot
+  policy gate and the reader check) runs before any write, so a refused build leaves the
+  previous manifest and snapshot untouched. `--out -` is unchanged.
+- Menhir evidence — the adapter enforces `beacon-menhir-evidence-1.0.schema.json` rule for
+  rule (unknown keys refused everywhere, `project.status` enum, `minLength`, `null` as a type
+  error, `maxItems`) and `menhir_evidence_invalid` messages name the JSON pointer of the
+  defect without values, paths, or exception text. `tests/fixtures/menhir/` carries a
+  document in Menhir's real dump shape; `tests/test_menhir_evidence_contract.py` proves
+  schema/adapter parity with `jsonschema`.
+- Provenance — an absent evidence `project.status` is reported as authority `default`
+  (Beacon's own fallback), never attributed to Menhir; `audiences` is published only from an
+  intent manifest (`authorities.audiences` added to the build report). For an evidence-only
+  build the manifest's `audiences` is now `[]` instead of the synthesized `[coding-agents]`.
+- Intent authority — an `--intent` manifest's concepts, agent guidance, tagline, license,
+  project_state, `project.description` and canonical-doc status are carried verbatim
+  (a superseded doc is no longer republished as current).
+- Decision concept ids never collide: non-ASCII titles get a stable content-derived id, the
+  structure id is reserved, and remaining case-insensitive collisions get a stable `-2`, `-3`
+  suffix in sorted order.
+- `beacon serve` — explicit `-m` clears an inherited `BEACON_SNAPSHOT_PATH` (and `--snapshot`
+  clears the manifest variables) for the run; `--snapshot` with `-m`/`--docs-root` is refused
+  (`serve_source_conflict`); `serve --snapshot` exports the CLI `--max-*` ceilings to the
+  server.
+
 ## 2026-09-18 — v0.3 build pipeline: `beacon build`, snapshot reader, Menhir evidence adapter, deterministic projection
 
 - `beacon build` (new command) — the v0.3 pipeline entry point: collects the git tier
