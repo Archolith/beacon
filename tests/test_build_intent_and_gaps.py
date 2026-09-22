@@ -59,7 +59,7 @@ _INTENT: dict[str, Any] = {
             "sources": [{"type": "doc", "title": "README", "path": "README.md"}],
         }
     ],
-    "canonical_docs": [{"path": "README.md", "role": "entrypoint", "status": "current"}],
+    "canonical_docs": [{"path": "README.md", "role": "entrypoint", "status": "superseded"}],
     "build_and_test": {"setup": "pip install -e .", "test": "pytest", "benchmark": ""},
     "guardrails": [
         {
@@ -416,8 +416,8 @@ def test_every_supplied_value_comes_from_an_allowed_tier(tmp_path: Path, scenari
 
     assert code == 0, payload
     for row in payload["result"]["requirements"]:
-        assert row["status"] in {"supplied", "missing", "default"}
-        if row["status"] == "supplied":
+        assert row["status"] in {"supplied", "placeholder", "missing", "default"}
+        if row["status"] in {"supplied", "placeholder"}:
             assert row["supplied_by"], row
             assert set(row["supplied_by"]) <= set(row["allowed_sources"]), row
         else:
@@ -643,17 +643,27 @@ def test_intent_documents_keep_the_maintainers_status(tmp_path: Path) -> None:
 
     assert code == 0, payload
     statuses = {doc["path"]: doc["status"] for doc in _manifest(root)["canonical_docs"]}
-    assert statuses["README.md"] == "current"
+    assert statuses["README.md"] == "superseded"
     assert statuses["docs/architecture.md"] == "unknown"
 
 
 def test_policy_records_an_authority_for_every_catalogued_field(tmp_path: Path) -> None:
+    from beacon.core.loader import load_beacon_manifest
+
     root = _fixture_repo(tmp_path)
-    _write_intent(root)
+    intent = load_beacon_manifest(_write_intent(root))
     facts = policy_mod.resolve_project_facts(
-        intent=None, git_records=(), menhir_records=(), docs_root=root, strict=False
+        intent=intent, git_records=(), menhir_records=(), docs_root=root, strict=False
     )
+
     assert set(facts.field_authority) == {item.field for item in CATALOGUE}
+    assert facts.field_authority["guardrails"] == "intent"
+    assert facts.field_authority["build_and_test.test"] == "intent"
+    assert facts.field_authority["canonical_docs"] == "intent"
+    assert facts.field_authority["project.name"] == "intent"
+    # Nothing supplied these, so nothing is recorded.
+    assert facts.field_authority["project.repository"] == ""
+    assert facts.field_authority["agent_guidance.safe_first_tasks"] == ""
 
 
 def test_report_reads_policy_authority_rather_than_inferring(tmp_path: Path) -> None:
@@ -672,3 +682,42 @@ def test_report_reads_policy_authority_rather_than_inferring(tmp_path: Path) -> 
     # allowed-tier conformance test is what catches such a policy bug.
     assert rows["guardrails"]["supplied_by"] == ["memory"]
     assert "memory" not in rows["guardrails"]["allowed_sources"]
+
+
+def test_placeholder_values_stay_gaps_but_keep_their_supplier(tmp_path: Path) -> None:
+    """`beacon init`'s starter text is published, reported, and still a gap."""
+    root = _fixture_repo(tmp_path)
+    assert runner.invoke(app, ["init", str(root)]).exit_code == 0
+
+    code, payload = _invoke(root, evidence=False)
+
+    assert code == 0, payload
+    rows = _rows(payload)
+    purpose, status = rows["purpose.one_sentence"], rows["project.status"]
+    assert (purpose["status"], purpose["supplied_by"]) == ("placeholder", ["intent"])
+    assert (status["status"], status["supplied_by"]) == ("placeholder", ["intent"])
+    assert {"purpose_missing", "project_status_unknown"} <= _gap_codes(payload)
+
+
+def test_a_stated_purpose_is_not_a_placeholder(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+
+    code, payload = _invoke(root)
+
+    assert code == 0, payload
+    assert _rows(payload)["purpose.one_sentence"] == dict(
+        _rows(payload)["purpose.one_sentence"], status="supplied", supplied_by=["intent"]
+    )
+    assert "purpose_missing" not in _gap_codes(payload)
+
+
+def test_a_memory_description_is_reported_as_a_memory_placeholder(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+
+    code, payload = _invoke(root)
+
+    assert code == 0, payload
+    row = _rows(payload)["purpose.one_sentence"]
+    assert (row["status"], row["supplied_by"]) == ("placeholder", ["memory"])
+    assert "purpose_missing" in _gap_codes(payload)

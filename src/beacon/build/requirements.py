@@ -12,8 +12,8 @@ Every manifest field is listed here with the source tiers allowed to supply it
 ``beacon_version`` is fixed by Beacon and is the only field not catalogued.
 
 :func:`requirements_report` returns one row per field: whether it was
-supplied, missing, or only filled by Beacon's schema default, which tier
-actually supplied it, and the gap code. A test checks that every supplied row
+supplied, missing, a placeholder, or only filled by Beacon's schema default,
+which tier actually supplied it, and the gap code. A test checks that every supplied row
 names only allowed tiers, so the catalogue and :mod:`beacon.build.policy`
 cannot drift apart silently.
 
@@ -38,7 +38,11 @@ TIER_DERIVED = "derived"
 
 STATUS_SUPPLIED = "supplied"
 STATUS_MISSING = "missing"
+#: Published, but a Beacon default rather than an answer from a source.
 STATUS_DEFAULT = "default"
+#: Published by a source, but a placeholder (`unknown` status, a description
+#: standing in for an unstated purpose). Still a gap; the supplier is kept.
+STATUS_PLACEHOLDER = "placeholder"
 
 #: Manifest fields Beacon itself fixes; never asked for, never a gap.
 BEACON_OWNED_FIELDS = frozenset({"beacon_version"})
@@ -200,11 +204,11 @@ def requirements_report(facts: MergedProjectFacts) -> list[dict[str, Any]]:
     supplied_by: list[str]
     for item in CATALOGUE:
         authority = facts.field_authority.get(item.field, "")
-        if item.field == "project.status" and authority == "default":
+        placeholder = item.field in facts.field_placeholder
+        if authority == "default":
             status, supplied_by = STATUS_DEFAULT, []
-        elif item.field == "project.status" and facts.status.strip().lower() == "unknown":
-            # `beacon init` writes "unknown" as an explicit placeholder: still a gap.
-            status, supplied_by = STATUS_MISSING, []
+        elif authority and placeholder:
+            status, supplied_by = STATUS_PLACEHOLDER, _tiers(authority)
         elif authority:
             status, supplied_by = STATUS_SUPPLIED, _tiers(authority)
         else:
@@ -263,6 +267,7 @@ def catalogue_payload() -> dict[str, Any]:
 
 __all__ = [
     "BEACON_OWNED_FIELDS",
+    "STATUS_PLACEHOLDER",
     "CATALOGUE",
     "CATALOGUE_NAME",
     "CATALOGUE_VERSION",

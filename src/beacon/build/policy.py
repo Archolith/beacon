@@ -136,6 +136,10 @@ class MergedProjectFacts:
     #: Catalogue field -> the authority label that supplied it ("" = nothing did).
     #: Labels: intent, git, menhir, derived, default; "+"-joined when several did.
     field_authority: dict[str, str] = field(default_factory=dict)
+    #: Fields whose published value is a placeholder rather than an answer: a
+    #: schema default, `beacon init`'s "unknown", or a description standing in
+    #: for a purpose the maintainers never stated. Still reported as gaps.
+    field_placeholder: frozenset[str] = frozenset()
 
 
 def _plain(value: Any) -> Any:
@@ -479,11 +483,10 @@ def resolve_project_facts(
         "project.primary_language": primary_language_authority if primary_language else "",
         "project.status": status_authority,
         "project.license": _from_intent(license_name),
-        "purpose.one_sentence": (
-            "intent"
-            if stated_purpose
-            else ("menhir" if description_authority == "menhir" and description else "")
-        ),
+        # The projection publishes `description` here, so the supplier is the one
+        # that supplied the description; `stated_purpose` says whether the
+        # maintainers actually wrote a purpose (see field_placeholder).
+        "purpose.one_sentence": description_authority if description else "",
         "purpose.problem": _from_intent(purpose_problem),
         "purpose.non_goals": _from_intent(tuple(non_goals)),
         "audiences": _from_intent(tuple(audiences)),
@@ -504,6 +507,12 @@ def resolve_project_facts(
         "guardrails": _from_intent(tuple(guardrails)),
         "project_state": _from_intent(any(bool(value) for value in (project_state or {}).values())),
     }
+
+    placeholders = set()
+    if not stated_purpose:
+        placeholders.add("purpose.one_sentence")
+    if status_authority == "default" or status.strip().lower() == "unknown":
+        placeholders.add("project.status")
 
     return MergedProjectFacts(
         name=name,
@@ -539,6 +548,7 @@ def resolve_project_facts(
         project_state=project_state,
         stated_purpose=stated_purpose,
         field_authority=field_authority,
+        field_placeholder=frozenset(placeholders),
     )
 
 

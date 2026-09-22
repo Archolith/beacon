@@ -7,9 +7,13 @@
   that instead of inferring a source from value presence.
 - Documents that come only from memory evidence publish with `status: unknown`: being indexed is
   not a claim that a document is current. Intent-listed documents keep the maintainers' status.
-- Not changed: a memory description still fills `purpose.one_sentence` (reported as supplied by
-  `memory`). Keeping it maintainer-only would need `purpose_missing` to become acknowledgeable
-  for snapshot publication -- an open product decision.
+- A published value that is only a placeholder -- Beacon's status default, `beacon init`'s
+  `status: unknown`, or a description standing in for a purpose the maintainers never stated --
+  is reported with `status: placeholder` and still counts as a gap, while keeping the source that
+  supplied it. Provenance and completeness are separate.
+- Not changed: a memory description still fills `purpose.one_sentence` (reported as a `memory`
+  placeholder). Keeping it maintainer-only would need `purpose_missing` to become acknowledgeable
+  for snapshot publication, which would loosen `beacon export` for everyone.
 
 ## 2026-09-22 — `beacon build` reads the project's own beacon.yaml; gap report
 
