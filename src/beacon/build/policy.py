@@ -511,7 +511,9 @@ def resolve_project_facts(
     placeholders = set()
     if not stated_purpose:
         placeholders.add("purpose.one_sentence")
-    if status_authority == "default" or status.strip().lower() == "unknown":
+    if status.strip().lower() == "unknown":
+        # A schema default is reported as authority "default", which the report
+        # already treats as a gap; only an explicit "unknown" needs the flag.
         placeholders.add("project.status")
 
     return MergedProjectFacts(
