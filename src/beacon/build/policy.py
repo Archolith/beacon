@@ -131,6 +131,15 @@ class MergedProjectFacts:
     intent_concepts: tuple[dict[str, Any], ...] = ()
     agent_guidance: dict[str, tuple[str, ...]] = field(default_factory=dict)
     project_state: dict[str, Any] | None = None
+    #: ``purpose.one_sentence`` exactly as the maintainers wrote it ("" if unstated).
+    stated_purpose: str = ""
+    #: Catalogue field -> the authority label that supplied it ("" = nothing did).
+    #: Labels: intent, git, menhir, derived, default; "+"-joined when several did.
+    field_authority: dict[str, str] = field(default_factory=dict)
+    #: Fields whose published value is a placeholder rather than an answer: a
+    #: schema default, `beacon init`'s "unknown", or a description standing in
+    #: for a purpose the maintainers never stated. Still reported as gaps.
+    field_placeholder: frozenset[str] = frozenset()
 
 
 def _plain(value: Any) -> Any:
@@ -316,7 +325,8 @@ def resolve_project_facts(
                 "path": path,
                 "role": str(record.payload.get("document_type") or "reference"),
                 "title": str(record.payload.get("title") or path),
-                "status": "current",
+                # Being indexed is not a claim that the document is current.
+                "status": "unknown",
             }
         )
     # Attribute the set to the sources whose documents actually survived.
@@ -442,6 +452,70 @@ def resolve_project_facts(
             "expected_behavior": tuple(guidance.expected_behavior),
         }
 
+    tagline = intent.project.tagline if intent is not None else ""
+    license_name = intent.project.license if intent is not None else ""
+    stated_purpose = intent.purpose.one_sentence.strip() if intent is not None else ""
+    intent_concepts = (
+        tuple(cast(dict[str, Any], _plain(asdict(concept))) for concept in intent.core_concepts)
+        if intent is not None
+        else ()
+    )
+    project_state = _intent_project_state(intent) if intent is not None else None
+
+    def _from_intent(value: Any) -> str:
+        filled = value.strip() if isinstance(value, str) else value
+        return "intent" if filled else ""
+
+    concept_authority = "+".join(
+        tier
+        for tier, supplied in (
+            ("intent", bool(intent_concepts)),
+            ("menhir", bool(decisions) or structure_summary is not None),
+        )
+        if supplied
+    )
+    intent_read_first = intent is not None and bool(intent.agent_guidance.read_first)
+    field_authority = {
+        "project.name": name_authority if name else "",
+        "project.description": description_authority if description else "",
+        "project.tagline": _from_intent(tagline),
+        "project.repository": repository_authority if repository else "",
+        "project.primary_language": primary_language_authority if primary_language else "",
+        "project.status": status_authority,
+        "project.license": _from_intent(license_name),
+        # The projection publishes `description` here, so the supplier is the one
+        # that supplied the description; `stated_purpose` says whether the
+        # maintainers actually wrote a purpose (see field_placeholder).
+        "purpose.one_sentence": description_authority if description else "",
+        "purpose.problem": _from_intent(purpose_problem),
+        "purpose.non_goals": _from_intent(tuple(non_goals)),
+        "audiences": _from_intent(tuple(audiences)),
+        "current_focus": _from_intent(tuple(current_focus)),
+        "canonical_docs": docs_authority if docs else "",
+        "core_concepts": concept_authority,
+        "agent_guidance.read_first": (
+            "intent" if intent_read_first else ("derived" if read_first else "")
+        ),
+        "agent_guidance.safe_first_tasks": _from_intent(agent_guidance.get("safe_first_tasks")),
+        "agent_guidance.avoid_without_review": _from_intent(
+            agent_guidance.get("avoid_without_review")
+        ),
+        "agent_guidance.expected_behavior": _from_intent(agent_guidance.get("expected_behavior")),
+        "build_and_test.setup": _from_intent(build_and_test.get("setup")),
+        "build_and_test.test": _from_intent(build_and_test.get("test")),
+        "build_and_test.benchmark": _from_intent(build_and_test.get("benchmark")),
+        "guardrails": _from_intent(tuple(guardrails)),
+        "project_state": _from_intent(any(bool(value) for value in (project_state or {}).values())),
+    }
+
+    placeholders = set()
+    if not stated_purpose:
+        placeholders.add("purpose.one_sentence")
+    if status.strip().lower() == "unknown":
+        # A schema default is reported as authority "default", which the report
+        # already treats as a gap; only an explicit "unknown" needs the flag.
+        placeholders.add("project.status")
+
     return MergedProjectFacts(
         name=name,
         name_authority=name_authority,
@@ -469,15 +543,14 @@ def resolve_project_facts(
         drift=tuple(drift),
         audiences_authority="intent" if audiences else "",
         project_description=(intent.project.description.strip() if intent is not None else ""),
-        tagline=intent.project.tagline if intent is not None else "",
-        license=intent.project.license if intent is not None else "",
-        intent_concepts=(
-            tuple(cast(dict[str, Any], _plain(asdict(concept))) for concept in intent.core_concepts)
-            if intent is not None
-            else ()
-        ),
+        tagline=tagline,
+        license=license_name,
+        intent_concepts=intent_concepts,
         agent_guidance=agent_guidance,
-        project_state=_intent_project_state(intent) if intent is not None else None,
+        project_state=project_state,
+        stated_purpose=stated_purpose,
+        field_authority=field_authority,
+        field_placeholder=frozenset(placeholders),
     )
 
 

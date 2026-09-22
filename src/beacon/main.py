@@ -1020,7 +1020,7 @@ def _build_impl(
             )
         except BuildError as exc:
             raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
-        report = requirements_report(partial, intent_manifest)
+        report = requirements_report(partial)
         gaps = gaps_from_report(report)
         gaps_payload = {
             "buildable": not any(gap["required"] for gap in gaps),
@@ -1059,7 +1059,7 @@ def _build_impl(
         ) from exc
 
     data = render_manifest_yaml(raw, note=note)
-    report = requirements_report(facts, intent_manifest)
+    report = requirements_report(facts)
 
     # Last fence before any output: the project's manifest is still the one read.
     if intent and intent_digest is not None:
