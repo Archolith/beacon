@@ -637,3 +637,48 @@ def test_control_bytes_in_a_subject_do_not_drop_the_walk(
     y = next(r for r in records if r.payload.get("path") == "src/y.py")
     assert y.payload["changes"] == 4
     assert init(repo, dry_run=True).git_evidence is not None
+
+
+_FIXTURE_PATHS = {"README.md", "src/x.py", "src/y.py", "src/renamed.py"}
+
+
+def test_walk_byte_cap_never_emits_a_partial_path(repo: Path) -> None:
+    raw = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "log",
+            "-n400",
+            "--name-status",
+            "-z",
+            "-M",
+            "--format=%H%x00%aI%x00%P%x00%s",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    ).stdout
+    # Land the cap inside the rename target of the rename commit.
+    cut = raw.index(b"src/renamed.py") + len(b"src/ren")
+    records = GitSourceAdapter(repo, caps=GitCaps(walk_output_bytes=cut)).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True
+    for record in records:
+        if record.kind == "git_file_history":
+            assert record.payload["path"] in _FIXTURE_PATHS
+            assert set(record.payload["renamed_from"]) <= _FIXTURE_PATHS
+        if record.kind == "git_co_change":
+            assert set(record.payload["paths"]) <= _FIXTURE_PATHS
+
+
+def test_inventory_byte_cap_never_counts_a_partial_path(repo: Path) -> None:
+    # ls-files -z order: ".env", "README.md", "src/renamed.py", "src/y.py";
+    # cut inside "src/renamed.py".
+    cap = len(b".env\x00README.md\x00src/re")
+    records = GitSourceAdapter(repo, caps=GitCaps(inventory_output_bytes=cap)).collect()
+    inventory = next(r for r in records if r.kind == "git_inventory")
+    assert inventory.payload["tracked_dirs"] == [{"path": ".", "files": 1}]
+    assert inventory.payload["tracked_file_count"] == 2  # a lower bound, flagged below
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True

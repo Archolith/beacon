@@ -549,24 +549,25 @@ class GitSourceAdapter:
         )
 
     def _dirty_state(self) -> tuple[bool, int]:
-        out, _truncated = self._require_run(
+        out, truncated = self._require_run(
             ["status", "--porcelain=v1", "-z"],
             self._caps.status_output_bytes,
             "status",
             extra_config=self._repository_filter_overrides(),
         )
-        count = sum(1 for token in out.split(b"\x00") if token)
+        # At a cap the count is a lower bound (the head record says truncated).
+        count = len(_complete_nul_tokens(out, complete=not truncated))
         return count > 0, count
 
     def _inventory(self) -> tuple[int, list[tuple[str, int]]]:
-        out, _ = self._require_run(
+        out, truncated = self._require_run(
             ["ls-files", "-z"], self._caps.inventory_output_bytes, "ls-files"
         )
         total = 0
         dirs: Counter[str] = Counter()
-        for token in out.split(b"\x00"):
-            if not token:
-                continue
+        # At a cap only complete entries count: the total becomes a lower
+        # bound and no partial name is ever bucketed (truncated is already set).
+        for token in _complete_nul_tokens(out, complete=not truncated):
             total += 1
             rel = token.decode("utf-8", errors="replace")
             if is_known_sensitive_path(rel):
@@ -590,7 +591,7 @@ class GitSourceAdapter:
         partial = self._is_partial_clone()
         if partial:
             self._truncated = True
-        out, _ = self._require_run(
+        out, truncated = self._require_run(
             [
                 "log",
                 f"-n{self._caps.log_commits}",
@@ -608,7 +609,7 @@ class GitSourceAdapter:
             "log walk",
         )
         blocks: list[_WalkCommit] = []
-        for raw in _parse_walk(out):
+        for raw in _parse_walk(out, complete=not truncated):
             subject = _strip_control(raw.subject)
             if len(subject) > self._caps.subject_max_chars:
                 subject = subject[: self._caps.subject_max_chars]
@@ -923,7 +924,15 @@ class GitSourceAdapter:
 # ----------------------------------------------------------------------
 
 
-def _parse_walk(out: bytes) -> list[_RawCommit]:
+def _complete_nul_tokens(out: bytes, *, complete: bool) -> list[bytes]:
+    """Split NUL-terminated output, dropping a partial final token at a cap."""
+    tokens = out.split(b"\x00")
+    if not complete:
+        tokens = tokens[:-1]
+    return [token for token in tokens if token]
+
+
+def _parse_walk(out: bytes, *, complete: bool = True) -> list[_RawCommit]:
     """Parse ``log -z --name-status --format=%H%x00%aI%x00%P%x00%s`` output.
 
     The stream is one NUL-separated token sequence. Each commit is four
@@ -933,8 +942,15 @@ def _parse_walk(out: bytes) -> list[_RawCommit]:
     rename/copy. Header fields and paths are consumed by position, never by
     content, so only a status token or a commit digest can start the next
     entry, and the two cannot be confused (1-4 characters vs 40/64 hex).
+
+    When *complete* is false the output was cut at a byte cap: the partial
+    token after the last NUL is discarded, and so is the final commit
+    (header or status list), because nothing proves it ended. What remains
+    is a truthful prefix of the walk; nothing is completed by guesswork.
     """
     tokens = out.split(b"\x00")
+    if not complete:
+        tokens = tokens[:-1]
     count = len(tokens)
     commits: list[_RawCommit] = []
     i = 0
@@ -947,6 +963,8 @@ def _parse_walk(out: bytes) -> list[_RawCommit]:
         if not _is_git_oid(sha):
             raise GitSourceError("unparseable log record")
         if i + 3 >= count:
+            if not complete:
+                break
             raise GitSourceError("unparseable log header")
         date = tokens[i + 1].decode("ascii", errors="replace")
         parents = tuple(tokens[i + 2].decode("ascii", errors="replace").split())
@@ -960,11 +978,17 @@ def _parse_walk(out: bytes) -> list[_RawCommit]:
             code = status[:1].decode("ascii")
             width = 2 if code in ("R", "C") else 1
             if i + width >= count:
+                if not complete:
+                    i = count
+                    break
                 raise GitSourceError("unparseable log status entry")
             first = tokens[i + 1].decode("utf-8", errors="replace")
             second = tokens[i + 2].decode("utf-8", errors="replace") if width == 2 else None
             statuses.append((code, first, second))
             i += 1 + width
+        if not complete and i >= count:
+            # The cut may have fallen anywhere inside this commit's entries.
+            break
         commits.append(
             _RawCommit(
                 sha=sha, date=date, parents=parents, subject=subject, statuses=tuple(statuses)
