@@ -737,3 +737,28 @@ def test_branch_and_tag_names_are_scanned_for_secrets(repo: Path) -> None:
     report = init(repo, dry_run=True)
     assert _TOKEN not in json.dumps(to_payload(report))
     jsonschema.validate(to_payload(report), _v11_schema())
+
+
+def test_tag_on_a_blob_keeps_the_report_schema_valid(repo: Path) -> None:
+    blob = (
+        subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD:README.md"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    _git(repo, "tag", "blobtag", blob)
+    _git(repo, "tag", "-a", "annotated-blobtag", "-m", "signing key", blob)
+    records = GitSourceAdapter(repo).collect()
+    tags = {t.payload["name"]: t.payload for t in records if t.kind == "git_tag"}
+    # Non-commit tags are omitted rather than mislabelled with a blob as
+    # their "commit"; the omission is reported as truncation.
+    assert set(tags) == {"v0.1.0"}
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True
+    report = init(repo, dry_run=True)
+    assert report.git_evidence is not None
+    jsonschema.validate(to_payload(report), _v11_schema())

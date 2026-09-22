@@ -186,6 +186,16 @@ def _epoch_or_zero(iso_date: str) -> float:
         return 0.0
 
 
+def _is_iso_date(value: str) -> bool:
+    """True for the strict ISO-8601 form git emits with ``iso-strict``."""
+    if not value:
+        return False
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False
+
+
 class GitSourceError(RuntimeError):
     """The repository exists but a bounded git query failed."""
 
@@ -706,35 +716,46 @@ class GitSourceAdapter:
         already is the commit; an annotated tag pointing at a commit peels via
         ``%(*objectname)``; a nested tag (tag -> tag) is peeled with one
         ``rev-parse <ref>^{commit}`` call (bounded by the tag cap).
+
+        A tag whose target is not a commit (a blob or tree, such as a
+        published signing key) has no commit to cite and, when lightweight,
+        no date either, so it is omitted and the omission is reported as
+        truncation; the schema's ``commit``/``date`` fields are never filled
+        with a mislabelled object or an empty string.
         """
-        out, _ = self._require_run(
+        out, truncated = self._require_run(
             [
                 "tag",
                 "--sort=-creatordate",
-                "--format=%(refname:short)%09%(objectname)%09%(*objectname)"
+                "--format=%(refname:short)%09%(objectname)%09%(objecttype)%09%(*objectname)"
                 "%09%(*objecttype)%09%(creatordate:iso-strict)",
             ],
             self._caps.tags_output_bytes,
             "tag list",
         )
         parsed: list[tuple[str, str, str, float]] = []
-        for line in out.decode("utf-8", errors="replace").splitlines():
+        lines = out.decode("utf-8", errors="replace").splitlines()
+        if truncated and lines:
+            lines.pop()  # a cut line is never parsed as a record
+        for line in lines:
             if not line:
                 continue
             parts = line.split("\t")
-            if len(parts) != 5:
+            if len(parts) != 6:
                 raise GitSourceError("unparseable tag line")
-            name, object_name, peeled, peeled_type, date = parts
-            if peeled and peeled_type == "commit":
-                commit = peeled
-            elif peeled and peeled_type == "tag":
-                commit = self._peel_tag(name) or peeled
-            elif not peeled:
-                commit = object_name
+            name, object_name, object_type, peeled, peeled_type, date = parts
+            commit: str | None
+            if object_type == "commit":
+                commit = object_name  # lightweight tag on a commit
+            elif object_type == "tag" and peeled_type == "commit":
+                commit = peeled  # annotated tag on a commit
+            elif object_type == "tag" and peeled_type == "tag":
+                commit = self._peel_tag(name)  # nested tag
             else:
-                # A tag pointing at a non-commit object; record the direct
-                # target honestly rather than guessing a commit.
-                commit = peeled
+                commit = None  # blob or tree target
+            if commit is None or not _is_git_oid(commit) or not _is_iso_date(date):
+                self._truncated = True
+                continue
             parsed.append((name, commit, date, _epoch_or_zero(date)))
         parsed.sort(key=lambda item: (-item[3], item[0]))
         if len(parsed) > self._caps.tags:
