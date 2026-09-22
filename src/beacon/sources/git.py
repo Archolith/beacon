@@ -14,14 +14,26 @@ Safety contract:
   guardrails, or any other intent-bearing manifest field. Consumers decide
   meaning; the adapter decides nothing.
 * **Local only.** Every command is a read-only, local git query. There is no
-  fetch, no push, no remote contact of any kind. ``GIT_TERMINAL_PROMPT=0``
-  guarantees git cannot prompt for network credentials, and every invocation
-  uses ``--no-optional-locks`` so git never writes to the repository (not even
-  an index refresh).
+  fetch, no push, no remote contact of any kind: ``GIT_TERMINAL_PROMPT=0``
+  stops credential prompts, ``GIT_NO_LAZY_FETCH=1`` and
+  ``-c protocol.allow=never`` stop partial clones fetching missing objects
+  (their walk skips rename detection and is marked truncated), and every
+  invocation uses ``--no-optional-locks`` so git never writes to the
+  repository (not even an index refresh).
+* **The repository cannot steer git.** Inherited ``GIT_*`` variables are
+  stripped (so a hook's ``GIT_DIR`` cannot redirect the adapter), and
+  command-line config overrides neutralize the execution vectors a
+  repository's own ``.git/config`` could set for the commands run here
+  (``core.fsmonitor``, ``core.hooksPath``, ``log.showSignature``, and
+  repository-scoped filter drivers).
 * **Fixed commands, no shell.** Each command is a fixed argument vector
-  executed directly (``shell=False``) with a hard timeout and a hard output
-  byte cap; an over-producing command is killed, and the truncation is
-  reported, never hidden.
+  executed directly (``shell=False``) under a wall-clock deadline that kills
+  the whole process tree, and a hard output byte cap; an over-producing
+  command is killed, and the truncation is reported, never hidden.
+* **Truncated, never invented.** A cap drops the partial trailing record
+  rather than parsing it; a shallow clone is marked truncated and its
+  boundary commit never counts as an introduction; a tag on a non-commit
+  object is omitted rather than mislabelled.
 * **Deterministic.** For a frozen repository state, ``collect()`` returns
   byte-identical records: fixed command sets, fixed caps, stable sort orders,
   and no wall-clock collection stamps.
@@ -31,8 +43,11 @@ Safety contract:
   omitted (with ``window_commits`` stated), never extrapolated.
 * **Secret exclusions.** Known-sensitive paths (via
   :func:`beacon.core.security.is_known_sensitive_path`) never appear in any
-  path-bearing record; they are counted in the tracked-file total only. A
-  longer, separate generated-file policy belongs to the files adapter.
+  path-bearing record; they are counted in the tracked-file total only.
+  Commit subjects, the branch name and tag names pass Beacon's
+  high-confidence secret detector in full, before any length cut, and are
+  redacted rather than reproduced. A longer, separate generated-file policy
+  belongs to the files adapter.
 """
 
 from __future__ import annotations
