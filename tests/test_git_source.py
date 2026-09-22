@@ -682,3 +682,23 @@ def test_inventory_byte_cap_never_counts_a_partial_path(repo: Path) -> None:
     assert inventory.payload["tracked_file_count"] == 2  # a lower bound, flagged below
     head = next(r for r in records if r.kind == "git_head")
     assert head.payload["truncated"] is True
+
+
+def test_shallow_clone_never_claims_introductions(tmp_path: Path, repo: Path) -> None:
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(clone)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    records = GitSourceAdapter(clone).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["window_commits"] == 1
+    # The history is cut off, so the window is incomplete by construction.
+    assert head.payload["truncated"] is True
+    histories = [r for r in records if r.kind == "git_file_history"]
+    assert histories
+    # The boundary commit shows every file as added; that is not evidence
+    # of introduction, so none may be claimed.
+    assert all(r.payload["introduced_in"] is None for r in histories)

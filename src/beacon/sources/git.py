@@ -270,6 +270,9 @@ class _WalkCommit:
     date: str
     subject: str
     statuses: tuple[tuple[str, str, str | None], ...]
+    #: True for a shallow-clone boundary commit: its ``A`` statuses are an
+    #: artifact of the cut-off history, not evidence of introduction.
+    boundary: bool = False
 
 
 class GitSourceAdapter:
@@ -587,9 +590,15 @@ class GitSourceAdapter:
         the clone does not hold, so the walk runs with ``--no-renames`` (lazy
         fetching is disabled anyway) and the evidence is marked truncated:
         renames then appear as a delete plus an add.
+
+        In a shallow clone the history is cut off, so the window is
+        incomplete by construction (``truncated``), and the boundary commits
+        (grafted: no parents in the clone) show every file as added; those
+        additions are never recorded as introductions.
         """
         partial = self._is_partial_clone()
-        if partial:
+        shallow = self._is_shallow()
+        if partial or shallow:
             self._truncated = True
         out, truncated = self._require_run(
             [
@@ -615,13 +624,28 @@ class GitSourceAdapter:
                 subject = subject[: self._caps.subject_max_chars]
                 self._truncated = True
             blocks.append(
-                _WalkCommit(sha=raw.sha, date=raw.date, subject=subject, statuses=raw.statuses)
+                _WalkCommit(
+                    sha=raw.sha,
+                    date=raw.date,
+                    subject=subject,
+                    statuses=raw.statuses,
+                    boundary=shallow and not raw.parents,
+                )
             )
         if len(blocks) >= self._caps.log_commits:
             # The walk filled its cap, so older history may exist outside the
             # window; report that honestly instead of implying completeness.
             self._truncated = True
         return blocks
+
+    def _is_shallow(self) -> bool:
+        """True when the repository is a shallow clone (or unknowably so)."""
+        out, truncated, code = self._run(
+            ["rev-parse", "--is-shallow-repository"], self._caps.head_output_bytes
+        )
+        if code != 0 or truncated:
+            return True
+        return out.strip() != b"false"
 
     def _is_partial_clone(self) -> bool:
         """True when the repository is a partial (promisor) clone.
@@ -1029,7 +1053,7 @@ def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileH
             if code in ("A", "D") and emit(path):
                 item = entry(path)
                 if code == "A":
-                    if item.introduced_in is None:
+                    if item.introduced_in is None and not commit.boundary:
                         item.introduced_in = commit.sha
                 elif item.removed_in is None:
                     item.removed_in = commit.sha
