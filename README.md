@@ -205,15 +205,22 @@ beacon init                        # starter beacon.yaml + the gaps it could not
 beacon build --repo .              # writes beacon.generated.yaml and reports remaining gaps
 ```
 
-- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority by default. `--intent
-  PATH` uses another manifest; `--no-intent` builds without one. A malformed or symlinked
-  `beacon.yaml` refuses the build rather than being skipped.
-- Without a `beacon.yaml` the build still succeeds from the repository and memory evidence, and
-  lists every field left empty as a gap.
-- What Beacon asks for, and which source may supply each field (`intent`, `git`, `memory`), is
-  published in [`docs/schemas/beacon-requirements-1.0.json`](docs/schemas/beacon-requirements-1.0.json).
-  Purpose, guardrails and commands come only from the project's own manifest; no other source may
-  invent them.
+- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority by default;
+  `--intent PATH` names another maintainer-authored manifest. There is no switch to ignore the
+  project's own manifest. A malformed or symlinked `beacon.yaml`, or one that changes during the
+  build, refuses the build and nothing is written.
+- `beacon build --repo R --gaps-only` writes nothing and reports, for every field, whether it was
+  supplied, by which source, and what is still missing -- including when a required field (name,
+  description, canonical docs) is unresolved and a real build would refuse.
+- Without a `beacon.yaml` a build succeeds only when a memory provider supplies the required
+  fields; the result is thin and lists every empty field as a gap. With neither, the build
+  refuses and points to `--gaps-only`.
+- What Beacon asks for, and which source may supply each field (`intent`, `git`, `memory`,
+  `derived`), is published in
+  [`docs/schemas/beacon-requirements-1.0.json`](docs/schemas/beacon-requirements-1.0.json).
+  Guardrails, commands, problem and non-goals come only from the project's own manifest. A memory
+  provider's description currently also fills `purpose.one_sentence`; that is reported as
+  supplied by `memory`, never as the maintainers' words.
 
 ---
 

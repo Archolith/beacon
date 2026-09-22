@@ -4,8 +4,12 @@
   "tiers": {
     "intent": "the project's own beacon.yaml",
     "git": "the repository (reality)",
-    "memory": "a memory/index provider's evidence (history)"
+    "memory": "a memory/index provider's evidence (history)",
+    "derived": "computed by Beacon from other fields"
   },
+  "beacon_owned": [
+    "beacon_version"
+  ],
   "requirements": [
     {
       "field": "project.name",
@@ -26,16 +30,6 @@
       "required": true,
       "gap_code": "build_description_unresolved",
       "ask": "A grounded description of the project."
-    },
-    {
-      "field": "purpose.one_sentence",
-      "sources": [
-        "intent",
-        "memory"
-      ],
-      "required": false,
-      "gap_code": "purpose_missing",
-      "ask": "One sentence, in the maintainers' words, saying what the project is for."
     },
     {
       "field": "project.tagline",
@@ -86,6 +80,16 @@
       "ask": "The license identifier."
     },
     {
+      "field": "purpose.one_sentence",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": false,
+      "gap_code": "purpose_missing",
+      "ask": "One sentence, in the maintainers' words, saying what the project is for."
+    },
+    {
       "field": "purpose.problem",
       "sources": [
         "intent"
@@ -128,7 +132,7 @@
         "memory"
       ],
       "required": true,
-      "gap_code": "canonical_docs_missing",
+      "gap_code": "build_no_canonical_docs",
       "ask": "The documents an agent should treat as authoritative."
     },
     {
@@ -140,6 +144,16 @@
       "required": false,
       "gap_code": "concepts_omitted",
       "ask": "The domain concepts an agent must understand."
+    },
+    {
+      "field": "agent_guidance.read_first",
+      "sources": [
+        "intent",
+        "derived"
+      ],
+      "required": false,
+      "gap_code": "read_first_missing",
+      "ask": "The documents a new agent reads first (derived from canonical_docs when unstated)."
     },
     {
       "field": "agent_guidance.safe_first_tasks",
@@ -158,6 +172,15 @@
       "required": false,
       "gap_code": "avoid_without_review_missing",
       "ask": "Areas an agent must not change without review."
+    },
+    {
+      "field": "agent_guidance.expected_behavior",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "expected_behavior_missing",
+      "ask": "How agents are expected to behave in this project."
     },
     {
       "field": "build_and_test.setup",
@@ -194,6 +217,15 @@
       "required": false,
       "gap_code": "guardrails_missing",
       "ask": "Rules an agent must follow, each citing its source."
+    },
+    {
+      "field": "project_state",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "project_state_missing",
+      "ask": "Active work, recent completions, blockers and pending decisions."
     }
   ]
 }

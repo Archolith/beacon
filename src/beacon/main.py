@@ -40,6 +40,7 @@ from beacon.core import snapshot as snapshot_mod
 from beacon.core.discovery import DiscoveryError
 from beacon.core.limits import (
     FIELD_ENV_VARS,
+    LIMIT_MANIFEST_BYTES,
     LIMIT_SNAPSHOT_BYTES,
     LimitError,
     ResourceLimits,
@@ -778,8 +779,10 @@ def build(
         help="Hand-authored manifest merged as the intent authority "
         "(default: the repository's own beacon.yaml when --repo has one).",
     ),
-    no_intent: bool = typer.Option(
-        False, "--no-intent", help="Do not read the repository's own beacon.yaml."
+    gaps_only: bool = typer.Option(
+        False,
+        "--gaps-only",
+        help="Report what each source supplied and what is still missing; write nothing.",
     ),
     repo: str | None = typer.Option(
         None, "--repo", help="Repository root for the git reality adapter."
@@ -815,7 +818,7 @@ def build(
         format,
         lambda: _build_impl(
             intent=intent,
-            no_intent=no_intent,
+            gaps_only=gaps_only,
             repo=repo,
             menhir_evidence=menhir_evidence,
             out=out,
@@ -839,7 +842,7 @@ def build(
 def _build_impl(
     *,
     intent: str | None,
-    no_intent: bool = False,
+    gaps_only: bool = False,
     repo: str | None,
     menhir_evidence: str | None,
     out: str,
@@ -856,7 +859,7 @@ def _build_impl(
         manifest_bytes_sha256,
         render_manifest_yaml,
     )
-    from beacon.build.requirements import evaluate_gaps
+    from beacon.build.requirements import gaps_from_report, requirements_report
     from beacon.core.loader import parse_manifest
     from beacon.core.validator import ManifestValidationError, require_valid_manifest
     from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
@@ -866,21 +869,18 @@ def _build_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
 
-    if intent is not None and no_intent:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, "build_intent_conflict", "--intent and --no-intent are mutually exclusive"
-        )
     # The project owns its own data: its beacon.yaml is the intent authority
-    # unless the caller names another manifest or opts out. A symlinked one is
-    # refused rather than followed or silently skipped.
+    # unless the caller names another maintainer-authored manifest. There is no
+    # opt-out: ignoring it would publish a beacon without the project's
+    # guardrails. A symlinked one is refused, never followed or skipped.
     intent_source: str | None = "explicit" if intent else None
-    if intent is None and repo and not no_intent:
+    if intent is None and repo:
         candidate = Path(repo) / scaffold.DEFAULT_MANIFEST_NAME
         if candidate.is_symlink():
             raise cli_support.CliFailure(
                 EXIT_INPUT,
                 "intent_manifest_unsafe",
-                "the repository's beacon.yaml is a symlink; pass --intent or --no-intent",
+                "the repository's beacon.yaml is a symlink; replace it with a regular file",
             )
         if candidate.is_file():
             intent = str(candidate)
@@ -890,6 +890,10 @@ def _build_impl(
         raise cli_support.CliFailure(
             EXIT_INPUT, "build_no_sources", "build requires --intent, --menhir-evidence, or --repo"
         )
+
+    if gaps_only:
+        # The report never writes: no output target is resolved or checked.
+        out, snapshot_out = "-", None
 
     # -- resolve the output location and docs root ---------------------------
     # `--out -` streams the manifest YAML to stdout (no envelope, no file):
@@ -969,19 +973,51 @@ def _build_impl(
             git_origin = url
 
     intent_manifest = None
+    intent_digest: str | None = None
     if intent:
         from beacon.core.loader import load_beacon_manifest
 
+        intent_digest = _intent_digest(Path(intent), limits)
         try:
             intent_manifest = load_beacon_manifest(Path(intent), limits=limits)
         except ManifestError as exc:
             message = (
-                "the repository's own beacon.yaml is malformed or invalid; "
-                "fix it, or pass --no-intent to build without it"
+                "the repository's own beacon.yaml is malformed or invalid; fix it to build"
                 if intent_source == "repo_default"
                 else "malformed or invalid intent manifest"
             )
             raise cli_support.CliFailure(EXIT_INPUT, "intent_manifest_invalid", message) from exc
+        # The parsed manifest must be the bytes that were fingerprinted.
+        _require_intent_unchanged(Path(intent), intent_digest, limits)
+
+    intent_payload = {"path": intent, "source": intent_source}
+
+    if gaps_only:
+        try:
+            partial = resolve_project_facts(
+                intent=intent_manifest,
+                git_records=git_records,
+                menhir_records=menhir_records,
+                docs_root=docs_home,
+                repo_root=Path(repo) if repo else None,
+                git_origin=git_origin,
+                strict=False,
+            )
+        except BuildError as exc:
+            raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
+        report = requirements_report(partial, intent_manifest)
+        gaps = gaps_from_report(report)
+        gaps_payload = {
+            "buildable": not any(gap["required"] for gap in gaps),
+            "intent": intent_payload,
+            "requirements": report,
+            "gaps": gaps,
+        }
+        if fmt == "json":
+            _json("build", ok=True, result_payload=gaps_payload)
+        else:
+            _text_gaps(gaps_payload)
+        return EXIT_OK
 
     try:
         facts = resolve_project_facts(
@@ -996,13 +1032,21 @@ def _build_impl(
         manifest_obj = parse_manifest(raw)
         require_valid_manifest(manifest_obj, docs_root=docs_home)
     except BuildError as exc:
-        raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
+        message = str(exc)
+        if exc.code in _GAP_REPORTABLE_BUILD_CODES:
+            message += " (run with --gaps-only to see what each source supplied)"
+        raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, message) from exc
     except ManifestValidationError as exc:
         raise cli_support.CliFailure(
             EXIT_VALIDATION, "build_projection_invalid", "projected manifest is invalid"
         ) from exc
 
     data = render_manifest_yaml(raw, note=note)
+    report = requirements_report(facts, intent_manifest)
+
+    # Last fence before any output: the project's manifest is still the one read.
+    if intent and intent_digest is not None:
+        _require_intent_unchanged(Path(intent), intent_digest, limits)
 
     if target is None:
         # Raw manifest bytes to stdout: exactly one document, no envelope.
@@ -1023,6 +1067,8 @@ def _build_impl(
     # refused build leaves the previous manifest and snapshot untouched.
     _preflight_build_manifest_target(target, force=force, limits=limits, protected=protected_inputs)
     _refuse_build_output_over_canonical_doc(target, manifest_obj, docs_home)
+    if intent and intent_digest is not None:
+        _require_intent_unchanged(Path(intent), intent_digest, limits)
     if snapshot_path is not None:
         # Collision with a canonical document is reported before the generic
         # exists/--force rule: it names the actual hazard.
@@ -1039,7 +1085,7 @@ def _build_impl(
         "snapshot_path": str(snapshot_path) if snapshot_path else None,
         "snapshot_manifest_sha256": snapshot_sha,
         "docs": len(facts.canonical_docs),
-        "concepts": 1 + len(facts.decisions) if facts.structure_summary else len(facts.decisions),
+        "concepts": len(manifest_obj.core_concepts),
         "guardrails": len(facts.guardrails),
         "drift": [{"code": d.code, "detail": d.detail} for d in facts.drift],
         "authorities": {
@@ -1052,14 +1098,65 @@ def _build_impl(
             "audiences": facts.audiences_authority,
         },
         "git_head": facts.git_head,
-        "intent": {"path": intent, "source": intent_source},
-        "gaps": evaluate_gaps(facts, intent_manifest),
+        "intent": intent_payload,
+        "requirements": report,
+        "gaps": gaps_from_report(report),
     }
     if fmt == "json":
         _json("build", ok=True, result_payload=payload)
     else:
         _text_build(payload)
     return EXIT_OK
+
+
+_GAP_REPORTABLE_BUILD_CODES = frozenset(
+    {"build_identity_unresolved", "build_description_unresolved", "build_no_canonical_docs"}
+)
+
+
+def _intent_digest(path: Path, limits: Any) -> str | None:
+    """sha256 of the intent manifest's bytes, refusing a symlink or non-regular file.
+
+    ``None`` when the path does not exist, so the loader reports it as missing.
+    """
+    if path.is_symlink():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "intent_manifest_unsafe", "the intent manifest is a symlink"
+        )
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "intent_manifest_unsafe", "the intent manifest is not a regular file"
+        )
+    try:
+        raw = read_bytes_bounded(
+            path, ceiling=limits.manifest_bytes, code=LIMIT_MANIFEST_BYTES, field="manifest_bytes"
+        )
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _require_intent_unchanged(path: Path, digest: str | None, limits: Any) -> None:
+    if _intent_digest(path, limits) != digest:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "intent_manifest_changed",
+            "the intent manifest changed during the build; nothing was written, rebuild",
+        )
+
+
+def _text_gaps(payload: dict[str, Any]) -> None:
+    verdict = "buildable" if payload["buildable"] else "NOT buildable (required fields missing)"
+    typer.echo(f"Requirements report: {verdict}")
+    intent = payload["intent"]
+    typer.echo(f"  intent: {intent['path'] or 'none'} ({intent['source'] or 'not supplied'})")
+    for row in payload["requirements"]:
+        by = "/".join(row["supplied_by"]) or "-"
+        mark = "ok" if row["status"] == "supplied" else ("!!" if row["required"] else "--")
+        allowed = "/".join(row["allowed_sources"])
+        typer.echo(f"  {mark} {row['field']}: {row['status']} (by {by}; allowed {allowed})")
 
 
 def _text_build(payload: dict[str, Any]) -> None:
