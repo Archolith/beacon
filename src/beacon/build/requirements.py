@@ -5,8 +5,8 @@ Every manifest field is listed here with the source tiers allowed to supply it
 
 * ``intent`` -- the project's own hand-authored ``beacon.yaml``;
 * ``git`` -- the repository (reality);
-* ``memory`` -- a memory/index provider's evidence (history). The Menhir
-  adapter is today's only memory provider (authority label ``menhir``);
+* ``memory`` -- a memory/index provider's evidence (history), authority
+  label ``memory`` (``menhir`` accepted as a legacy label);
 * ``derived`` -- Beacon computes the value from other fields.
 
 ``beacon_version`` is fixed by Beacon and is the only field not catalogued.
@@ -51,6 +51,7 @@ BEACON_OWNED_FIELDS = frozenset({"beacon_version"})
 _AUTHORITY_TIER = {
     "intent": TIER_INTENT,
     "git": TIER_GIT,
+    "memory": TIER_MEMORY,
     "menhir": TIER_MEMORY,
 }
 
@@ -190,7 +191,7 @@ CATALOGUE: tuple[Requirement, ...] = (
 
 
 def _tiers(authority: str) -> list[str]:
-    """Map a policy authority label (``intent+menhir`` allowed) to tiers."""
+    """Map a policy authority label (``intent+memory`` allowed) to tiers."""
     return [_AUTHORITY_TIER.get(part, part) for part in authority.split("+") if part]
 
 

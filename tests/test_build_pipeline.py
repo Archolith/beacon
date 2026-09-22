@@ -137,9 +137,27 @@ def _fixture_repo(tmp_path: Path, *, with_git: bool = True) -> Path:
     return tmp_path
 
 
+def _head_commit(root: Path) -> str:
+    """The fixture's HEAD, or a placeholder id when *root* is not a git repo."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,  # nosec B603 B607
+    )
+    return result.stdout.strip() if result.returncode == 0 else "0" * 40
+
+
 def _evidence_file(tmp_path: Path, docs: list[str]) -> Path:
+    """Memory evidence 1.1 bound to the fixture repo's current commit (no origin)."""
     payload = {
-        "evidence_version": "1.0",
+        "evidence_version": "1.1",
+        "binding": {
+            "provider": "fixture-provider",
+            "project_id": "fixture",
+            "repository": "",
+            "indexed_commit": _head_commit(tmp_path),
+        },
         "project": {
             "name": "fixture",
             "description": "Fixture project generated through Beacon.",
@@ -197,7 +215,7 @@ def test_menhir_supplies_identity_without_intent(tmp_path: Path) -> None:
         docs_root=_fixture_repo(tmp_path, with_git=False),
     )
     assert facts.description == "From Menhir."
-    assert facts.description_authority == "menhir"
+    assert facts.description_authority == "memory"
 
 
 def test_intent_wins_over_menhir_for_identity_fields(tmp_path: Path) -> None:
@@ -324,7 +342,7 @@ def test_projection_populates_only_evidence_backed_fields(tmp_path: Path) -> Non
     structure = raw["core_concepts"][0]
     assert structure["id"] == "project-structure"
     assert structure["sources"][0]["type"] == "memory"
-    assert structure["sources"][0]["title"].startswith("Menhir structure scan (fp-1)")
+    assert structure["sources"][0]["title"].startswith("Memory structure scan (fp-1)")
     manifest = parse_manifest(raw)
     require_valid_manifest(manifest, docs_root=root)
 
@@ -478,7 +496,7 @@ def test_build_cli_fails_closed_on_bad_evidence(tmp_path: Path) -> None:
     )
     assert result.exit_code == 2
     envelope = json.loads(result.output)
-    assert any(d["code"] == "menhir_evidence_invalid" for d in envelope["diagnostics"])
+    assert any(d["code"] == "memory_invalid" for d in envelope["diagnostics"])
 
 
 def test_adapter_origin_reaches_repository_field(tmp_path: Path) -> None:
@@ -490,6 +508,9 @@ def test_adapter_origin_reaches_repository_field(tmp_path: Path) -> None:
         capture_output=True,
     )
     evidence = _evidence_file(root, ["README.md"])
+    bound = json.loads(evidence.read_text(encoding="utf-8"))
+    bound["binding"]["repository"] = "https://example.com/fixture.git"
+    evidence.write_text(json.dumps(bound), encoding="utf-8")
     result = runner.invoke(
         app,
         ["build", "--repo", str(root), "--menhir-evidence", str(evidence), "--format", "json"],
@@ -545,28 +566,37 @@ def test_build_stdout_mode_emits_manifest_bytes(tmp_path: Path) -> None:
 
 
 def test_build_degrades_when_repo_has_no_git(tmp_path: Path) -> None:
-    """Tier 1 is optional: a non-git --repo degrades instead of failing."""
+    """Tier 1 is optional: a non-git --repo with intent alone degrades, not fails."""
+    root = _fixture_repo(tmp_path, with_git=False)
+    (root / "beacon.yaml").write_text(
+        "beacon_version: '0.1'\n"
+        "project: {name: fixture, description: A fixture without git.}\n"
+        "canonical_docs: [{path: README.md, role: entrypoint}]\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        ["build", "--repo", str(root), "--out", "beacon.generated.yaml", "--format", "json"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)["result"]
+    assert payload["git_head"] is None
+    assert payload["authorities"]["repository"] == ""
+
+
+def test_bound_memory_evidence_needs_a_git_checkout(tmp_path: Path) -> None:
+    """Evidence bound to a commit cannot be checked against a non-git repo."""
     root = _fixture_repo(tmp_path, with_git=False)
     evidence = _evidence_file(root, ["README.md"])
     result = runner.invoke(
         app,
-        [
-            "build",
-            "--repo",
-            str(root),
-            "--menhir-evidence",
-            str(evidence),
-            "--out",
-            "beacon.generated.yaml",
-            "--format",
-            "json",
-        ],
+        ["build", "--repo", str(root), "--memory-evidence", str(evidence), "--format", "json"],
         catch_exceptions=False,
     )
-    assert result.exit_code == 0, result.stderr
-    payload = json.loads(result.output)["result"]
-    assert payload["git_head"] is None
-    assert payload["authorities"]["repository"] == ""
+    assert result.exit_code == 2
+    assert json.loads(result.output)["diagnostics"][0]["code"] == "memory_stale"
+    assert not (root / "beacon.generated.yaml").exists()
 
 
 def test_menhir_adapter_round_trips_through_build(tmp_path: Path) -> None:
@@ -618,7 +648,7 @@ def test_evidence_status_is_attributed_to_menhir(tmp_path: Path) -> None:
     evidence = _evidence_file(root, ["README.md"])
     authorities = _build_json(root, evidence)["authorities"]
     assert isinstance(authorities, dict)
-    assert authorities["status"] == "menhir"
+    assert authorities["status"] == "memory"
 
 
 def test_audiences_are_omitted_without_a_source(tmp_path: Path) -> None:

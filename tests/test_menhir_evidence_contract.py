@@ -8,7 +8,7 @@ directions that matter to the producer:
   ``menhir.services.beacon_evidence.capture_evidence`` output) is valid under
   the schema *and* accepted by the adapter;
 * every schema-invalid class is refused by the adapter with the stable
-  ``menhir_evidence_invalid`` CLI code, a JSON pointer naming the defect, and
+  ``memory_invalid`` CLI code, a JSON pointer naming the defect, and
   no raw evidence values, absolute paths, or exception text in the message.
 """
 
@@ -119,7 +119,7 @@ _INVALID_CASES: list[tuple[str, dict[str, Any], str]] = [
     ),
     ("project-root-null", _mutate(("project", "root"), None), "/project/root"),
     ("project-missing", _mutate(("project",), None, delete=True), "/project"),
-    ("version-not-1.0", _mutate(("evidence_version",), "1.1"), "/evidence_version"),
+    ("version-unsupported", _mutate(("evidence_version",), "2.0"), "/evidence_version"),
     ("document-title-null", _mutate(("documents", 0, "title"), None), "/documents/0/title"),
     ("document-path-empty", _mutate(("documents", 0, "path"), ""), "/documents/0/path"),
     (
@@ -193,7 +193,7 @@ def test_invalid_message_carries_no_raw_values() -> None:
 
 def _cli_message(result: Any) -> str:
     envelope = json.loads(result.output)
-    diagnostics = [d for d in envelope["diagnostics"] if d["code"] == "menhir_evidence_invalid"]
+    diagnostics = [d for d in envelope["diagnostics"] if d["code"] == "memory_invalid"]
     assert diagnostics, envelope
     return str(diagnostics[0]["message"])
 

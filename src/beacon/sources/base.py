@@ -27,7 +27,7 @@ from typing import Protocol, runtime_checkable
 #: ``commit`` citation doubles as the source digest the record was derived from.
 CITATION_COMMIT = "commit"
 CITATION_PATH = "path"
-#: Citation to Menhir-held knowledge: the value is the evidence object's
+#: Citation to memory-provider knowledge: the value is the evidence object's
 #: stable identifier (today the scan fingerprint, e.g. ``scan:<fingerprint>``).
 CITATION_MEMORY = "memory"
 
@@ -40,13 +40,21 @@ KIND_GIT_FILE_HISTORY = "git_file_history"
 KIND_GIT_ACTIVITY = "git_activity"
 KIND_GIT_CO_CHANGE = "git_co_change"
 
-#: Record kinds emitted by the Menhir evidence adapter.
-KIND_MENHIR_IDENTITY = "menhir_identity"
-KIND_MENHIR_STRUCTURE = "menhir_structure"
-KIND_MENHIR_DOCUMENT = "menhir_document"
-KIND_MENHIR_FILE = "menhir_file"
-KIND_MENHIR_DECISION = "menhir_decision"
-KIND_MENHIR_LIFECYCLE = "menhir_lifecycle"
+#: Record kinds emitted by the memory evidence adapter (any memory provider).
+KIND_MEMORY_IDENTITY = "memory_identity"
+KIND_MEMORY_STRUCTURE = "memory_structure"
+KIND_MEMORY_DOCUMENT = "memory_document"
+KIND_MEMORY_FILE = "memory_file"
+KIND_MEMORY_DECISION = "memory_decision"
+KIND_MEMORY_LIFECYCLE = "memory_lifecycle"
+
+#: Deprecated aliases from when Menhir was the only provider (one release).
+KIND_MENHIR_IDENTITY = KIND_MEMORY_IDENTITY
+KIND_MENHIR_STRUCTURE = KIND_MEMORY_STRUCTURE
+KIND_MENHIR_DOCUMENT = KIND_MEMORY_DOCUMENT
+KIND_MENHIR_FILE = KIND_MEMORY_FILE
+KIND_MENHIR_DECISION = KIND_MEMORY_DECISION
+KIND_MENHIR_LIFECYCLE = KIND_MEMORY_LIFECYCLE
 
 
 @dataclass(frozen=True)
@@ -98,6 +106,12 @@ __all__ = [
     "KIND_GIT_HEAD",
     "KIND_GIT_INVENTORY",
     "KIND_GIT_TAG",
+    "KIND_MEMORY_DECISION",
+    "KIND_MEMORY_DOCUMENT",
+    "KIND_MEMORY_FILE",
+    "KIND_MEMORY_IDENTITY",
+    "KIND_MEMORY_LIFECYCLE",
+    "KIND_MEMORY_STRUCTURE",
     "KIND_MENHIR_DECISION",
     "KIND_MENHIR_DOCUMENT",
     "KIND_MENHIR_FILE",

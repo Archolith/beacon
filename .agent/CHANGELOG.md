@@ -1,5 +1,32 @@
 # Changelog — beacon
 
+## 2026-09-22 — memory providers: a backend-neutral contract, bound to the checkout
+
+Menhir is now one memory provider among any others; nothing in Beacon depends on it.
+
+- History tier renamed: `memory_*` record kinds, authority `memory` (was `menhir`), adapter
+  `beacon.sources.memory` (`MemorySourceAdapter`). `beacon.sources.menhir` and the `KIND_MENHIR_*`
+  names remain as deprecated aliases for one release.
+- Evidence `beacon-memory-evidence-1.1` (`docs/schemas/`) adds a required `binding`: provider,
+  provider project id, repository, indexed commit. The adapter enforces it rule for rule, and a
+  test proves schema/adapter parity.
+- `beacon build --memory URL --memory-project ID` fetches evidence from a provider over MCP (tool
+  `get_beacon_evidence`); the credential comes from `BEACON_MEMORY_TOKEN` as a bearer header.
+  `--memory-evidence FILE` reads an exported document (`--menhir-evidence` is a deprecated alias).
+- Freshness: a publishing build refuses unless the checkout is the bound repository (identity
+  compared as host + path, so ssh/https, `.git` and case do not matter) at the indexed commit,
+  with uncommitted changes only in `beacon.yaml` and Beacon's own outputs and staging files.
+  Checked before projection and again immediately before any output.
+- Failures refuse before any write: `memory_unavailable`, `memory_unauthorized`, `memory_invalid`
+  (was `menhir_evidence_invalid`; now also unbound 1.0 evidence on a publishing build),
+  `memory_binding_mismatch`, `memory_stale`. No retry, cache or silent fallback. `--gaps-only`
+  still reads 1.0 evidence.
+- Tests: a fake provider (a real MCP server on loopback, no Menhir code) drives the same transport;
+  one test per failure code; a commit during the build is caught at the last fence.
+- Behaviour change: builds that published from 1.0 (Menhir) evidence now refuse. Menhir's pinned
+  integration (`1cc3352b`) is unaffected until it implements the provider tool (plan Phase 3A).
+- New direct dependencies `mcp>=1.30` and `httpx>=0.27` (both already installed via `fastmcp`).
+
 ## 2026-09-22 — build provenance recorded by policy; indexed docs not claimed current
 
 - `resolve_project_facts` records which authority supplied every catalogued field
