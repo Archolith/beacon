@@ -142,6 +142,24 @@ def test_catalogs_and_resources_validate_against_published_schemas() -> None:
         jsonschema.validate(json.loads(body), schema)
 
 
+def test_scopeless_guardrail_builds_and_validates_against_published_schemas() -> None:
+    """``scope`` is optional in the loader (default ``""``); the catalog must accept it."""
+    scopeless = _guardrail() | {"scope": ""}
+    catalogs = build_knowledge_catalogs(
+        _snapshot(concepts=[], guardrails=[scopeless]),
+        snapshot_sha256="c" * 64,
+    )
+    index = json.loads(catalogs.guardrails.index_body)
+    assert index["guardrails"][0]["scope"] == ""
+    assert json.loads(catalogs.guardrails.resources[0].body)["guardrail"] == scopeless
+    for schema_name, body in (
+        ("beacon-guardrail-index-1.0.schema.json", catalogs.guardrails.index_body),
+        ("beacon-guardrail-resource-1.0.schema.json", catalogs.guardrails.resources[0].body),
+    ):
+        schema = json.loads((SCHEMA_ROOT / schema_name).read_text(encoding="utf-8"))
+        jsonschema.validate(json.loads(body), schema)
+
+
 def test_catalogs_are_byte_deterministic() -> None:
     snapshot = _snapshot(concepts=[_concept()], guardrails=[_guardrail()])
     first = build_knowledge_catalogs(snapshot, snapshot_sha256="c" * 64)
@@ -206,7 +224,9 @@ def test_explicit_null_collection_is_refused() -> None:
         ([None], [], "concept record must be a mapping"),
         ([], [None], "guardrail record must be a mapping"),
         ([_concept() | {"name": ""}], [], "concept name"),
-        ([], [_guardrail() | {"scope": ""}], "guardrail scope"),
+        ([], [_guardrail() | {"id": ""}], "guardrail id"),
+        ([], [_guardrail() | {"severity": " "}], "guardrail severity"),
+        ([], [_guardrail() | {"scope": None}], "guardrail scope must be a string"),
     ),
 )
 def test_malformed_collections_and_selector_fields_are_refused(

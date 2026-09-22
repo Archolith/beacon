@@ -449,6 +449,13 @@ whose role is `plan` or ends in `_plan` remain title-only in snapshots while the
 private MCP index retains their full text. `--metadata-only` emits structure and
 hashes without any document text.
 
+`beacon export` writes `beacon.snapshot.json` by default; `--output PATH` picks
+another file and `--output -` writes the snapshot to stdout. Re-running export
+replaces a previous Beacon snapshot at the same path, but any other existing
+path is refused with exit 2 (`export_output_exists`) unless you pass `--force`.
+The manifest and canonical documents are never overwritten, even with `--force`
+(`export_output_collision`).
+
 ---
 
 ## Status

@@ -251,3 +251,19 @@ def test_dev_extra_installs_tooling(pyproject: dict) -> None:
     dev = " ".join(pyproject["project"]["optional-dependencies"]["dev"])
     for pkg in ("pytest", "pytest-asyncio", "build", "twine", "jsonschema"):
         assert re.search(rf"(^|\s){re.escape(pkg)}", dev), f"{pkg} missing from dev extra"
+
+
+def test_gitattributes_pins_lf_for_export_sources() -> None:
+    """Exports digest exact on-disk bytes, so export inputs must check out as LF.
+
+    Without this, a Windows checkout with core.autocrlf=true produces CRLF
+    manifests/docs and different snapshot digests than Linux/macOS.
+    """
+    attributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    rules = {
+        line.split()[0]: set(line.split()[1:])
+        for line in attributes.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    for pattern in ("*.yaml", "*.yml", "*.md", "*.json", "examples/**", "tests/fixtures/**"):
+        assert {"text", "eol=lf"} <= rules.get(pattern, set()), pattern

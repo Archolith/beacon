@@ -441,6 +441,25 @@ class TestServeHttp:
         assert result.exit_code == 0, result.output
         assert len(run.call_args.args[0].validation.security_overrides) == 1
 
+    def test_scopeless_guardrail_manifest_builds_http_app(self, valid_manifest: Path) -> None:
+        """A guardrail without ``scope`` is valid to the loader and must not crash startup."""
+        valid_manifest.write_text(VALID_YAML.replace("    scope: core\n", ""), encoding="utf-8")
+        assert "scope:" not in valid_manifest.read_text(encoding="utf-8")
+        validated = runner.invoke(
+            app, ["validate", str(valid_manifest), "--strict-warnings", "--format", "json"]
+        )
+        assert validated.exit_code == 0, validated.output
+        # Run the real startup path (snapshot -> create_http_app -> bind); only the
+        # blocking uvicorn loop is replaced.
+        with mock.patch("uvicorn.Server") as server:
+            result = runner.invoke(
+                app, ["serve-http", "--manifest", str(valid_manifest), "--port", "0"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "internal_error" not in result.stderr
+        assert "Beacon HTTP ready" in result.stderr
+        server.return_value.run.assert_called_once()
+
     def test_startup_exception_is_redacted(self, valid_manifest: Path) -> None:
         with mock.patch(
             "beacon.main._serve_http_snapshot", side_effect=RuntimeError("private startup detail")
@@ -534,6 +553,46 @@ class TestInit:
         assert payload["ok"] is True
         assert payload["result"]["operation"] in {"create", "replace"}
 
+    def test_report_write_failure_leaves_no_manifest(
+        self, manifest_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from beacon.core import scaffold
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(scaffold, "write_report", _fail)
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 2
+        assert "init_report_write_failed" in result.stderr
+        assert not (manifest_dir / "beacon.yaml").exists()
+        assert not report_path.exists()
+
+    def test_manifest_write_failure_removes_new_report(
+        self, manifest_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from beacon.core import scaffold
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(scaffold, "_write_manifest_atomic", _fail)
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 2
+        assert "init_write_failed" in result.stderr
+        assert not (manifest_dir / "beacon.yaml").exists()
+        assert not report_path.exists()
+
+    def test_report_records_written_manifest(self, manifest_dir: Path, tmp_path: Path) -> None:
+        report_path = tmp_path / "report.json"
+        result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
+        assert result.exit_code == 0, result.output
+        raw = json.loads(report_path.read_text(encoding="utf-8"))
+        assert raw["written"] is True
+        assert (manifest_dir / "beacon.yaml").is_file()
+
     def test_report_persisted_raw(self, manifest_dir: Path, tmp_path: Path) -> None:
         report_path = tmp_path / "report.json"
         result = runner.invoke(app, ["init", str(manifest_dir), "--report", str(report_path)])
@@ -577,6 +636,96 @@ class TestValidate:
     def test_missing_file_exits_two(self, tmp_path: Path) -> None:
         result = runner.invoke(app, ["validate", str(tmp_path / "nope.yaml")])
         assert result.exit_code == 2
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        (
+            (
+                'beacon_version: "0.1"\nproject:\n  name: [SECRETVALUE123\n',
+                ("invalid YAML", "line 4", "column 1", "expected ',' or ']'"),
+            ),
+            (
+                VALID_YAML.replace('beacon_version: "0.1"', "beacon_version: 0.1"),
+                ("beacon_version must be a string, got float",),
+            ),
+            (
+                VALID_YAML.replace(
+                    "  tagline: A minimal test beacon.", "  tagline: # SECRETVALUE123"
+                ),
+                ("project.tagline must be a string, got NoneType",),
+            ),
+        ),
+        ids=("unclosed-flow-sequence", "unquoted-float-version", "null-tagline"),
+    )
+    @pytest.mark.parametrize("fmt", ["text", "json"])
+    def test_manifest_error_surfaces_safe_loader_detail(
+        self, manifest_dir: Path, source: str, expected: tuple[str, ...], fmt: str
+    ) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(source, encoding="utf-8")
+        result = runner.invoke(app, ["validate", str(manifest), "--format", fmt])
+        assert result.exit_code == 2, result.output
+        if fmt == "json":
+            payload = _assert_single_json_doc(result.output)
+            (diag,) = payload["diagnostics"]
+            assert diag["code"] == "manifest_invalid"
+            message = diag["message"]
+        else:
+            assert "manifest_invalid" in result.stderr
+            message = result.stderr
+        assert "malformed or invalid manifest" in message
+        for fragment in expected:
+            assert fragment in message
+        # Location/field/kind only: never the offending value, snippet, or the path.
+        assert "SECRETVALUE123" not in result.output
+        assert str(manifest_dir) not in result.output
+        assert len(message) <= 400
+
+    @pytest.mark.parametrize("fmt", ["text", "json"])
+    def test_doc_path_near_path_limit_reports_missing_file(
+        self, manifest_dir: Path, fmt: str
+    ) -> None:
+        long_path = "d/" * 400 + "x" * 210 + ".md"  # 1013 bytes, under path_bytes=1024
+        assert len(long_path.encode("utf-8")) <= 1024
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(
+            VALID_YAML.replace("  - path: README.md", f"  - path: {long_path}"),
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["validate", str(manifest), "--format", fmt])
+        assert result.exit_code == 1, result.output
+        assert "internal_error" not in result.output
+        if fmt == "json":
+            payload = _assert_single_json_doc(result.output)
+            missing = [
+                d for d in payload["diagnostics"] if d["code"] == "canonical_doc_missing_file"
+            ]
+            assert len(missing) == 1
+            assert len(missing[0]["path"]) <= 1024
+            assert missing[0]["path"].startswith("canonical_docs[d/d/")
+            assert missing[0]["path"].endswith(".md]")
+        else:
+            assert "path does not exist" in result.output
+
+    def test_manifest_error_redacts_quoted_yaml_values(self, manifest_dir: Path) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text("project: *SECRETALIAS99\n", encoding="utf-8")
+        result = runner.invoke(app, ["validate", str(manifest), "--format", "json"])
+        assert result.exit_code == 2
+        (diag,) = _assert_single_json_doc(result.output)["diagnostics"]
+        assert diag["code"] == "manifest_invalid"
+        assert "line 1" in diag["message"]
+        assert "SECRETALIAS99" not in result.output
+
+    def test_export_and_inspect_surface_manifest_error_detail(self, manifest_dir: Path) -> None:
+        manifest = manifest_dir / "beacon.yaml"
+        manifest.write_text(
+            VALID_YAML.replace('beacon_version: "0.1"', "beacon_version: 0.1"), encoding="utf-8"
+        )
+        for argv in (["export", str(manifest), "--output", "-"], ["inspect", str(manifest)]):
+            result = runner.invoke(app, argv)
+            assert result.exit_code == 2, result.output
+            assert "beacon_version must be a string, got float" in result.stderr
 
     def test_malformed_yaml_exits_two(self, tmp_path: Path) -> None:
         bad = tmp_path / "beacon.yaml"
@@ -909,6 +1058,7 @@ class TestExport:
             app, ["export", str(valid_manifest), "--output", str(valid_manifest)]
         )
         assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
         assert valid_manifest.read_text(encoding="utf-8") == before
 
     def test_doc_output_collision_refused(self, valid_manifest: Path) -> None:
@@ -916,7 +1066,67 @@ class TestExport:
         before = doc.read_text(encoding="utf-8")
         result = runner.invoke(app, ["export", str(valid_manifest), "--output", str(doc)])
         assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
         assert doc.read_text(encoding="utf-8") == before
+
+    @pytest.mark.parametrize("target", ["manifest", "doc"])
+    def test_force_never_overrides_source_collision(
+        self, valid_manifest: Path, target: str
+    ) -> None:
+        path = valid_manifest if target == "manifest" else valid_manifest.parent / "README.md"
+        before = path.read_bytes()
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(path), "--force"]
+        )
+        assert result.exit_code == 2
+        assert "export_output_collision" in result.stderr
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize("name", ["pyproject.toml", "notes.md"])
+    def test_existing_unrelated_file_refused_without_force(
+        self, valid_manifest: Path, name: str
+    ) -> None:
+        other = valid_manifest.parent / name
+        other.write_bytes(b"[project]\nname = 'keep-me'\n")
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(other), "--format", "json"]
+        )
+        assert result.exit_code == 2, result.output
+        payload = _assert_single_json_doc(result.output)
+        assert [d["code"] for d in payload["diagnostics"]] == ["export_output_exists"]
+        assert str(other) not in result.output
+        assert other.read_bytes() == b"[project]\nname = 'keep-me'\n"
+
+    def test_force_replaces_existing_unrelated_file(self, valid_manifest: Path) -> None:
+        other = valid_manifest.parent / "notes.md"
+        other.write_text("scratch", encoding="utf-8")
+        result = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(other), "--force"]
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(other.read_text(encoding="utf-8"))["beacon_snapshot_version"] == "1.0"
+
+    def test_rerun_replaces_previous_snapshot_without_force(
+        self, valid_manifest: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "snapshot.json"
+        first = runner.invoke(app, ["export", str(valid_manifest), "--output", str(out)])
+        assert first.exit_code == 0, first.output
+        second = runner.invoke(
+            app, ["export", str(valid_manifest), "--output", str(out), "--metadata-only"]
+        )
+        assert second.exit_code == 0, second.output
+        assert json.loads(out.read_text(encoding="utf-8"))["content_mode"] == "metadata_only"
+
+    def test_existing_directory_refused_without_force(
+        self, valid_manifest: Path, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "outdir"
+        target.mkdir()
+        result = runner.invoke(app, ["export", str(valid_manifest), "--output", str(target)])
+        assert result.exit_code == 2
+        assert "export_output_exists" in result.stderr
+        assert target.is_dir()
 
     def test_text_security_refusal_reports_location(self, manifest_dir: Path) -> None:
         (manifest_dir / "beacon.yaml").write_text(VALID_YAML, encoding="utf-8")

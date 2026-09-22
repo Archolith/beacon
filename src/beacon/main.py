@@ -21,6 +21,7 @@ envelope or prose on stdout.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -344,9 +345,7 @@ def _serve_http_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     except ManifestError as exc:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, cli_support.CODE_MANIFEST_INVALID, "malformed or invalid manifest"
-        ) from exc
+        raise cli_support.manifest_failure(exc) from exc
     except UnsafeCanonicalPath as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"
@@ -581,10 +580,33 @@ def _init_impl(
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
         _preflight_report(report_path, manifest_target)
 
+    # The report is written *before* the manifest (via before_write) so a report
+    # failure never leaves a written manifest behind. The report path was
+    # preflighted as new, so it is safe to remove again if the manifest write
+    # then fails.
+    report_written = False
+
+    def _write_report_first(pending: InitReport) -> None:
+        nonlocal report_written
+        if report_path is not None:
+            _write_init_report(pending, report_path, limits)
+            report_written = True
+
     try:
-        report = scaffold.init(
-            root, dry_run=dry_run, force=force, manifest_path=output, limits=limits
-        )
+        try:
+            report = scaffold.init(
+                root,
+                dry_run=dry_run,
+                force=force,
+                manifest_path=output,
+                limits=limits,
+                before_write=_write_report_first,
+            )
+        except BaseException:
+            if report_written and report_path is not None:
+                with contextlib.suppress(OSError):
+                    Path(report_path).unlink(missing_ok=True)
+            raise
     except DiscoveryError as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "init_invalid_root", "repository root is not usable"
@@ -600,15 +622,9 @@ def _init_impl(
             EXIT_INPUT, "init_write_failed", "could not write manifest"
         ) from exc
 
-    if report_path is not None:
-        try:
-            scaffold.write_report(report, report_path, limits=limits)
-        except LimitError as exc:
-            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
-        except OSError as exc:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "init_report_write_failed", "could not write report"
-            ) from exc
+    if report_path is not None and not report_written:
+        # Dry run or refusal: no manifest write happened, so write the report now.
+        _write_init_report(report, report_path, limits)
 
     ok = report.operation != OPERATION_REFUSED
     exit_code = EXIT_OK if ok else EXIT_INPUT
@@ -617,6 +633,17 @@ def _init_impl(
     else:
         _text_init(report)
     return exit_code
+
+
+def _write_init_report(report: InitReport, report_path: str, limits: ResourceLimits) -> None:
+    try:
+        scaffold.write_report(report, report_path, limits=limits)
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    except OSError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "init_report_write_failed", "could not write report"
+        ) from exc
 
 
 def _preflight_report(report_path: str, manifest_target: Path) -> None:
@@ -939,6 +966,14 @@ def export(
     docs_root: str | None = typer.Option(None, "--docs-root"),
     format: str = typer.Option("text", "--format"),
     metadata_only: bool = typer.Option(False, "--metadata-only"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Replace an existing --output file that is not a previous Beacon snapshot. "
+            "Never allows overwriting the manifest or a canonical document."
+        ),
+    ),
     acknowledge: list[str] = typer.Option([], "--acknowledge"),
     allow_sensitive: list[str] = typer.Option([], "--allow-sensitive"),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
@@ -959,6 +994,7 @@ def export(
             docs_root,
             fmt=format,
             metadata_only=metadata_only,
+            force=force,
             acknowledges=acknowledge,
             allow_sensitive=allow_sensitive,
             cli_limits=_six_limit_args(
@@ -980,6 +1016,7 @@ def _export_impl(
     *,
     fmt: str,
     metadata_only: bool,
+    force: bool = False,
     acknowledges: list[str],
     allow_sensitive: list[str],
     cli_limits: dict[str, Any],
@@ -1012,9 +1049,7 @@ def _export_impl(
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
     except ManifestError as exc:
-        raise cli_support.CliFailure(
-            EXIT_INPUT, cli_support.CODE_MANIFEST_INVALID, "malformed or invalid manifest"
-        ) from exc
+        raise cli_support.manifest_failure(exc) from exc
     except UnsafeCanonicalPath as exc:
         raise cli_support.CliFailure(
             EXIT_INPUT, "unsafe_canonical_path", "unsafe canonical path"
@@ -1037,7 +1072,7 @@ def _export_impl(
 
     # Preserve the read-only invariant: never turn a source file into snapshot JSON.
     out_path = Path(output)
-    _preflight_export_output(out_path, context)
+    _preflight_export_output(out_path, context, force=force)
 
     # Exact canonical bytes for the artifact digest/byte count and the file write.
     try:
@@ -1073,13 +1108,18 @@ def _export_impl(
     return EXIT_OK
 
 
-def _preflight_export_output(out_path: Path, context: cli_support.CommandContext) -> None:
-    """Refuse an export output that would overwrite the manifest or a canonical doc.
+def _preflight_export_output(
+    out_path: Path, context: cli_support.CommandContext, *, force: bool = False
+) -> None:
+    """Refuse an export output that would overwrite the manifest, a canonical doc,
+    or any other existing file.
 
     Preserves the v0.2 read-only invariant: a new artifact or the replacement of
-    an explicitly selected non-source snapshot remains allowed, but export never
-    turns ``beacon.yaml`` or a selected canonical document into snapshot JSON.
-    Raises a stable exit-2 :class:`CliFailure` before any write.
+    a previous Beacon snapshot remains allowed, but export never turns
+    ``beacon.yaml`` or a selected canonical document into snapshot JSON (not even
+    with ``--force``), and never replaces any other existing path unless
+    ``--force`` is given. Raises a stable exit-2 :class:`CliFailure` before any
+    write.
     """
     try:
         out_resolved = out_path.resolve()
@@ -1102,6 +1142,36 @@ def _preflight_export_output(out_path: Path, context: cli_support.CommandContext
                 "export_output_collision",
                 "output collides with a canonical document",
             )
+    if not force and _existing_non_snapshot(out_path):
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "export_output_exists",
+            "output path already exists and is not a Beacon snapshot (use --force to replace)",
+        )
+
+
+#: Canonical snapshot JSON sorts keys, so every snapshot starts with this prefix.
+_SNAPSHOT_PREFIX = b'{"beacon_snapshot_version":"'
+
+
+def _existing_non_snapshot(out_path: Path) -> bool:
+    """Return True when *out_path* exists and is not a regular Beacon snapshot file.
+
+    Symlinks and directories always count as non-snapshots. Only a bounded prefix
+    of an existing regular file is read.
+    """
+    if out_path.is_symlink():
+        return True
+    if not out_path.exists():
+        return False
+    if not out_path.is_file():
+        return True
+    try:
+        with out_path.open("rb") as handle:
+            head = handle.read(len(_SNAPSHOT_PREFIX))
+    except OSError:
+        return True
+    return head != _SNAPSHOT_PREFIX
 
 
 def _emit_snapshot_refusal(command: str, exc: snapshot_mod.SnapshotError, fmt: str) -> int:

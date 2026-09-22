@@ -822,6 +822,67 @@ def test_absolute_path_in_test_command_refused(tmp_path: Path, command: str) -> 
     assert command not in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "dotnet test /p:Configuration=Release",
+        "msbuild /t:Build /m",
+        "msbuild /nologo /v:m /p:Platform=x64",
+        'pytest -k "a:b"',
+        "python -m pytest -k key:value",
+        "npm run test:unit",
+    ],
+)
+def test_switch_and_colon_commands_allowed(tmp_path: Path, command: str) -> None:
+    manifest = CLEAN_MANIFEST.replace("  test: pytest\n", f"  test: '{command}'\n")
+    snap = build_snapshot(_write_project(tmp_path, manifest=manifest))
+    assert snap.manifest.data["build_and_test"]["test"] == command
+
+
+@pytest.mark.parametrize(
+    ("field", "command"),
+    [
+        ("test", "pytest /home/user/project/tests"),
+        ("test", "C:\\tools\\runner.exe"),
+        ("test", "C:/tools/runner.exe"),
+        ("test", "\\\\server\\share\\run.cmd"),
+        ("test", "//server/share/run.sh"),
+        ("test", "msbuild /p:OutDir=C:\\out\\bin"),
+        ("test", "pytest --basetemp=/tmp/beacon/run"),
+        ("test", 'sh -c "ls /"'),
+        ("setup", "/usr/bin/python3 -m pip install -e ."),
+        ("benchmark", "python bench.py --out=D:\\bench"),
+    ],
+)
+def test_absolute_command_path_refused_naming_field(
+    tmp_path: Path, field: str, command: str
+) -> None:
+    if field == "test":
+        manifest = CLEAN_MANIFEST.replace("  test: pytest\n", f"  test: '{command}'\n")
+    else:
+        manifest = CLEAN_MANIFEST.replace(
+            "  test: pytest\n", f"  test: pytest\n  {field}: '{command}'\n"
+        )
+    with pytest.raises(SnapshotError) as excinfo:
+        build_snapshot(_write_project(tmp_path, manifest=manifest))
+    assert excinfo.value.code == SNAPSHOT_UNSAFE_MANIFEST_PATH
+    assert f"build_and_test.{field}" in str(excinfo.value)
+    assert command not in str(excinfo.value)
+
+
+def test_unsafe_manifest_path_error_names_field(tmp_path: Path) -> None:
+    manifest = CLEAN_MANIFEST.replace(
+        "guardrails:\n  - id: g1\n    rule: Do not break things.\n",
+        "guardrails:\n  - id: g1\n    rule: Do not break things.\n"
+        "    applies_to: [/srv/private/app.py]\n",
+    )
+    with pytest.raises(SnapshotError) as excinfo:
+        build_snapshot(_write_project(tmp_path, manifest=manifest))
+    assert excinfo.value.code == SNAPSHOT_UNSAFE_MANIFEST_PATH
+    assert "guardrails[].applies_to" in str(excinfo.value)
+    assert "/srv" not in str(excinfo.value)
+
+
 def test_relative_test_command_allowed(tmp_path: Path) -> None:
     manifest = CLEAN_MANIFEST.replace("  test: pytest\n", "  test: pytest tests\n")
     snap = build_snapshot(_write_project(tmp_path, manifest=manifest))
