@@ -565,3 +565,61 @@ def test_failed_manifest_replace_restores_the_snapshot(
     assert after == before
     leftovers = [p.name for p in root.iterdir() if p.name.endswith(".tmp")]
     assert leftovers == []
+
+
+def test_directory_named_beacon_yaml_is_refused_not_ignored(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path / "repo")
+    (root / "beacon.yaml").mkdir()
+    explicit = _elsewhere(tmp_path, name="explicit-intent")
+
+    for extra in ((), ("--intent", str(explicit))):
+        code, payload = _invoke(root, *extra)
+        assert code == 2
+        assert payload["diagnostics"][0]["code"] == "intent_manifest_unsafe"
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_failed_rollback_keeps_the_recovery_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import beacon.main as main_mod
+
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+    manifest = root / "beacon.generated.yaml"
+    snapshot = root / "beacon.snapshot.json"
+    code, payload = _invoke(root, "--snapshot-out", "beacon.snapshot.json")
+    assert code == 0, payload
+    original_snapshot = snapshot.read_bytes()
+    _write_intent(root, dict(_INTENT, project=dict(_INTENT["project"], name="second")))
+
+    real_replace = os.replace
+
+    def _fail_manifest_and_restore(src: Any, dst: Any) -> None:
+        if Path(dst) == manifest or (
+            Path(dst) == snapshot
+            and Path(src).suffix == ".tmp"
+            and Path(src).name.startswith(".beacon.snapshot.json.")
+        ):
+            raise OSError("simulated failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(main_mod.os, "replace", _fail_manifest_and_restore)
+    code, payload = _invoke(root, "--snapshot-out", "beacon.snapshot.json")
+    monkeypatch.setattr(main_mod.os, "replace", real_replace)
+
+    assert code == 2
+    assert payload["diagnostics"][0]["code"] == "build_rollback_failed"
+    backups = [p for p in root.iterdir() if p.name.startswith(".beacon.snapshot.json.")]
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original_snapshot
+
+
+def test_same_file_never_raises_on_bad_paths(tmp_path: Path) -> None:
+    import beacon.main as main_mod
+
+    real = tmp_path / "beacon.yaml"
+    real.write_text("x", encoding="utf-8")
+    assert main_mod._same_file(real, real) is True
+    assert main_mod._same_file(tmp_path / "missing.yaml", real) is False
+    assert main_mod._same_file(tmp_path / "a" / ".." / "beacon.yaml", real) is True

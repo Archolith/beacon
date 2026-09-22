@@ -882,6 +882,12 @@ def _build_impl(
                 "intent_manifest_unsafe",
                 "the repository's beacon.yaml is a symlink; replace it with a regular file",
             )
+        if candidate.exists() and not candidate.is_file():
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "intent_manifest_unsafe",
+                "the repository's beacon.yaml is not a regular file",
+            )
         if candidate.is_file():
             if intent is not None and not _same_file(Path(intent), candidate):
                 raise cli_support.CliFailure(
@@ -995,7 +1001,9 @@ def _build_impl(
             raise cli_support.CliFailure(EXIT_INPUT, "intent_manifest_invalid", message) from exc
         # The parsed manifest must be the bytes that were fingerprinted.
         _require_intent_unchanged(Path(intent), intent_digest, limits)
-        intent_manifest = _clear_defaulted_status(intent_manifest, Path(intent), intent_digest)
+        intent_manifest = _clear_defaulted_status(
+            intent_manifest, Path(intent), intent_digest, limits
+        )
 
     intent_payload = {"path": intent, "source": intent_source}
 
@@ -1158,10 +1166,13 @@ def _same_file(left: Path, right: Path) -> bool:
     try:
         return left.samefile(right)
     except OSError:
-        return left.resolve() == right.resolve()
+        try:
+            return left.resolve() == right.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return False
 
 
-def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None) -> Any:
+def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None, limits: Any) -> Any:
     """Blank ``project.status`` when the file never stated it.
 
     The loader fills an omitted status with the schema default; for the build
@@ -1172,7 +1183,12 @@ def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None) -> An
 
     import yaml
 
-    raw = path.read_bytes()
+    try:
+        raw = read_bytes_bounded(
+            path, ceiling=limits.manifest_bytes, code=LIMIT_MANIFEST_BYTES, field="manifest_bytes"
+        )
+    except (OSError, LimitError):
+        raw = b""
     if hashlib.sha256(raw).hexdigest() != digest:
         raise cli_support.CliFailure(
             EXIT_INPUT,
@@ -1314,15 +1330,26 @@ def _write_build_outputs(
         try:
             os.replace(temp_name, target)
         except OSError as exc:
-            if backup_name is not None:
-                os.replace(backup_name, snapshot_path)
+            try:
+                if backup_name is not None:
+                    os.replace(backup_name, snapshot_path)
+                    backup_name = None
+                else:
+                    snapshot_path.unlink()
+            except OSError as rollback_exc:
+                # Keep the recovery copy: never delete it after a failed restore.
+                kept = Path(backup_name).name if backup_name else None
                 backup_name = None
-            else:
-                _unlink_quietly(str(snapshot_path))
+                detail = f"; the previous snapshot is kept as {kept}" if kept else ""
+                raise cli_support.CliFailure(
+                    EXIT_INPUT,
+                    "build_rollback_failed",
+                    "could not write the manifest and could not roll back the snapshot" + detail,
+                ) from rollback_exc
             raise cli_support.CliFailure(
                 EXIT_INPUT,
                 "build_manifest_write_failed",
-                "could not write the manifest; the previous snapshot was restored",
+                "could not write the manifest; the snapshot was rolled back",
             ) from exc
         committed = True
     finally:
