@@ -177,6 +177,7 @@ def resolve_project_facts(
     docs_root: Path,
     repo_root: Path | None = None,
     git_origin: str | None = None,
+    strict: bool = True,
 ) -> MergedProjectFacts:
     """Resolve merged records into the facts the projection consumes.
 
@@ -186,7 +187,10 @@ def resolve_project_facts(
     ``git_origin`` is the adapter's already-sanitized repository URL (the
     :meth:`GitSourceAdapter.repository_url` capability, applied by the CLI
     layer). Raises :class:`BuildError` when a required fact cannot be
-    resolved.
+    resolved. ``strict=False`` is for the non-publishing gap report only: an
+    unresolved name, description or canonical-doc set is left empty instead
+    of refusing (errors such as a root mismatch or a missing intent doc still
+    raise). Facts from a non-strict call must never be projected.
     """
     drift: list[DriftRecord] = []
 
@@ -213,7 +217,7 @@ def resolve_project_facts(
         name, name_authority = intent.project.name.strip(), "intent"
     elif identity is not None:
         name, name_authority = str(identity.payload.get("name") or ""), "menhir"
-    if not name:
+    if not name and strict:
         raise BuildError(
             BUILD_IDENTITY_UNRESOLVED,
             "no project name from intent manifest or Menhir evidence; refusing to invent one",
@@ -229,7 +233,7 @@ def resolve_project_facts(
     elif identity is not None and str(identity.payload.get("description") or "").strip():
         description = str(identity.payload.get("description") or "").strip()
         description_authority = "menhir"
-    if not description:
+    if not description and strict:
         raise BuildError(
             BUILD_DESCRIPTION_UNRESOLVED,
             "no project description from intent manifest or Menhir evidence; refusing to invent one",
@@ -267,6 +271,8 @@ def resolve_project_facts(
     # -- canonical docs (intent asserts; Menhir cites; the filesystem decides) --
     docs: list[dict[str, str]] = []
     seen: set[str] = set()
+    intent_doc_count = 0
+    menhir_doc_count = 0
     if intent is not None:
         for doc in intent.canonical_docs:
             if not _doc_exists(docs_root, doc.path):
@@ -276,6 +282,7 @@ def resolve_project_facts(
                 )
             if doc.path not in seen:
                 seen.add(doc.path)
+                intent_doc_count += 1
                 docs.append(
                     {
                         "path": doc.path,
@@ -303,6 +310,7 @@ def resolve_project_facts(
             )
             continue
         seen.add(path)
+        menhir_doc_count += 1
         docs.append(
             {
                 "path": path,
@@ -311,12 +319,13 @@ def resolve_project_facts(
                 "status": "current",
             }
         )
-    docs_authority = (
-        "intent+menhir"
-        if intent is not None and menhir_docs
-        else ("intent" if intent is not None else "menhir")
+    # Attribute the set to the sources whose documents actually survived.
+    docs_authority = "+".join(
+        tier
+        for tier, count in (("intent", intent_doc_count), ("menhir", menhir_doc_count))
+        if count
     )
-    if not docs:
+    if not docs and strict:
         raise BuildError(
             BUILD_NO_CANONICAL_DOCS,
             "no canonical document survived the reality check; refusing to publish an empty beacon",

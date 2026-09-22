@@ -1,5 +1,45 @@
 # Changelog — beacon
 
+## 2026-09-22 — `beacon build` reads the project's own beacon.yaml; gap report
+
+Each project owns its own beacon data; Beacon asks for it. Until now `beacon build` merged a
+project's `beacon.yaml` only when a caller passed `--intent`, and the only caller (Menhir) never
+did, so purpose, guardrails and commands never reached the build and generated manifests were
+nearly empty.
+
+- `beacon build --repo R` uses `R/beacon.yaml` as the intent authority. When it exists it is the
+  only intent that build may use: `--intent` may name it or serve a repository without one, but
+  a different file is refused (`intent_manifest_conflict`). There is deliberately no opt-out:
+  ignoring the project's own manifest would publish a beacon without its guardrails.
+- The own manifest refuses the build when malformed (`intent_manifest_invalid`), symlinked or not
+  a regular file (`intent_manifest_unsafe`), or changed during the build
+  (`intent_manifest_changed`: its sha256 is taken before parsing, re-checked after parsing,
+  before the gap report is emitted, and immediately before any output -- stdout included, and
+  after the snapshot is built for snapshot builds). Nothing is written on refusal.
+- If replacing the manifest fails after the snapshot was written, the previous snapshot is
+  restored (or the new one removed): `build_manifest_write_failed`. A process killed between the
+  two renames can still leave them mismatched (pre-existing since the two-file build).
+- Requirements catalogue (`src/beacon/build/requirements.py`, published as
+  `docs/schemas/beacon-requirements-1.0.json`, kept identical by a test): every manifest field
+  except the Beacon-owned `beacon_version`, the tiers allowed to supply it (`intent` / `git` /
+  `memory` / `derived`), required or optional, and its gap code. Required codes are the build's
+  refusal codes; codes shared with `beacon init` are init's.
+- Build results carry `intent` (`path`, `source`), `requirements` (one row per field: `status`
+  supplied / missing / default, `supplied_by` the tier that actually supplied it,
+  `allowed_sources`) and `gaps`. Beacon's status default -- including an intent manifest that
+  omits `project.status` -- and init placeholders (starter description, `status: unknown`)
+  count as gaps. Conformance tests check every manifest field is
+  catalogued and every supplied value came from an allowed tier.
+- `beacon build --gaps-only` writes nothing and reports the same rows even when a required field
+  is unresolved (`buildable: false`); a refused build points to it. Inconsistent inputs (root
+  mismatch, intent citing a missing document) remain errors.
+- `concepts` in the build result is now the published concept count (it omitted intent concepts).
+  Canonical-doc authority names only sources whose documents survived.
+- Behaviour change for callers that pass `--repo` without `--intent` into a repo that has a
+  `beacon.yaml`: that file now takes intent authority (or refuses the build if malformed).
+  Menhir's pinned integration (`1cc3352b`) is unaffected while the pin stays; its E2E-6 and E2E-8
+  lanes plant a `beacon.yaml` and must be rewritten before that pin can move.
+
 ## 2026-09-21 — v0.3 build pipeline review fixes (PR #10)
 
 - `beacon build` output safety — `--snapshot-out` is contained within the output root

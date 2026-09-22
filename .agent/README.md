@@ -1,6 +1,18 @@
 # beacon — Agent Docs
 
-Read everything in this directory before starting work.
+This file is a router. Read it, then only the files your task needs; do not preload the rest.
+
+## Where to start
+
+| Task | Read |
+|------|------|
+| Any code change | `workflows/code_conventions.md`, then the code itself |
+| Build pipeline (`beacon build`, sources, requirements catalogue) | the module docstrings in `src/beacon/build/` and `src/beacon/sources/`; the active plan in the root workspace `.agent/plans/beacon-ownership-and-expansion-plan-2026-09-22.md` |
+| Manifest schema, loader, validator | `data_models.md` |
+| MCP / HTTP serving | `architecture.md` |
+| Release or packaging | `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` |
+
+`for-review/`, `reports/` and older plans are history: read them only when a task points to them.
 
 ## Files
 

@@ -194,6 +194,38 @@ discovery.
 
 ---
 
+## Building a beacon
+
+Each project owns its own data. Beacon asks for it, merges it with what the repository and an
+optional memory provider can prove, and writes the result:
+
+```bash
+beacon init                        # starter beacon.yaml + the gaps it could not fill
+# edit beacon.yaml: purpose, guardrails, commands, canonical docs
+beacon build --repo .              # writes beacon.generated.yaml and reports remaining gaps
+```
+
+- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority. When it exists it is
+  the only intent that build may use: `--intent` may name it, or supply intent for a repository
+  that has none, but never replace it (`intent_manifest_conflict`). A malformed or symlinked
+  `beacon.yaml`, or one that changes during the build, refuses the build and nothing is written.
+- `beacon build --repo R --gaps-only` writes nothing and reports, for every field, whether it was
+  supplied, by which source, and what is still missing -- including when a required field (name,
+  description, canonical docs) is unresolved and a real build would refuse. Inconsistent inputs
+  (the indexed root differs from `--repo`, or the manifest cites a document missing on disk) are
+  errors to fix first, not gaps.
+- Without a `beacon.yaml` a build succeeds only when a memory provider supplies the required
+  fields; the result is thin and lists every empty field as a gap. With neither, the build
+  refuses and points to `--gaps-only`.
+- What Beacon asks for, and which source may supply each field (`intent`, `git`, `memory`,
+  `derived`), is published in
+  [`docs/schemas/beacon-requirements-1.0.json`](docs/schemas/beacon-requirements-1.0.json).
+  Guardrails, commands, problem and non-goals come only from the project's own manifest. A memory
+  provider's description currently also fills `purpose.one_sentence`; that is reported as
+  supplied by `memory`, never as the maintainers' words.
+
+---
+
 ## What agents can ask
 
 Beacon registers five read-only MCP tools when the server starts.

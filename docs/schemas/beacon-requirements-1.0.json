@@ -1,0 +1,231 @@
+{
+  "catalogue": "beacon.requirements",
+  "version": "1.0",
+  "tiers": {
+    "intent": "the project's own beacon.yaml",
+    "git": "the repository (reality)",
+    "memory": "a memory/index provider's evidence (history)",
+    "derived": "computed by Beacon from other fields"
+  },
+  "beacon_owned": [
+    "beacon_version"
+  ],
+  "requirements": [
+    {
+      "field": "project.name",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": true,
+      "gap_code": "build_identity_unresolved",
+      "ask": "The project's name."
+    },
+    {
+      "field": "project.description",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": true,
+      "gap_code": "build_description_unresolved",
+      "ask": "A grounded description of the project."
+    },
+    {
+      "field": "project.tagline",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "tagline_missing",
+      "ask": "A short tagline."
+    },
+    {
+      "field": "project.repository",
+      "sources": [
+        "intent",
+        "git"
+      ],
+      "required": false,
+      "gap_code": "repository_unknown",
+      "ask": "The canonical repository URL."
+    },
+    {
+      "field": "project.primary_language",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": false,
+      "gap_code": "primary_language_unknown",
+      "ask": "The main implementation language."
+    },
+    {
+      "field": "project.status",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": false,
+      "gap_code": "project_status_unknown",
+      "ask": "Maturity (experimental, active, stable, ...) as the maintainers state it."
+    },
+    {
+      "field": "project.license",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "license_omitted",
+      "ask": "The license identifier."
+    },
+    {
+      "field": "purpose.one_sentence",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": false,
+      "gap_code": "purpose_missing",
+      "ask": "One sentence, in the maintainers' words, saying what the project is for."
+    },
+    {
+      "field": "purpose.problem",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "problem_missing",
+      "ask": "The problem the project solves."
+    },
+    {
+      "field": "purpose.non_goals",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "non_goals_missing",
+      "ask": "What the project deliberately does not do."
+    },
+    {
+      "field": "audiences",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "audiences_missing",
+      "ask": "Who the project is for."
+    },
+    {
+      "field": "current_focus",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "current_focus_missing",
+      "ask": "What the maintainers are working on now."
+    },
+    {
+      "field": "canonical_docs",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": true,
+      "gap_code": "build_no_canonical_docs",
+      "ask": "The documents an agent should treat as authoritative."
+    },
+    {
+      "field": "core_concepts",
+      "sources": [
+        "intent",
+        "memory"
+      ],
+      "required": false,
+      "gap_code": "concepts_omitted",
+      "ask": "The domain concepts an agent must understand."
+    },
+    {
+      "field": "agent_guidance.read_first",
+      "sources": [
+        "intent",
+        "derived"
+      ],
+      "required": false,
+      "gap_code": "read_first_missing",
+      "ask": "The documents a new agent reads first (derived from canonical_docs when unstated)."
+    },
+    {
+      "field": "agent_guidance.safe_first_tasks",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "safe_first_tasks_missing",
+      "ask": "Tasks a new agent can safely start with."
+    },
+    {
+      "field": "agent_guidance.avoid_without_review",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "avoid_without_review_missing",
+      "ask": "Areas an agent must not change without review."
+    },
+    {
+      "field": "agent_guidance.expected_behavior",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "expected_behavior_missing",
+      "ask": "How agents are expected to behave in this project."
+    },
+    {
+      "field": "build_and_test.setup",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "build_commands_unknown",
+      "ask": "The setup/build command."
+    },
+    {
+      "field": "build_and_test.test",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "test_command_missing",
+      "ask": "The test command."
+    },
+    {
+      "field": "build_and_test.benchmark",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "benchmark_omitted",
+      "ask": "The benchmark command, if any."
+    },
+    {
+      "field": "guardrails",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "guardrails_missing",
+      "ask": "Rules an agent must follow, each citing its source."
+    },
+    {
+      "field": "project_state",
+      "sources": [
+        "intent"
+      ],
+      "required": false,
+      "gap_code": "project_state_missing",
+      "ask": "Active work, recent completions, blockers and pending decisions."
+    }
+  ]
+}
