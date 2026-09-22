@@ -541,17 +541,20 @@ def _collect_git_evidence(
         return discovery, None
     git_evidence = records_to_git_evidence(records)
     url, url_findings = adapter.repository_url()
-    findings = discovery.security_findings
+    # The adapter's URL findings (a credential embedded in the origin URL,
+    # for example) are merged into the report whether or not the URL itself
+    # is used, deduplicated against discovery's own config-read findings.
+    merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
+    for finding in (*discovery.security_findings, *url_findings):
+        merged[(finding.code, finding.path, finding.blocked)] = finding
+    findings = tuple(merged.values())
     if url is not None:
         discovery = dataclass_replace(
             discovery,
             repository=url,
             git_evidence=Evidence(kind=KIND_GIT_REMOTE, path="."),
+            security_findings=findings,
         )
-        merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
-        for finding in (*findings, *url_findings):
-            merged[(finding.code, finding.path, finding.blocked)] = finding
-        findings = tuple(merged.values())
     else:
         discovery = dataclass_replace(discovery, security_findings=findings)
     return discovery, git_evidence

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+import yaml
 
 import beacon.sources.git as gitmod
 from beacon.core.scaffold import init, to_payload
@@ -401,17 +402,38 @@ def test_init_without_git_omits_the_section(tmp_path: Path) -> None:
     jsonschema.validate(payload, _v11_schema())
 
 
+def _linked_worktree(tmp_path: Path, repo: Path, url: str) -> Path:
+    """A linked worktree of *repo*: its ``.git`` is a file, so discovery's
+    pure ``.git/config`` read finds no remote and only the adapter can
+    resolve *url*. That makes the two sources genuinely differ."""
+    _git(repo, "remote", "add", "origin", url)
+    worktree = tmp_path / "linked-worktree"
+    _git(repo, "worktree", "add", "-q", str(worktree), "-b", "linked")
+    assert (worktree / ".git").is_file()
+    return worktree
+
+
 def test_init_prefers_adapter_url_over_config_read(tmp_path: Path, repo: Path) -> None:
-    _git(repo, "remote", "add", "origin", "https://github.com/acme/from-adapter.git")
-    # A conflicting legacy config value must lose to the resolved remote.
-    (repo / ".git" / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/acme/from-config.git\n',
-        encoding="utf-8",
-    )
-    report = init(repo)
+    worktree = _linked_worktree(tmp_path, repo, "https://github.com/acme/from-adapter.git")
+    # The config read has nothing to offer here (no .git/config in a
+    # linked worktree), so any repository value must come from the adapter.
+    report = init(worktree)
     assert report.git_evidence is not None
     repository = next(f for f in report.discovered if f.manifest_path == "project.repository")
-    assert any(e.kind == "git_remote" for e in repository.evidence)
+    assert [(e.kind, e.path) for e in repository.evidence] == [("git_remote", ".")]
+    manifest = yaml.safe_load((worktree / "beacon.yaml").read_text(encoding="utf-8"))
+    assert manifest["project"]["repository"] == "https://github.com/acme/from-adapter.git"
+
+
+def test_init_reports_credential_url_findings_from_the_adapter(tmp_path: Path, repo: Path) -> None:
+    worktree = _linked_worktree(
+        tmp_path, repo, "https://alice:s3cr3tvalue@github.com/acme/acme.git"
+    )
+    report = init(worktree, dry_run=True)
+    assert any(f.code == "sensitive_credential_url" for f in report.security_findings)
+    serialized = json.dumps(to_payload(report))
+    assert "s3cr3tvalue" not in serialized
+    jsonschema.validate(to_payload(report), _v11_schema())
 
 
 def test_records_to_git_evidence_is_a_pure_projection(repo: Path) -> None:
