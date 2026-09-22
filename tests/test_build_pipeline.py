@@ -12,6 +12,7 @@ import subprocess  # nosec B404 - fixed-argv local git fixture setup only
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 import yaml
 from typer.testing import CliRunner
@@ -1046,4 +1047,168 @@ def test_snapshot_collision_leaves_no_manifest(tmp_path: Path) -> None:
         app, _build_args(root, evidence, "--snapshot-out", "README.md"), catch_exceptions=False
     )
     assert result.exit_code == 2, result.output
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Stable refusal codes through the CLI (contract surface)
+# ---------------------------------------------------------------------------
+
+_CLI_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "schemas"
+        / "beacon-cli-result-1.0.schema.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def _envelope(result: Any, *, exit_code: int) -> dict[str, Any]:
+    assert result.exit_code == exit_code, result.output
+    envelope = json.loads(result.output)
+    jsonschema.validate(envelope, _CLI_SCHEMA)
+    return envelope
+
+
+def test_build_success_envelope_validates_against_cli_result_schema(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=0)
+    assert envelope["command"] == "build"
+    assert envelope["ok"] is True
+
+
+def test_cli_intent_manifest_invalid(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    intent = root / "intent.yaml"
+    intent.write_text("project: [not, a, mapping\n", encoding="utf-8")
+    result = runner.invoke(
+        app, ["build", "--intent", str(intent), "--repo", str(root), "--format", "json"]
+    )
+    envelope = _envelope(result, exit_code=2)
+    assert "intent_manifest_invalid" in {d["code"] for d in envelope["diagnostics"]}
+    # Absent intent file: same stable code, no path in the message.
+    missing = runner.invoke(
+        app,
+        ["build", "--intent", str(root / "nope.yaml"), "--repo", str(root), "--format", "json"],
+    )
+    envelope = _envelope(missing, exit_code=2)
+    diag = next(d for d in envelope["diagnostics"] if d["code"] == "intent_manifest_invalid")
+    assert "nope.yaml" not in diag["message"]
+
+
+def test_cli_build_projection_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A projection the validator rejects is exit 1 build_projection_invalid."""
+    import beacon.build.project as project_mod
+
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["decisions"] = [{"title": t, "summary": "s"} for t in ("Alpha", "Beta")]
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    # Defeat id disambiguation so the projection carries duplicate ids
+    # (concept_id_duplicate is a validation error).
+    monkeypatch.setattr(project_mod, "_unique_id", lambda base, used: "same-id")
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=1)
+    assert "build_projection_invalid" in {d["code"] for d in envelope["diagnostics"]}
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_cli_build_identity_root_mismatch(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["project"]["root"] = str(tmp_path / "elsewhere")
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=1)
+    assert "build_identity_root_mismatch" in {d["code"] for d in envelope["diagnostics"]}
+
+
+@pytest.mark.parametrize("out", ["../escaped.yaml", "/abs/beacon.yaml", "C:/abs/beacon.yaml"])
+def test_cli_unsafe_canonical_path_for_out(tmp_path: Path, out: str) -> None:
+    root = _fixture_repo(tmp_path / "repo")
+    evidence = _evidence_file(root, ["README.md"])
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence, "--out", out)), exit_code=2)
+    assert "unsafe_canonical_path" in {d["code"] for d in envelope["diagnostics"]}
+
+
+def test_cli_build_output_unusable_for_directory(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    (root / "beacon.generated.yaml").mkdir()
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence, "--force")), exit_code=2)
+    assert "build_output_unusable" in {d["code"] for d in envelope["diagnostics"]}
+
+
+def test_cli_build_git_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from beacon.sources.git import GitSourceAdapter, GitSourceError
+
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+
+    def fail(self: Any) -> tuple[Any, ...]:
+        raise GitSourceError("git query failed: simulated")
+
+    monkeypatch.setattr(GitSourceAdapter, "collect", fail)
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=2)
+    diag = next(d for d in envelope["diagnostics"] if d["code"] == "build_git_failed")
+    assert "simulated" not in diag["message"]
+
+
+def test_cli_build_snapshot_path_invalid_for_directory(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    (root / "snapdir").mkdir()
+    envelope = _envelope(
+        runner.invoke(app, _build_args(root, evidence, "--snapshot-out", "snapdir")),
+        exit_code=2,
+    )
+    assert "build_snapshot_path_invalid" in {d["code"] for d in envelope["diagnostics"]}
+
+
+def test_cli_build_snapshot_write_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import beacon.main as main_mod
+
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise OSError(13, "simulated permission error")
+
+    monkeypatch.setattr(main_mod.snapshot_mod, "write_snapshot_atomic", refuse)
+    envelope = _envelope(
+        runner.invoke(app, _build_args(root, evidence, "--snapshot-out", "beacon.snapshot.json")),
+        exit_code=2,
+    )
+    assert "build_snapshot_write_failed" in {d["code"] for d in envelope["diagnostics"]}
+    # Transactional: neither output exists after the failed write.
+    assert not (root / "beacon.generated.yaml").exists()
+    assert not (root / "beacon.snapshot.json").exists()
+
+
+def test_cli_build_snapshot_unreadable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import beacon.build.snapshot as reader_mod
+
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+
+    def broken(payload: Any) -> Any:
+        raise reader_mod.SnapshotReadError(reader_mod.SNAPSHOT_READER_MALFORMED, "simulated")
+
+    monkeypatch.setattr(reader_mod, "snapshot_from_payload", broken)
+    envelope = _envelope(
+        runner.invoke(app, _build_args(root, evidence, "--snapshot-out", "beacon.snapshot.json")),
+        exit_code=3,
+    )
+    assert "build_snapshot_unreadable" in {d["code"] for d in envelope["diagnostics"]}
+    assert not (root / "beacon.generated.yaml").exists()
+    assert not (root / "beacon.snapshot.json").exists()
+
+
+def test_cli_build_no_canonical_docs_and_description_unresolved(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["docs/absent.md"])
+    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=1)
+    assert "build_no_canonical_docs" in {d["code"] for d in envelope["diagnostics"]}
     assert not (root / "beacon.generated.yaml").exists()

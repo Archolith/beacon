@@ -141,7 +141,7 @@ def test_commands_exact_set() -> None:
     assert COMMANDS == {"init", "validate", "inspect", "export", "build"}
 
 
-@pytest.mark.parametrize("name", ["init", "validate", "inspect", "export"])
+@pytest.mark.parametrize("name", ["init", "validate", "inspect", "export", "build"])
 def test_valid_command_accepted(name: str) -> None:
     envelope = result(name, ok=True)
     assert envelope.command.value == name
