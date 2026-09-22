@@ -623,3 +623,52 @@ def test_same_file_never_raises_on_bad_paths(tmp_path: Path) -> None:
     assert main_mod._same_file(real, real) is True
     assert main_mod._same_file(tmp_path / "missing.yaml", real) is False
     assert main_mod._same_file(tmp_path / "a" / ".." / "beacon.yaml", real) is True
+
+
+def test_indexed_documents_are_not_claimed_current(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+
+    code, payload = _invoke(root)
+
+    assert code == 0, payload
+    statuses = {doc["path"]: doc["status"] for doc in _manifest(root)["canonical_docs"]}
+    assert statuses == {"README.md": "unknown", "docs/architecture.md": "unknown"}
+
+
+def test_intent_documents_keep_the_maintainers_status(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+
+    code, payload = _invoke(root)
+
+    assert code == 0, payload
+    statuses = {doc["path"]: doc["status"] for doc in _manifest(root)["canonical_docs"]}
+    assert statuses["README.md"] == "current"
+    assert statuses["docs/architecture.md"] == "unknown"
+
+
+def test_policy_records_an_authority_for_every_catalogued_field(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    _write_intent(root)
+    facts = policy_mod.resolve_project_facts(
+        intent=None, git_records=(), menhir_records=(), docs_root=root, strict=False
+    )
+    assert set(facts.field_authority) == {item.field for item in CATALOGUE}
+
+
+def test_report_reads_policy_authority_rather_than_inferring(tmp_path: Path) -> None:
+    from beacon.build.requirements import requirements_report
+
+    root = _fixture_repo(tmp_path)
+    facts = policy_mod.resolve_project_facts(
+        intent=None, git_records=(), menhir_records=(), docs_root=root, strict=False
+    )
+    authority = dict(facts.field_authority, guardrails="menhir")
+    rows = {
+        row["field"]: row
+        for row in requirements_report(dataclasses.replace(facts, field_authority=authority))
+    }
+    # The value is empty, but the report trusts the recorded authority -- and the
+    # allowed-tier conformance test is what catches such a policy bug.
+    assert rows["guardrails"]["supplied_by"] == ["memory"]
+    assert "memory" not in rows["guardrails"]["allowed_sources"]

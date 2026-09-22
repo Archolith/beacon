@@ -23,12 +23,10 @@ a test keeps that file identical to :func:`catalogue_payload`.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from beacon.build.policy import MergedProjectFacts
-from beacon.core.schema import BeaconManifest
 
 CATALOGUE_NAME = "beacon.requirements"
 CATALOGUE_VERSION = "1.0"
@@ -187,111 +185,30 @@ CATALOGUE: tuple[Requirement, ...] = (
 )
 
 
-def _filled(value: Any) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    return bool(value)
-
-
 def _tiers(authority: str) -> list[str]:
     """Map a policy authority label (``intent+menhir`` allowed) to tiers."""
     return [_AUTHORITY_TIER.get(part, part) for part in authority.split("+") if part]
 
 
-def _intent_only(value: Any) -> tuple[str, list[str]]:
-    return (STATUS_SUPPLIED, [TIER_INTENT]) if _filled(value) else (STATUS_MISSING, [])
+def requirements_report(facts: MergedProjectFacts) -> list[dict[str, Any]]:
+    """One row per catalogued field, in catalogue order.
 
-
-def _authority(value: Any, authority: str) -> tuple[str, list[str]]:
-    if not _filled(value) or not authority:
-        return STATUS_MISSING, []
-    return STATUS_SUPPLIED, _tiers(authority)
-
-
-def _status(f: MergedProjectFacts, _intent: BeaconManifest | None) -> tuple[str, list[str]]:
-    if f.status_authority == "default":
-        return STATUS_DEFAULT, []
-    # `beacon init` writes "unknown" as an explicit placeholder: still a gap.
-    if f.status.strip().lower() == "unknown":
-        return STATUS_MISSING, []
-    return _authority(f.status, f.status_authority)
-
-
-def _one_sentence(f: MergedProjectFacts, intent: BeaconManifest | None) -> tuple[str, list[str]]:
-    # A stated purpose: memory may supply it (projected into purpose.one_sentence);
-    # from intent it counts only when the maintainers wrote purpose.one_sentence --
-    # a bare project.description such as `beacon init`'s starter text is not one.
-    if intent is not None and intent.purpose.one_sentence.strip():
-        return STATUS_SUPPLIED, [TIER_INTENT]
-    if f.description_authority == "menhir":
-        return STATUS_SUPPLIED, [TIER_MEMORY]
-    return STATUS_MISSING, []
-
-
-def _concepts(f: MergedProjectFacts, _intent: BeaconManifest | None) -> tuple[str, list[str]]:
-    tiers = []
-    if f.intent_concepts:
-        tiers.append(TIER_INTENT)
-    if f.decisions or f.structure_summary:
-        tiers.append(TIER_MEMORY)
-    return (STATUS_SUPPLIED, tiers) if tiers else (STATUS_MISSING, [])
-
-
-def _read_first(f: MergedProjectFacts, intent: BeaconManifest | None) -> tuple[str, list[str]]:
-    if intent is not None and intent.agent_guidance.read_first:
-        return STATUS_SUPPLIED, [TIER_INTENT]
-    return (STATUS_SUPPLIED, [TIER_DERIVED]) if f.read_first else (STATUS_MISSING, [])
-
-
-def _project_state(f: MergedProjectFacts, _intent: BeaconManifest | None) -> tuple[str, list[str]]:
-    state = f.project_state or {}
-    return _intent_only(any(_filled(value) for value in state.values()))
-
-
-_Reader = Callable[[MergedProjectFacts, BeaconManifest | None], tuple[str, list[str]]]
-
-_READERS: dict[str, _Reader] = {
-    "project.name": lambda f, _i: _authority(f.name, f.name_authority),
-    "project.description": lambda f, _i: _authority(f.description, f.description_authority),
-    "project.tagline": lambda f, _i: _intent_only(f.tagline),
-    "project.repository": lambda f, _i: _authority(f.repository, f.repository_authority),
-    "project.primary_language": lambda f, _i: _authority(
-        f.primary_language, f.primary_language_authority
-    ),
-    "project.status": _status,
-    "project.license": lambda f, _i: _intent_only(f.license),
-    "purpose.one_sentence": _one_sentence,
-    "purpose.problem": lambda f, _i: _intent_only(f.purpose_problem),
-    "purpose.non_goals": lambda f, _i: _intent_only(f.non_goals),
-    "audiences": lambda f, _i: _intent_only(f.audiences),
-    "current_focus": lambda f, _i: _intent_only(f.current_focus),
-    "canonical_docs": lambda f, _i: _authority(f.canonical_docs, f.canonical_docs_authority),
-    "core_concepts": _concepts,
-    "agent_guidance.read_first": _read_first,
-    "agent_guidance.safe_first_tasks": lambda f, _i: _intent_only(
-        f.agent_guidance.get("safe_first_tasks")
-    ),
-    "agent_guidance.avoid_without_review": lambda f, _i: _intent_only(
-        f.agent_guidance.get("avoid_without_review")
-    ),
-    "agent_guidance.expected_behavior": lambda f, _i: _intent_only(
-        f.agent_guidance.get("expected_behavior")
-    ),
-    "build_and_test.setup": lambda f, _i: _intent_only(f.build_and_test.get("setup")),
-    "build_and_test.test": lambda f, _i: _intent_only(f.build_and_test.get("test")),
-    "build_and_test.benchmark": lambda f, _i: _intent_only(f.build_and_test.get("benchmark")),
-    "guardrails": lambda f, _i: _intent_only(f.guardrails),
-    "project_state": _project_state,
-}
-
-
-def requirements_report(
-    facts: MergedProjectFacts, intent: BeaconManifest | None = None
-) -> list[dict[str, Any]]:
-    """One row per catalogued field, in catalogue order."""
+    Who supplied a field is read from the authority policy recorded when it chose
+    the value (:attr:`MergedProjectFacts.field_authority`), never inferred here.
+    """
     rows: list[dict[str, Any]] = []
+    supplied_by: list[str]
     for item in CATALOGUE:
-        status, supplied_by = _READERS[item.field](facts, intent)
+        authority = facts.field_authority.get(item.field, "")
+        if item.field == "project.status" and authority == "default":
+            status, supplied_by = STATUS_DEFAULT, []
+        elif item.field == "project.status" and facts.status.strip().lower() == "unknown":
+            # `beacon init` writes "unknown" as an explicit placeholder: still a gap.
+            status, supplied_by = STATUS_MISSING, []
+        elif authority:
+            status, supplied_by = STATUS_SUPPLIED, _tiers(authority)
+        else:
+            status, supplied_by = STATUS_MISSING, []
         rows.append(
             {
                 "field": item.field,

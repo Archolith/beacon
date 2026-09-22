@@ -1,5 +1,16 @@
 # Changelog — beacon
 
+## 2026-09-22 — build provenance recorded by policy; indexed docs not claimed current
+
+- `resolve_project_facts` records which authority supplied every catalogued field
+  (`MergedProjectFacts.field_authority`) where it chooses the value; the requirements report reads
+  that instead of inferring a source from value presence.
+- Documents that come only from memory evidence publish with `status: unknown`: being indexed is
+  not a claim that a document is current. Intent-listed documents keep the maintainers' status.
+- Not changed: a memory description still fills `purpose.one_sentence` (reported as supplied by
+  `memory`). Keeping it maintainer-only would need `purpose_missing` to become acknowledgeable
+  for snapshot publication -- an open product decision.
+
 ## 2026-09-22 — `beacon build` reads the project's own beacon.yaml; gap report
 
 Each project owns its own beacon data; Beacon asks for it. Until now `beacon build` merged a
