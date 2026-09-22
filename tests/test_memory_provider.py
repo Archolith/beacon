@@ -111,8 +111,7 @@ def test_fake_provider_supplies_evidence_over_mcp(tmp_path: Path) -> None:
     document = _evidence_file(tmp_path, ["README.md"])  # outside the repo
     bound = json.loads(document.read_text(encoding="utf-8"))
     bound["binding"]["indexed_commit"] = _head(root)
-    bound["project"]["root"] = ""
-    text = json.dumps(bound)
+    text = json.dumps(bound)  # its root is another directory: never compared
 
     with _serve(_fake_provider(lambda _project: text)) as base:
         code, payload = _build(root, "--memory", f"{base}/mcp", "--memory-project", "fixture")
@@ -345,3 +344,45 @@ def _head(root: Path) -> str:
         text=True,
         check=True,
     ).stdout.strip()
+
+
+def test_remote_provider_without_a_credential_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _fixture_repo(tmp_path)
+    monkeypatch.delenv("BEACON_MEMORY_TOKEN", raising=False)
+
+    code, payload = _build(
+        root, "--memory", "https://memory.example.invalid/mcp", "--memory-project", "fixture"
+    )
+
+    assert code == 2
+    assert _code(payload) == "memory_unauthorized"
+    assert "BEACON_MEMORY_TOKEN" in payload["diagnostics"][0]["message"]
+
+
+def test_a_provider_side_root_path_is_not_compared(tmp_path: Path) -> None:
+    """Bound evidence made on another machine carries that machine's path."""
+    root = _fixture_repo(tmp_path)
+    evidence = _evidence_file(root, ["README.md"])
+    bound = json.loads(evidence.read_text(encoding="utf-8"))
+    bound["project"]["root"] = "/srv/provider/checkouts/fixture"
+    evidence.write_text(json.dumps(bound), encoding="utf-8")
+
+    code, payload = _build(root, "--memory-evidence", str(evidence))
+
+    assert code == 0, payload
+
+
+def test_different_ports_are_different_repositories(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    _git(root, "remote", "add", "origin", "https://git.example:8443/org/repo.git")
+    evidence = _evidence_file(root, ["README.md"])
+    bound = json.loads(evidence.read_text(encoding="utf-8"))
+    bound["binding"]["repository"] = "https://git.example:9443/org/repo.git"
+    evidence.write_text(json.dumps(bound), encoding="utf-8")
+
+    code, payload = _build(root, "--memory-evidence", str(evidence))
+
+    assert code == 2
+    assert _code(payload) == "memory_binding_mismatch"

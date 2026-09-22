@@ -1146,12 +1146,18 @@ def test_cli_build_projection_invalid(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_cli_build_identity_root_mismatch(tmp_path: Path) -> None:
+    """Only legacy (unbound) evidence is checked by root path; bound evidence
+    is identified by its binding, since a provider's path means nothing here."""
     root = _fixture_repo(tmp_path)
     evidence = _evidence_file(root, ["README.md"])
     payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["evidence_version"] = "1.0"
+    del payload["binding"]
     payload["project"]["root"] = str(tmp_path / "elsewhere")
     evidence.write_text(json.dumps(payload), encoding="utf-8")
-    envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=1)
+    envelope = _envelope(
+        runner.invoke(app, [*_build_args(root, evidence), "--gaps-only"]), exit_code=1
+    )
     assert "build_identity_root_mismatch" in {d["code"] for d in envelope["diagnostics"]}
 
 

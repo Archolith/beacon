@@ -248,7 +248,9 @@ beacon build --repo . --memory-evidence evidence.json
   `memory_unauthorized` (credential rejected), `memory_invalid` (not usable evidence, including
   unbound 1.0 evidence), `memory_binding_mismatch` (another project or repository). There is no
   retry, cache or silent fallback; leave `--memory` off to build from the manifest and git alone.
-- The URL must be `https` (plain `http` only on loopback) and may not carry credentials.
+- The URL must be `https` (plain `http` only on loopback) and may not carry credentials. A
+  remote (`https`) provider needs `BEACON_MEMORY_TOKEN`; a loopback development provider may run
+  without one.
 - Legacy `beacon-menhir-evidence-1.0` documents are still read by `--gaps-only`; they have no
   binding, so they cannot publish. `--menhir-evidence` is a deprecated alias of
   `--memory-evidence`.

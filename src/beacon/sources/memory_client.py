@@ -70,6 +70,11 @@ def fetch_evidence(
     """Return the evidence document bytes for *project_id*, or raise."""
     check_provider_url(url)
     credential = token if token is not None else os.environ.get(TOKEN_ENV) or None
+    if not credential and urlsplit(url).scheme == "https":
+        # A loopback development provider may run without auth; a remote one may not.
+        raise MemoryProviderError(
+            MEMORY_UNAUTHORIZED, f"no credential: set {TOKEN_ENV} for a remote memory provider"
+        )
     try:
         return asyncio.run(
             asyncio.wait_for(_fetch(url, project_id, credential, timeout_s), timeout_s)

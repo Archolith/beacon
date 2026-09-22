@@ -21,6 +21,10 @@ Menhir is now one memory provider among any others; nothing in Beacon depends on
   (was `menhir_evidence_invalid`; now also unbound 1.0 evidence on a publishing build),
   `memory_binding_mismatch`, `memory_stale`. No retry, cache or silent fallback. `--gaps-only`
   still reads 1.0 evidence.
+- Bound evidence is identified by its binding only: a provider-side `project.root` is not
+  compared (legacy 1.0 evidence keeps the root check). Repository identity keeps non-default
+  ports. A remote provider without `BEACON_MEMORY_TOKEN` is `memory_unauthorized` before
+  connecting.
 - Tests: a fake provider (a real MCP server on loopback, no Menhir code) drives the same transport;
   one test per failure code; a commit during the build is caught at the last fence.
 - Behaviour change: builds that published from 1.0 (Menhir) evidence now refuse. Menhir's pinned

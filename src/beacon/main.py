@@ -1239,7 +1239,8 @@ def _normalize_repository(url: str) -> str:
     path = parts.path.rstrip("/")
     if path.endswith(".git"):
         path = path[: -len(".git")]
-    return f"{(parts.hostname or '').lower()}{path.lower()}"
+    port = f":{parts.port}" if parts.port and parts.port not in (22, 80, 443) else ""
+    return f"{(parts.hostname or '').lower()}{port}{path.lower()}"
 
 
 def _require_memory_fresh(

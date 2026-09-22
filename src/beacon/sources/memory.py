@@ -527,7 +527,9 @@ class MemorySourceAdapter:
                     "name": evidence.project_name,
                     "description": evidence.description,
                     "primary_language": evidence.primary_language,
-                    "root": evidence.root,
+                    # A provider-side path means nothing on this machine once the
+                    # evidence is bound; only legacy 1.0 evidence keeps the root check.
+                    "root": "" if evidence.bound else evidence.root,
                     "status": evidence.project_status,
                     "scan_fingerprint": evidence.scan_fingerprint,
                 },
