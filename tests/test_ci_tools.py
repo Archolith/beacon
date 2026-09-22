@@ -161,14 +161,18 @@ def test_release_verifies_sha256sums_before_publishing(job: str, is_release_step
     steps = _release_jobs()[job]["steps"]
     download = _step_index(
         steps,
-        lambda step: "actions/download-artifact" in step.get("uses", "")
-        and step.get("with", {}).get("name") == "release-checksums",
+        lambda step: (
+            "actions/download-artifact" in step.get("uses", "")
+            and step.get("with", {}).get("name") == "release-checksums"
+        ),
     )
     verify = _step_index(
         steps,
-        lambda step: "sha256sum" in step.get("run", "")
-        and "--strict" in step.get("run", "")
-        and " -c " in step.get("run", ""),
+        lambda step: (
+            "sha256sum" in step.get("run", "")
+            and "--strict" in step.get("run", "")
+            and " -c " in step.get("run", "")
+        ),
     )
     release = _step_index(steps, is_release_step)
     assert download < verify < release

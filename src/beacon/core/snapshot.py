@@ -663,8 +663,8 @@ def _unquote(token: str) -> str:
     return token
 
 
-def _is_absolute_like(token: str) -> bool:
-    """Return whether a command token is (or embeds) an absolute filesystem path.
+def _is_absolute_like(word: str) -> bool:
+    """Return whether a command word is (or embeds) an absolute filesystem path.
 
     Refused: a Windows drive path (``C:\\x``, ``C:/x``), a UNC or rooted
     backslash path (``\\\\server\\share``, ``\\x``), a ``//`` network path,
@@ -675,18 +675,18 @@ def _is_absolute_like(token: str) -> bool:
     (after ``:`` and ``=``) is still checked, so ``/p:OutDir=C:\\out`` is
     refused.
     """
-    if _WINDOWS_DRIVE_PATH_RE.match(token):
+    if _WINDOWS_DRIVE_PATH_RE.match(word):
         return True
-    if token.startswith("\\") or token.startswith("//") or token == "/":
+    if word.startswith("\\") or word.startswith("//") or word == "/":
         return True
-    if not token.startswith("/"):
+    if not word.startswith("/"):
         return False
-    switch = _SWITCH_RE.match(token)
+    switch = _SWITCH_RE.match(word)
     if switch is not None:
         value = switch.group("value") or ""
         _, _, assigned = value.partition("=")
         return any(_is_absolute_like(part) for part in (value, assigned) if part)
-    return "/" in token[1:]
+    return "/" in word[1:]
 
 
 #: ``C:\\...`` or ``C:/...`` (a drive letter followed by a separator).

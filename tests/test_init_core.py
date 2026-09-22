@@ -182,18 +182,14 @@ def test_python_without_pytest_has_no_test_command(tmp_path: Path) -> None:
 )
 def test_python_pytest_tables_yield_test_command(tmp_path: Path, table: str) -> None:
     root = _repo(tmp_path, py=True)
-    (root / "pyproject.toml").write_text(
-        f'[project]\nname = "acme"\n\n{table}', encoding="utf-8"
-    )
+    (root / "pyproject.toml").write_text(f'[project]\nname = "acme"\n\n{table}', encoding="utf-8")
     assert discover(root).test_command == "python -m pytest tests/ -x --tb=short"
 
 
 @pytest.mark.parametrize("table", ["[tool.pytest-cov]\n", "[tool.pytest,]\n", "[tool.pytester]\n"])
 def test_non_pytest_tool_tables_yield_no_test_command(tmp_path: Path, table: str) -> None:
     root = _repo(tmp_path, py=True)
-    (root / "pyproject.toml").write_text(
-        f'[project]\nname = "acme"\n\n{table}', encoding="utf-8"
-    )
+    (root / "pyproject.toml").write_text(f'[project]\nname = "acme"\n\n{table}', encoding="utf-8")
     assert discover(root).test_command is None
 
 

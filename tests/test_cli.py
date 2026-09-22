@@ -443,9 +443,7 @@ class TestServeHttp:
 
     def test_scopeless_guardrail_manifest_builds_http_app(self, valid_manifest: Path) -> None:
         """A guardrail without ``scope`` is valid to the loader and must not crash startup."""
-        valid_manifest.write_text(
-            VALID_YAML.replace("    scope: core\n", ""), encoding="utf-8"
-        )
+        valid_manifest.write_text(VALID_YAML.replace("    scope: core\n", ""), encoding="utf-8")
         assert "scope:" not in valid_manifest.read_text(encoding="utf-8")
         validated = runner.invoke(
             app, ["validate", str(valid_manifest), "--strict-warnings", "--format", "json"]
