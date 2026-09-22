@@ -174,6 +174,11 @@ def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
         pass
 
 
+def _carries_secret(text: str, *, path: str | None = None) -> bool:
+    """True when Beacon's high-confidence detector flags *text*."""
+    return bool(detect_sensitive_text(text, path=path))
+
+
 def _epoch_or_zero(iso_date: str) -> float:
     try:
         return datetime.fromisoformat(iso_date).timestamp()
@@ -270,6 +275,7 @@ class _WalkCommit:
     date: str
     subject: str
     statuses: tuple[tuple[str, str, str | None], ...]
+    subject_redacted: bool = False
     #: True for a shallow-clone boundary commit: its ``A`` statuses are an
     #: artifact of the cut-off history, not evidence of introduction.
     boundary: bool = False
@@ -510,10 +516,15 @@ class GitSourceAdapter:
         name = out.decode("utf-8", errors="replace").strip()
         if truncated or not name:
             return "HEAD"
+        name = _strip_control(name)
+        # Ref names are user-controlled text too: scan the whole name before
+        # any cut, so a secret straddling the cut cannot leak in part.
+        if _carries_secret(name):
+            return REDACTED_SUBJECT
         if len(name) > self._caps.branch_max_chars:
             name = name[: self._caps.branch_max_chars]
             self._truncated = True
-        return _strip_control(name)
+        return name
 
     def _repository_filter_overrides(self) -> tuple[str, ...]:
         """``-c`` overrides disabling every repository-configured filter driver.
@@ -619,8 +630,17 @@ class GitSourceAdapter:
         )
         blocks: list[_WalkCommit] = []
         for raw in _parse_walk(out, complete=not truncated):
+            # Commit subjects are attacker- and accident-controlled text that
+            # this adapter exists to publish, so the FULL subject passes
+            # through Beacon's high-confidence secret detector before it is
+            # cut to the cap: a token straddling the cut would otherwise be
+            # published in part and never matched. Unsafe subjects are
+            # redacted, never reproduced.
             subject = _strip_control(raw.subject)
-            if len(subject) > self._caps.subject_max_chars:
+            redacted = _carries_secret(subject, path=raw.sha)
+            if redacted:
+                subject = REDACTED_SUBJECT
+            elif len(subject) > self._caps.subject_max_chars:
                 subject = subject[: self._caps.subject_max_chars]
                 self._truncated = True
             blocks.append(
@@ -628,6 +648,7 @@ class GitSourceAdapter:
                     sha=raw.sha,
                     date=raw.date,
                     subject=subject,
+                    subject_redacted=redacted,
                     statuses=raw.statuses,
                     boundary=shallow and not raw.parents,
                 )
@@ -792,11 +813,20 @@ class GitSourceAdapter:
         )
 
     def _tag_records(self, tags: list[tuple[str, str, str]]) -> list[NormalizedRecord]:
+        # Tag names are user-controlled text: a name carrying a secret is
+        # redacted, and its identity is keyed by the target commit instead
+        # so the redacted record still has a stable, non-colliding identity.
         return [
             NormalizedRecord(
-                identity=f"git:tag:{name}",
+                identity=f"git:tag:{name}"
+                if not _carries_secret(name)
+                else f"git:tag:{REDACTED_SUBJECT}:{sha}",
                 kind=KIND_GIT_TAG,
-                payload={"name": name, "commit": sha, "date": date},
+                payload={
+                    "name": REDACTED_SUBJECT if _carries_secret(name) else name,
+                    "commit": sha,
+                    "date": date,
+                },
                 citations=(Citation(CITATION_COMMIT, sha),),
                 adapter=ADAPTER_NAME,
                 adapter_version=ADAPTER_VERSION,
@@ -810,12 +840,7 @@ class GitSourceAdapter:
     def _commit_records(self, walk: list[_WalkCommit]) -> list[NormalizedRecord]:
         records = []
         for commit in walk[: self._caps.recent_commits]:
-            # Commit subjects are attacker- and accident-controlled text that
-            # this adapter exists to publish, so they pass through Beacon's
-            # high-confidence secret detector before entering any artifact;
-            # unsafe subjects are redacted, never reproduced.
-            findings = detect_sensitive_text(commit.subject, path=commit.sha)
-            redacted = bool(findings)
+            # The walk already scanned the full subject (see _walk).
             records.append(
                 NormalizedRecord(
                     identity=f"git:commit:{commit.sha}",
@@ -823,8 +848,8 @@ class GitSourceAdapter:
                     payload={
                         "commit": commit.sha,
                         "date": commit.date,
-                        "subject": REDACTED_SUBJECT if redacted else commit.subject,
-                        "subject_redacted": redacted,
+                        "subject": commit.subject,
+                        "subject_redacted": commit.subject_redacted,
                     },
                     citations=(Citation(CITATION_COMMIT, commit.sha),),
                     adapter=ADAPTER_NAME,

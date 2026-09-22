@@ -702,3 +702,38 @@ def test_shallow_clone_never_claims_introductions(tmp_path: Path, repo: Path) ->
     # The boundary commit shows every file as added; that is not evidence
     # of introduction, so none may be claimed.
     assert all(r.payload["introduced_in"] is None for r in histories)
+
+
+# ---------------------------------------------------------------------------
+# Secret scanning order and coverage
+# ---------------------------------------------------------------------------
+
+_TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+
+
+def test_secret_straddling_the_subject_cut_is_redacted(repo: Path) -> None:
+    subject = "x" * 105 + " " + _TOKEN  # the cut at 120 falls inside the token
+    _git(repo, "commit", "-q", "--allow-empty", "-m", subject)
+    records = GitSourceAdapter(repo).collect()
+    newest = next(r for r in records if r.kind == "git_commit")
+    assert newest.payload["subject_redacted"] is True
+    assert newest.payload["subject"] == "[redacted]"
+    assert "ghp_" not in json.dumps([r.payload for r in records])
+
+
+def test_branch_and_tag_names_are_scanned_for_secrets(repo: Path) -> None:
+    _git(repo, "tag", f"leak-{_TOKEN}")
+    _git(repo, "checkout", "-q", "-b", f"fix/{_TOKEN}")
+    records = GitSourceAdapter(repo).collect()
+    serialized = json.dumps([r.payload for r in records]) + json.dumps(
+        [r.identity for r in records]
+    )
+    assert _TOKEN not in serialized
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["branch"] == "[redacted]"
+    tags = {t.payload["name"] for t in records if t.kind == "git_tag"}
+    assert "v0.1.0" in tags
+    assert "[redacted]" in tags
+    report = init(repo, dry_run=True)
+    assert _TOKEN not in json.dumps(to_payload(report))
+    jsonschema.validate(to_payload(report), _v11_schema())
