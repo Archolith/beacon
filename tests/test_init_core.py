@@ -39,6 +39,7 @@ from beacon.core.validator import validate_beacon_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO_ROOT / "docs" / "schemas" / "beacon-init-report-1.0.schema.json"
+SCHEMA_V11_PATH = REPO_ROOT / "docs" / "schemas" / "beacon-init-report-1.1.schema.json"
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "schemas"
 
 SHA256_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -83,13 +84,25 @@ def _repo(
 
 
 def _schema() -> dict:
+    """The 1.0 contract, kept as a compatibility fixture for golden files."""
     with SCHEMA_PATH.open(encoding="utf-8") as fh:
         return json.load(fh)
 
 
+def _schema_v11() -> dict:
+    """The 1.1 contract: the schema emitted reports validate against."""
+    with SCHEMA_V11_PATH.open(encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 @pytest.fixture(scope="module")
-def init_schema() -> dict:
+def init_schema_10() -> dict:
     return _schema()
+
+
+@pytest.fixture(scope="module")
+def init_schema(init_schema_10: dict) -> dict:
+    return _schema_v11()
 
 
 # ---------------------------------------------------------------------------
@@ -97,23 +110,53 @@ def init_schema() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_schema_is_valid_draft202012(init_schema: dict) -> None:
+def test_schema_is_valid_draft202012(init_schema: dict, init_schema_10: dict) -> None:
     jsonschema.Draft202012Validator.check_schema(init_schema)
+    jsonschema.Draft202012Validator.check_schema(init_schema_10)
 
 
-def test_positive_fixture_validates(init_schema: dict) -> None:
+def test_positive_fixture_validates(init_schema_10: dict) -> None:
+    """The 1.0 golden fixture stays valid against the historical 1.0 schema."""
     with (FIXTURE_DIR / "init-report-valid.json").open(encoding="utf-8") as fh:
+        payload = json.load(fh)
+    jsonschema.validate(payload, init_schema_10)
+
+
+def test_positive_fixture_v11_validates(init_schema: dict) -> None:
+    """The 1.1 golden fixture (with git_evidence) validates against 1.1."""
+    with (FIXTURE_DIR / "init-report-1.1-valid.json").open(encoding="utf-8") as fh:
         payload = json.load(fh)
     jsonschema.validate(payload, init_schema)
 
 
-def test_negative_fixture_fails(init_schema: dict) -> None:
+def test_negative_fixture_fails(init_schema_10: dict) -> None:
     with (FIXTURE_DIR / "init-report-invalid.json").open(encoding="utf-8") as fh:
         payload = json.load(fh)
-    errors = list(jsonschema.Draft202012Validator(init_schema).iter_errors(payload))
+    errors = list(jsonschema.Draft202012Validator(init_schema_10).iter_errors(payload))
     assert errors, "expected the negative fixture to violate the schema"
     validators = {e.validator for e in errors}
     assert {"const", "enum", "type", "minItems", "minimum", "pattern"}.issubset(validators)
+
+
+def test_git_evidence_rejects_bad_commit_hex(init_schema: dict) -> None:
+    payload = _v11_valid_payload()
+    payload["git_evidence"]["head"]["commit"] = "not-a-digest"
+    errors = list(jsonschema.Draft202012Validator(init_schema).iter_errors(payload))
+    assert errors
+    # The nested pattern failure surfaces through the nullable head's anyOf.
+    assert any(list(e.absolute_path)[-2:] == ["git_evidence", "head"] for e in errors)
+
+
+def test_git_evidence_rejects_unknown_field(init_schema: dict) -> None:
+    payload = _v11_valid_payload()
+    payload["git_evidence"]["fabricated_stats"] = True
+    errors = list(jsonschema.Draft202012Validator(init_schema).iter_errors(payload))
+    assert any(e.validator == "additionalProperties" for e in errors)
+
+
+def _v11_valid_payload() -> dict:
+    with (FIXTURE_DIR / "init-report-1.1-valid.json").open(encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def test_discovered_value_is_literal_true(init_schema: dict) -> None:
@@ -705,7 +748,7 @@ def test_report_payload_matches_schema(tmp_path: Path, init_schema: dict) -> Non
     root = _repo(tmp_path, git_remote="https://user:sekrit@github.com/acme/acme")
     report = init(root)
     payload = to_payload(report)
-    assert payload["beacon_init_report_version"] == "1.0"
+    assert payload["beacon_init_report_version"] == "1.1"
     assert payload["repository_root"] == "."
     jsonschema.validate(payload, init_schema)
     for field in payload["discovered"]:

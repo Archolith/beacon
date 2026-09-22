@@ -1,0 +1,94 @@
+{
+  "beacon_init_report_version": "1.1",
+  "operation": "create",
+  "repository_root": ".",
+  "manifest_path": "beacon.yaml",
+  "would_write": true,
+  "written": true,
+  "replaced": false,
+  "discovered": [
+    {
+      "manifest_path": "project.name",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "directory_name",
+          "path": "."
+        }
+      ]
+    },
+    {
+      "manifest_path": "project.repository",
+      "value": true,
+      "evidence": [
+        {
+          "kind": "git_remote",
+          "path": "."
+        }
+      ]
+    }
+  ],
+  "omitted": [],
+  "review_required": [],
+  "security_findings": [],
+  "git_evidence": {
+    "adapter": "git",
+    "adapter_version": "1",
+    "head": {
+      "commit": "9cabb579d94601c411979aa5627d4c90e4a149ac",
+      "branch": "main",
+      "dirty": false,
+      "dirty_paths": 0
+    },
+    "tracked_file_count": 3,
+    "tracked_dirs": [
+      {
+        "path": "src",
+        "files": 2
+      },
+      {
+        "path": ".",
+        "files": 1
+      }
+    ],
+    "tags": [
+      {
+        "name": "v0.1.0",
+        "commit": "8a06974c6e4c3a33df9129473d047f139c962859",
+        "date": "2026-09-01T12:00:00+00:00"
+      }
+    ],
+    "recent_commits": [
+      {
+        "commit": "9cabb579d94601c411979aa5627d4c90e4a149ac",
+        "date": "2026-09-10T12:00:00+00:00",
+        "subject": "rename module for clarity"
+      }
+    ],
+    "activity": [
+      {
+        "path": "src",
+        "commits": 3
+      }
+    ],
+    "file_history": [
+      {
+        "path": "src/core.py",
+        "changes": 2,
+        "last_commit": "9cabb579d94601c411979aa5627d4c90e4a149ac",
+        "last_date": "2026-09-10T12:00:00+00:00",
+        "introduced_in": "6648173b4e6f5b64bd558d9b9f930c2292411cec",
+        "removed_in": null,
+        "renamed_from": []
+      }
+    ],
+    "co_change": [
+      {
+        "paths": ["src/core.py", "src/util.py"],
+        "commits": 2
+      }
+    ],
+    "window_commits": 3,
+    "truncated": false
+  }
+}

@@ -599,7 +599,7 @@ class TestInit:
         assert result.exit_code == 0, result.output
         assert report_path.is_file()
         raw = json.loads(report_path.read_text(encoding="utf-8"))
-        assert raw["beacon_init_report_version"] == "1.0"
+        assert raw["beacon_init_report_version"] == "1.1"
         assert "operation" in raw
 
 
