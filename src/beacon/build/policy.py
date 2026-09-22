@@ -9,12 +9,12 @@ authority:
   audiences, project state, and document currentness (carried verbatim).
 * **Reality** -- the repository (git adapter, filesystem existence checks).
   What *is* true: which files and documents actually exist.
-* **History** -- Menhir evidence. What was *decided* and what is indexed
+* **History** -- memory-provider evidence. What was *decided* and what is indexed
   about the project: identity, structure, documents, decision outcomes.
 
 Three consequences implemented here:
 
-1. A source may not answer outside its authority: git and Menhir never
+1. A source may not answer outside its authority: git and memory never
    invent guardrails or purpose; the intent manifest cannot assert a
    document exists that the filesystem says does not (that is an error,
    not a tie to break).
@@ -36,10 +36,10 @@ from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconManifest
 from beacon.sources.base import (
     KIND_GIT_HEAD,
-    KIND_MENHIR_DECISION,
-    KIND_MENHIR_DOCUMENT,
-    KIND_MENHIR_IDENTITY,
-    KIND_MENHIR_STRUCTURE,
+    KIND_MEMORY_DECISION,
+    KIND_MEMORY_DOCUMENT,
+    KIND_MEMORY_IDENTITY,
+    KIND_MEMORY_STRUCTURE,
     NormalizedRecord,
 )
 
@@ -79,7 +79,7 @@ class DriftRecord:
 
 @dataclass(frozen=True)
 class DecisionFact:
-    """One Menhir-indexed decision, projected with its locations resolved."""
+    """One memory-indexed decision, projected with its locations resolved."""
 
     title: str
     summary: str
@@ -134,7 +134,7 @@ class MergedProjectFacts:
     #: ``purpose.one_sentence`` exactly as the maintainers wrote it ("" if unstated).
     stated_purpose: str = ""
     #: Catalogue field -> the authority label that supplied it ("" = nothing did).
-    #: Labels: intent, git, menhir, derived, default; "+"-joined when several did.
+    #: Labels: intent, git, memory, derived, default; "+"-joined when several did.
     field_authority: dict[str, str] = field(default_factory=dict)
     #: Fields whose published value is a placeholder rather than an answer: a
     #: schema default, `beacon init`'s "unknown", or a description standing in
@@ -182,17 +182,18 @@ def resolve_project_facts(
     *,
     intent: BeaconManifest | None,
     git_records: tuple[NormalizedRecord, ...],
-    menhir_records: tuple[NormalizedRecord, ...],
+    memory_records: tuple[NormalizedRecord, ...] = (),
     docs_root: Path,
     repo_root: Path | None = None,
     git_origin: str | None = None,
     strict: bool = True,
+    menhir_records: tuple[NormalizedRecord, ...] | None = None,
 ) -> MergedProjectFacts:
     """Resolve merged records into the facts the projection consumes.
 
     ``intent`` is the (optional) hand-authored manifest. ``docs_root`` is the
     directory the built manifest will live in; canonical doc paths resolve
-    against it. ``repo_root`` enables the Menhir-indexed-root cross-check.
+    against it. ``repo_root`` enables the memory-indexed-root cross-check.
     ``git_origin`` is the adapter's already-sanitized repository URL (the
     :meth:`GitSourceAdapter.repository_url` capability, applied by the CLI
     layer). Raises :class:`BuildError` when a required fact cannot be
@@ -201,9 +202,11 @@ def resolve_project_facts(
     of refusing (errors such as a root mismatch or a missing intent doc still
     raise). Facts from a non-strict call must never be projected.
     """
+    if menhir_records is not None:  # deprecated keyword, one release
+        memory_records = menhir_records
     drift: list[DriftRecord] = []
 
-    identity = _first_record(menhir_records, KIND_MENHIR_IDENTITY)
+    identity = _first_record(memory_records, KIND_MEMORY_IDENTITY)
     if repo_root is not None and identity is not None:
         indexed_root = str(identity.payload.get("root") or "")
         if indexed_root:
@@ -225,11 +228,11 @@ def resolve_project_facts(
     if intent is not None and intent.project.name.strip():
         name, name_authority = intent.project.name.strip(), "intent"
     elif identity is not None:
-        name, name_authority = str(identity.payload.get("name") or ""), "menhir"
+        name, name_authority = str(identity.payload.get("name") or ""), "memory"
     if not name and strict:
         raise BuildError(
             BUILD_IDENTITY_UNRESOLVED,
-            "no project name from intent manifest or Menhir evidence; refusing to invent one",
+            "no project name from intent manifest or memory evidence; refusing to invent one",
         )
 
     description = ""
@@ -241,11 +244,11 @@ def resolve_project_facts(
         description_authority = "intent"
     elif identity is not None and str(identity.payload.get("description") or "").strip():
         description = str(identity.payload.get("description") or "").strip()
-        description_authority = "menhir"
+        description_authority = "memory"
     if not description and strict:
         raise BuildError(
             BUILD_DESCRIPTION_UNRESOLVED,
-            "no project description from intent manifest or Menhir evidence; refusing to invent one",
+            "no project description from intent manifest or memory evidence; refusing to invent one",
         )
 
     primary_language = ""
@@ -257,7 +260,7 @@ def resolve_project_facts(
         )
     elif identity is not None and str(identity.payload.get("primary_language") or "").strip():
         primary_language = str(identity.payload.get("primary_language") or "").strip()
-        primary_language_authority = "menhir"
+        primary_language_authority = "memory"
 
     repository = ""
     repository_authority = ""
@@ -275,13 +278,13 @@ def resolve_project_facts(
         status, status_authority = intent.project.status.strip(), "intent"
     elif identity is not None and str(identity.payload.get("status") or "").strip():
         status = str(identity.payload.get("status") or "").strip()
-        status_authority = "menhir"
+        status_authority = "memory"
 
-    # -- canonical docs (intent asserts; Menhir cites; the filesystem decides) --
+    # -- canonical docs (intent asserts; memory cites; the filesystem decides) --
     docs: list[dict[str, str]] = []
     seen: set[str] = set()
     intent_doc_count = 0
-    menhir_doc_count = 0
+    memory_doc_count = 0
     if intent is not None:
         for doc in intent.canonical_docs:
             if not _doc_exists(docs_root, doc.path):
@@ -301,11 +304,11 @@ def resolve_project_facts(
                         "status": doc.status,
                     }
                 )
-    menhir_docs = sorted(
-        (r for r in menhir_records if r.kind == KIND_MENHIR_DOCUMENT),
+    memory_docs = sorted(
+        (r for r in memory_records if r.kind == KIND_MEMORY_DOCUMENT),
         key=lambda r: str(r.payload.get("path") or ""),
     )
-    for record in menhir_docs:
+    for record in memory_docs:
         path = str(record.payload.get("path") or "")
         if not path or path in seen:
             continue
@@ -319,7 +322,7 @@ def resolve_project_facts(
             )
             continue
         seen.add(path)
-        menhir_doc_count += 1
+        memory_doc_count += 1
         docs.append(
             {
                 "path": path,
@@ -332,7 +335,7 @@ def resolve_project_facts(
     # Attribute the set to the sources whose documents actually survived.
     docs_authority = "+".join(
         tier
-        for tier, count in (("intent", intent_doc_count), ("menhir", menhir_doc_count))
+        for tier, count in (("intent", intent_doc_count), ("memory", memory_doc_count))
         if count
     )
     if not docs and strict:
@@ -341,17 +344,17 @@ def resolve_project_facts(
             "no canonical document survived the reality check; refusing to publish an empty beacon",
         )
 
-    # -- structure concept (Menhir structure + git inventory summary) ---------
+    # -- structure concept (memory structure + git inventory summary) ---------
     structure_summary: str | None = None
     structure_fingerprint: str | None = None
-    structure = _first_record(menhir_records, KIND_MENHIR_STRUCTURE)
+    structure = _first_record(memory_records, KIND_MEMORY_STRUCTURE)
     if structure is not None:
         entities = cast(dict[str, int], structure.payload.get("entities") or {})
         edges = cast(dict[str, int], structure.payload.get("edges") or {})
         parts = [f"{role}: {count}" for role, count in sorted(entities.items()) if count]
         edge_parts = [f"{rel}: {count}" for rel, count in sorted(edges.items()) if count]
         structure_summary = (
-            "Indexed repository structure as of the latest Menhir scan: "
+            "Indexed repository structure as of the latest memory-provider scan: "
             + "; ".join(parts + edge_parts)
         ).strip()
         structure_fingerprint = str(structure.payload.get("scan_fingerprint") or "") or None
@@ -361,7 +364,7 @@ def resolve_project_facts(
     # Sorted on the full record content so the order -- and therefore the
     # id suffix a colliding title receives -- never depends on input order.
     decision_records = sorted(
-        (r for r in menhir_records if r.kind == KIND_MENHIR_DECISION),
+        (r for r in memory_records if r.kind == KIND_MEMORY_DECISION),
         key=lambda r: (
             str(r.payload.get("title") or ""),
             str(r.payload.get("summary") or ""),
@@ -470,7 +473,7 @@ def resolve_project_facts(
         tier
         for tier, supplied in (
             ("intent", bool(intent_concepts)),
-            ("menhir", bool(decisions) or structure_summary is not None),
+            ("memory", bool(decisions) or structure_summary is not None),
         )
         if supplied
     )

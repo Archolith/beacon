@@ -105,9 +105,9 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     used_ids: set[str] = {str(concept.get("id", "")).lower() for concept in concepts}
 
     if facts.structure_summary is not None:
-        sources = [_source({"type": "memory", "title": "Menhir structure scan"})]
+        sources = [_source({"type": "memory", "title": "Memory structure scan"})]
         if facts.structure_fingerprint:
-            sources[0]["title"] = f"Menhir structure scan ({facts.structure_fingerprint})"
+            sources[0]["title"] = f"Memory structure scan ({facts.structure_fingerprint})"
         if facts.git_head:
             short = facts.git_head[:12]
             sources.append(_source({"type": "commit", "title": f"git HEAD {short}", "url": ""}))

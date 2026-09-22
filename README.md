@@ -224,6 +224,37 @@ beacon build --repo .              # writes beacon.generated.yaml and reports re
   provider's description currently also fills `purpose.one_sentence`; that is reported as
   supplied by `memory`, never as the maintainers' words.
 
+### Memory providers
+
+A memory provider reports what it has indexed about a project. Beacon defines the contract;
+any platform can implement it (Menhir is one). A provider only answers: it never reads your
+checkout or writes into your repository.
+
+```bash
+export BEACON_MEMORY_TOKEN=...          # read-only credential, sent as a bearer header
+beacon build --repo . --memory https://memory.example.com/mcp --memory-project my-project
+# or, offline, from a document the provider exported:
+beacon build --repo . --memory-evidence evidence.json
+```
+
+- **Contract.** One MCP tool, `get_beacon_evidence(project_id)`, returning a
+  [`beacon-memory-evidence-1.1`](docs/schemas/beacon-memory-evidence-1.1.schema.json) document.
+  Its `binding` names the provider, the project's id there, the repository it indexed and the
+  commit it indexed.
+- **Freshness.** Beacon publishes only when this checkout is that repository at that commit.
+  Uncommitted edits are allowed only to `beacon.yaml` and Beacon's own outputs; anything else
+  refuses with `memory_stale`, so re-index or commit first.
+- **Failures refuse; nothing is written.** `memory_unavailable` (unreachable or timed out),
+  `memory_unauthorized` (credential rejected), `memory_invalid` (not usable evidence, including
+  unbound 1.0 evidence), `memory_binding_mismatch` (another project or repository). There is no
+  retry, cache or silent fallback; leave `--memory` off to build from the manifest and git alone.
+- The URL must be `https` (plain `http` only on loopback) and may not carry credentials. A
+  remote (`https`) provider needs `BEACON_MEMORY_TOKEN`; a loopback development provider may run
+  without one.
+- Legacy `beacon-menhir-evidence-1.0` documents are still read by `--gaps-only`; they have no
+  binding, so they cannot publish. `--menhir-evidence` is a deprecated alias of
+  `--memory-evidence`.
+
 ---
 
 ## What agents can ask

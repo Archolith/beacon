@@ -787,8 +787,22 @@ def build(
     repo: str | None = typer.Option(
         None, "--repo", help="Repository root for the git reality adapter."
     ),
+    memory_evidence: str | None = typer.Option(
+        None,
+        "--memory-evidence",
+        help="Memory evidence document (JSON) from a memory provider, for the history tier.",
+    ),
     menhir_evidence: str | None = typer.Option(
-        None, "--menhir-evidence", help="Menhir evidence document (JSON) for the history tier."
+        None, "--menhir-evidence", hidden=True, help="Deprecated alias of --memory-evidence."
+    ),
+    memory: str | None = typer.Option(
+        None,
+        "--memory",
+        help="Memory provider MCP URL (https, or http on loopback). "
+        "The credential is read from BEACON_MEMORY_TOKEN.",
+    ),
+    memory_project: str | None = typer.Option(
+        None, "--memory-project", help="This project's id at the memory provider (with --memory)."
     ),
     out: str = typer.Option(
         "beacon.generated.yaml", "--out", help="Output manifest path (relative to --docs-root)."
@@ -820,7 +834,10 @@ def build(
             intent=intent,
             gaps_only=gaps_only,
             repo=repo,
+            memory_evidence=memory_evidence,
             menhir_evidence=menhir_evidence,
+            memory=memory,
+            memory_project=memory_project,
             out=out,
             snapshot_out=snapshot_out,
             docs_root=docs_root,
@@ -844,8 +861,11 @@ def _build_impl(
     intent: str | None,
     gaps_only: bool = False,
     repo: str | None,
-    menhir_evidence: str | None,
+    memory_evidence: str | None,
     out: str,
+    menhir_evidence: str | None = None,
+    memory: str | None = None,
+    memory_project: str | None = None,
     snapshot_out: str | None,
     docs_root: str | None,
     note: str | None,
@@ -862,7 +882,8 @@ def _build_impl(
     from beacon.build.requirements import gaps_from_report, requirements_report
     from beacon.core.loader import parse_manifest
     from beacon.core.validator import ManifestValidationError, require_valid_manifest
-    from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
+    from beacon.sources.memory import MemoryEvidenceError, MemorySourceAdapter
+    from beacon.sources.memory_client import MemoryProviderError, fetch_evidence
 
     try:
         limits = cli_support.build_resource_limits(cli_limits)
@@ -898,9 +919,29 @@ def _build_impl(
             intent = str(candidate)
             intent_source = "repo_default"
 
-    if intent is None and menhir_evidence is None and repo is None:
+    if memory_evidence and menhir_evidence:
         raise cli_support.CliFailure(
-            EXIT_INPUT, "build_no_sources", "build requires --intent, --menhir-evidence, or --repo"
+            EXIT_INPUT,
+            "build_memory_conflict",
+            "--menhir-evidence is an alias of --memory-evidence; pass one",
+        )
+    memory_evidence = memory_evidence or menhir_evidence
+    if memory and memory_evidence:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_memory_conflict",
+            "--memory and --memory-evidence are mutually exclusive",
+        )
+    if memory and not (memory_project or "").strip():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_memory_conflict", "--memory requires --memory-project"
+        )
+
+    if intent is None and memory_evidence is None and memory is None and repo is None:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_no_sources",
+            "build requires --intent, --memory, --memory-evidence, or --repo",
         )
 
     if gaps_only:
@@ -923,7 +964,7 @@ def _build_impl(
     base_dir = Path(repo) if repo else Path.cwd()
     root_dir = Path(docs_root) if docs_root else base_dir
     # The build's own inputs are never output targets, not even with --force.
-    protected_inputs = tuple(Path(path) for path in (menhir_evidence, intent) if path)
+    protected_inputs = tuple(Path(path) for path in (memory_evidence, intent) if path)
     target: Path | None = None
     snapshot_path: Path | None = None
     if not to_stdout:
@@ -957,16 +998,33 @@ def _build_impl(
     docs_home = target.parent if target is not None else root_dir
 
     # -- collect the source tiers ---------------------------------------------
-    menhir_records: tuple[Any, ...] = ()
-    if menhir_evidence:
-        adapter = MenhirSourceAdapter(menhir_evidence, limits=limits)
+    memory_records: tuple[Any, ...] = ()
+    evidence: Any = None
+    if memory_evidence or memory:
+        if memory:
+            try:
+                raw_evidence = fetch_evidence(memory, (memory_project or "").strip())
+            except MemoryProviderError as exc:
+                raise cli_support.CliFailure(EXIT_INPUT, exc.code, str(exc)) from exc
+            adapter = MemorySourceAdapter(raw=raw_evidence, limits=limits)
+        else:
+            adapter = MemorySourceAdapter(memory_evidence, limits=limits)
         try:
-            menhir_records = adapter.collect()
-        except MenhirEvidenceError as exc:
-            raise cli_support.CliFailure(EXIT_INPUT, "menhir_evidence_invalid", str(exc)) from exc
+            memory_records = adapter.collect()
+        except MemoryEvidenceError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, "memory_invalid", str(exc)) from exc
+        evidence = adapter.evidence
+        if memory and evidence is not None and evidence.bound:
+            if evidence.binding["project_id"] != (memory_project or "").strip():
+                raise cli_support.CliFailure(
+                    EXIT_INPUT,
+                    "memory_binding_mismatch",
+                    "the provider returned evidence for a different project",
+                )
 
     git_records: tuple[Any, ...] = ()
     git_origin: str | None = None
+    git_adapter: GitSourceAdapter | None = None
     if repo:
         git_adapter = GitSourceAdapter(repo)
         try:
@@ -1007,12 +1065,41 @@ def _build_impl(
 
     intent_payload = {"path": intent, "source": intent_source}
 
+    # Memory evidence describes one commit of one repository. A publishing build
+    # checks that against this checkout now and again right before output;
+    # --gaps-only only reports, so it may read unbound or stale evidence.
+    def _memory_fence() -> None:
+        if evidence is None or gaps_only:
+            return
+        outputs = [Path(path).resolve() for path in (target, snapshot_path) if path is not None]
+        exact = {Path(path).resolve() for path in (intent, memory_evidence) if path is not None}
+
+        def allowed(path: Path) -> bool:
+            # This command's own inputs and outputs, plus the staging and backup
+            # siblings Beacon writes next to an output (".<name>.<random>.tmp").
+            if path in exact or path in outputs:
+                return True
+            return any(
+                path.parent == out.parent and path.name.startswith(f".{out.name}.")
+                for out in outputs
+            )
+
+        _require_memory_fresh(
+            evidence,
+            repo_root=Path(repo) if repo else None,
+            git_adapter=git_adapter if git_records else None,
+            git_origin=git_origin,
+            allowed=allowed,
+        )
+
+    _memory_fence()
+
     if gaps_only:
         try:
             partial = resolve_project_facts(
                 intent=intent_manifest,
                 git_records=git_records,
-                menhir_records=menhir_records,
+                memory_records=memory_records,
                 docs_root=docs_home,
                 repo_root=Path(repo) if repo else None,
                 git_origin=git_origin,
@@ -1040,7 +1127,7 @@ def _build_impl(
         facts = resolve_project_facts(
             intent=intent_manifest,
             git_records=git_records,
-            menhir_records=menhir_records,
+            memory_records=memory_records,
             docs_root=docs_home,
             repo_root=Path(repo) if repo else None,
             git_origin=git_origin,
@@ -1061,9 +1148,11 @@ def _build_impl(
     data = render_manifest_yaml(raw, note=note)
     report = requirements_report(facts)
 
-    # Last fence before any output: the project's manifest is still the one read.
+    # Last fence before any output: the project's manifest is still the one read,
+    # and the checkout still matches the memory evidence.
     if intent and intent_digest is not None:
         _require_intent_unchanged(Path(intent), intent_digest, limits)
+    _memory_fence()
 
     if target is None:
         # Raw manifest bytes to stdout: exactly one document, no envelope.
@@ -1097,6 +1186,7 @@ def _build_impl(
     def _final_fence() -> None:
         if intent and intent_digest is not None:
             _require_intent_unchanged(Path(intent), intent_digest, limits)
+        _memory_fence()
 
     snapshot_sha = _write_build_outputs(
         target, data, snapshot_path, limits, before_commit=_final_fence
@@ -1123,6 +1213,7 @@ def _build_impl(
         },
         "git_head": facts.git_head,
         "intent": intent_payload,
+        "memory": _memory_payload(evidence),
         "requirements": report,
         "gaps": gaps_from_report(report),
     }
@@ -1131,6 +1222,92 @@ def _build_impl(
     else:
         _text_build(payload)
     return EXIT_OK
+
+
+def _normalize_repository(url: str) -> str:
+    """Compare repository identities, not spellings: host + path, no scheme or .git."""
+    import re
+    from urllib.parse import urlsplit
+
+    text = url.strip()
+    if not text:
+        return ""
+    scp = re.match(r"^[\w.-]+@([^:/]+):(.+)$", text)
+    if scp:
+        text = f"ssh://{scp.group(1)}/{scp.group(2)}"
+    parts = urlsplit(text)
+    path = parts.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")]
+    port = f":{parts.port}" if parts.port and parts.port not in (22, 80, 443) else ""
+    return f"{(parts.hostname or '').lower()}{port}{path.lower()}"
+
+
+def _require_memory_fresh(
+    evidence: Any,
+    *,
+    repo_root: Path | None,
+    git_adapter: GitSourceAdapter | None,
+    git_origin: str | None,
+    allowed: Callable[[Path], bool],
+) -> None:
+    """Refuse to publish memory evidence that does not describe this checkout."""
+    if not evidence.bound:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "memory_invalid",
+            "legacy evidence (1.0) has no binding and cannot publish; "
+            "use --gaps-only, or a provider that sends evidence 1.1",
+        )
+    binding = evidence.binding
+    if git_adapter is None or repo_root is None:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "memory_stale",
+            "memory evidence is bound to a commit, but --repo is not a git checkout",
+        )
+    if _normalize_repository(git_origin or "") != _normalize_repository(binding["repository"]):
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "memory_binding_mismatch",
+            "the memory evidence is for a different repository than this checkout's origin",
+        )
+    try:
+        head = git_adapter.head_commit()
+        changed, truncated = git_adapter.dirty_paths()
+    except GitSourceError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_git_failed", "a bounded git query failed"
+        ) from exc
+    if head != binding["indexed_commit"]:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "memory_stale",
+            "the checkout is at a different commit than the memory provider indexed",
+        )
+    root = repo_root.resolve()
+    extra = [path for path in changed if not allowed((root / path).resolve())]
+    if extra or truncated:
+        example = f" (e.g. {extra[0]})" if extra else ""
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "memory_stale",
+            f"{len(extra)} uncommitted change(s) besides beacon.yaml and the build outputs"
+            f"{example}; commit them or re-index",
+        )
+
+
+def _memory_payload(evidence: Any) -> dict[str, Any] | None:
+    if evidence is None:
+        return None
+    binding = evidence.binding or {}
+    return {
+        "evidence_version": evidence.version,
+        "bound": evidence.bound,
+        "provider": binding.get("provider"),
+        "project_id": binding.get("project_id"),
+        "indexed_commit": binding.get("indexed_commit"),
+    }
 
 
 _GAP_REPORTABLE_BUILD_CODES = frozenset(

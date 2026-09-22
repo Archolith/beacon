@@ -598,6 +598,36 @@ class GitSourceAdapter:
         count = len(_complete_nul_tokens(out, complete=not truncated))
         return count > 0, count
 
+    def head_commit(self) -> str:
+        """Return the current HEAD commit id (40 or 64 hex)."""
+        return self._head_sha()
+
+    def dirty_paths(self) -> tuple[tuple[str, ...], bool]:
+        """Return the repository-relative paths ``git status`` reports as changed.
+
+        Untracked files are included; ignored files are not. A rename reports
+        both its new and its old path. The second value is ``True`` when the
+        output hit the status cap, so the list is only a lower bound.
+        """
+        out, truncated = self._require_run(
+            ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            self._caps.status_output_bytes,
+            "status",
+            extra_config=self._repository_filter_overrides(),
+        )
+        tokens = _complete_nul_tokens(out, complete=not truncated)
+        paths: list[str] = []
+        index = 0
+        while index < len(tokens):
+            entry = tokens[index].decode("utf-8", errors="replace")
+            status, path = entry[:2], entry[3:]
+            paths.append(path)
+            if status[:1] in ("R", "C") and index + 1 < len(tokens):
+                index += 1
+                paths.append(tokens[index].decode("utf-8", errors="replace"))
+            index += 1
+        return tuple(paths), truncated
+
     def _inventory(self) -> tuple[int, list[tuple[str, int]]]:
         out, truncated = self._require_run(
             ["ls-files", "-z"], self._caps.inventory_output_bytes, "ls-files"
