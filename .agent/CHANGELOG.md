@@ -1,5 +1,28 @@
 # Changelog — beacon
 
+## 2026-09-22 — `beacon build` reads the project's own beacon.yaml; gap report
+
+Each project owns its own beacon data; Beacon asks for it. Until now `beacon build` merged a
+project's `beacon.yaml` only when a caller passed `--intent`, and the only caller (Menhir) never
+did, so purpose, guardrails and commands never reached the build and generated manifests were
+nearly empty.
+
+- `beacon build --repo R` uses `R/beacon.yaml` as the intent authority by default. `--intent`
+  still overrides; new `--no-intent` opts out; passing both is `build_intent_conflict`.
+- A malformed own manifest refuses with `intent_manifest_invalid` (message names `--no-intent`);
+  a symlinked one refuses with `intent_manifest_unsafe`. Neither is silently skipped, which would
+  publish a beacon without the project's guardrails. The manifest stays a protected input.
+- New requirements catalogue (`src/beacon/build/requirements.py`, published as
+  `docs/schemas/beacon-requirements-1.0.json`, kept identical by a test): every field, the source
+  tiers allowed to supply it (`intent` / `git` / `memory`), required or optional, and its gap code.
+  Codes shared with `beacon init` are init's codes.
+- The build result gains `intent` (`path`, `source`: `explicit` / `repo_default` / null) and
+  `gaps`; text output lists them. `--out -` still streams only the manifest bytes.
+- Behaviour change for callers that pass `--repo` without `--intent` into a repo that has a
+  `beacon.yaml`: that file now takes intent authority (or refuses the build if malformed). Menhir's
+  pinned integration (`1cc3352b`) is unaffected until its pin moves; its E2E-6/E2E-8 lanes plant a
+  `beacon.yaml` and would need `--no-intent` or re-planning -- moot once Beacon owns that lane.
+
 ## 2026-09-21 — v0.3 build pipeline review fixes (PR #10)
 
 - `beacon build` output safety — `--snapshot-out` is contained within the output root

@@ -194,6 +194,29 @@ discovery.
 
 ---
 
+## Building a beacon
+
+Each project owns its own data. Beacon asks for it, merges it with what the repository and an
+optional memory provider can prove, and writes the result:
+
+```bash
+beacon init                        # starter beacon.yaml + the gaps it could not fill
+# edit beacon.yaml: purpose, guardrails, commands, canonical docs
+beacon build --repo .              # writes beacon.generated.yaml and reports remaining gaps
+```
+
+- `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority by default. `--intent
+  PATH` uses another manifest; `--no-intent` builds without one. A malformed or symlinked
+  `beacon.yaml` refuses the build rather than being skipped.
+- Without a `beacon.yaml` the build still succeeds from the repository and memory evidence, and
+  lists every field left empty as a gap.
+- What Beacon asks for, and which source may supply each field (`intent`, `git`, `memory`), is
+  published in [`docs/schemas/beacon-requirements-1.0.json`](docs/schemas/beacon-requirements-1.0.json).
+  Purpose, guardrails and commands come only from the project's own manifest; no other source may
+  invent them.
+
+---
+
 ## What agents can ask
 
 Beacon registers five read-only MCP tools when the server starts.

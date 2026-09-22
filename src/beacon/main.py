@@ -773,7 +773,13 @@ def _text_init(report: InitReport) -> None:
 @app.command("build")
 def build(
     intent: str | None = typer.Option(
-        None, "--intent", help="Hand-authored manifest merged as the intent authority."
+        None,
+        "--intent",
+        help="Hand-authored manifest merged as the intent authority "
+        "(default: the repository's own beacon.yaml when --repo has one).",
+    ),
+    no_intent: bool = typer.Option(
+        False, "--no-intent", help="Do not read the repository's own beacon.yaml."
     ),
     repo: str | None = typer.Option(
         None, "--repo", help="Repository root for the git reality adapter."
@@ -809,6 +815,7 @@ def build(
         format,
         lambda: _build_impl(
             intent=intent,
+            no_intent=no_intent,
             repo=repo,
             menhir_evidence=menhir_evidence,
             out=out,
@@ -832,6 +839,7 @@ def build(
 def _build_impl(
     *,
     intent: str | None,
+    no_intent: bool = False,
     repo: str | None,
     menhir_evidence: str | None,
     out: str,
@@ -848,6 +856,7 @@ def _build_impl(
         manifest_bytes_sha256,
         render_manifest_yaml,
     )
+    from beacon.build.requirements import evaluate_gaps
     from beacon.core.loader import parse_manifest
     from beacon.core.validator import ManifestValidationError, require_valid_manifest
     from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
@@ -856,6 +865,26 @@ def _build_impl(
         limits = cli_support.build_resource_limits(cli_limits)
     except LimitError as exc:
         raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+
+    if intent is not None and no_intent:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_intent_conflict", "--intent and --no-intent are mutually exclusive"
+        )
+    # The project owns its own data: its beacon.yaml is the intent authority
+    # unless the caller names another manifest or opts out. A symlinked one is
+    # refused rather than followed or silently skipped.
+    intent_source: str | None = "explicit" if intent else None
+    if intent is None and repo and not no_intent:
+        candidate = Path(repo) / scaffold.DEFAULT_MANIFEST_NAME
+        if candidate.is_symlink():
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "intent_manifest_unsafe",
+                "the repository's beacon.yaml is a symlink; pass --intent or --no-intent",
+            )
+        if candidate.is_file():
+            intent = str(candidate)
+            intent_source = "repo_default"
 
     if intent is None and menhir_evidence is None and repo is None:
         raise cli_support.CliFailure(
@@ -946,9 +975,13 @@ def _build_impl(
         try:
             intent_manifest = load_beacon_manifest(Path(intent), limits=limits)
         except ManifestError as exc:
-            raise cli_support.CliFailure(
-                EXIT_INPUT, "intent_manifest_invalid", "malformed or invalid intent manifest"
-            ) from exc
+            message = (
+                "the repository's own beacon.yaml is malformed or invalid; "
+                "fix it, or pass --no-intent to build without it"
+                if intent_source == "repo_default"
+                else "malformed or invalid intent manifest"
+            )
+            raise cli_support.CliFailure(EXIT_INPUT, "intent_manifest_invalid", message) from exc
 
     try:
         facts = resolve_project_facts(
@@ -1019,6 +1052,8 @@ def _build_impl(
             "audiences": facts.audiences_authority,
         },
         "git_head": facts.git_head,
+        "intent": {"path": intent, "source": intent_source},
+        "gaps": evaluate_gaps(facts, intent_manifest),
     }
     if fmt == "json":
         _json("build", ok=True, result_payload=payload)
@@ -1038,8 +1073,12 @@ def _text_build(payload: dict[str, Any]) -> None:
         f"  authorities: name={authorities['name']} description={authorities['description']} "
         f"repository={authorities['repository']}"
     )
+    intent = payload["intent"]
+    typer.echo(f"  intent: {intent['path'] or 'none'} ({intent['source'] or 'not supplied'})")
     for drift in payload["drift"]:
         typer.echo(f"  ⚠ drift {drift['code']}: {drift['detail']}")
+    for gap in payload["gaps"]:
+        typer.echo(f"  · gap {gap['code']}: {gap['field']} (from {'/'.join(gap['sources'])})")
     if payload["snapshot_path"]:
         typer.echo(f"  snapshot: {payload['snapshot_path']}")
 
