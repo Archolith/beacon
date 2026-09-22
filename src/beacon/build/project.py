@@ -1,0 +1,221 @@
+"""Deterministic projection: resolved facts -> raw Beacon manifest.
+
+This is the MVP-critical piece: merged, resolved evidence becomes a valid
+``beacon.yaml`` mapping **without an LLM**. Two rules govern every field:
+
+1. **Only evidence-backed fields are populated.** Project identity, canonical
+   documents, source-grounded concepts, and implementation locations come
+   straight from the resolved facts. Unknown intent stays unknown/empty --
+   nothing is synthesized to satisfy the schema (a missing test command or
+   guardrail set is a recorded, acknowledged absence, never invented text).
+2. **Every claim carries a resolvable citation.** Concept sources point at
+   canonical documents (``doc``), real files (``file``), the Menhir evidence
+   (``memory``, identified by scan fingerprint), or the git HEAD commit
+   (``commit``). The ``type=manifest``-with-empty-path citation shape of the
+   retired Menhir bridge is deliberately never produced.
+
+Output is a plain mapping consumed by :func:`beacon.core.loader.parse_manifest`
+-- this module never parses or validates manifests itself, and rendering is a
+separate, byte-deterministic step (:func:`render_manifest_yaml`).
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Any
+
+import yaml
+
+from beacon.build.policy import MergedProjectFacts
+
+#: Manifest schema version the projection targets (unchanged since v0.1).
+MANIFEST_SCHEMA_VERSION = "0.1"
+
+#: Concept id of the evidence-backed structure concept.
+STRUCTURE_CONCEPT_ID = "project-structure"
+
+#: Fixed reasons for the publication warnings a generated manifest carries.
+ACK_GUARDRAILS_MISSING = (
+    "guardrails_missing",
+    "generated from source evidence: no authoritative guardrail source exists yet",
+)
+ACK_TEST_COMMAND_MISSING = (
+    "test_command_missing",
+    "generated from source evidence: no authoritative test command source exists yet",
+)
+
+_SLUG_ALPHABET_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+#: Hex characters of the content-derived slug for titles with no ASCII slug.
+_HASH_SLUG_CHARS = 10
+
+
+def _slug(text: str) -> str:
+    """Return the ASCII slug of *text*, or a stable content-derived id.
+
+    A title with no ASCII letters or digits (e.g. a non-English title) would
+    otherwise collapse to one shared id; it instead gets
+    ``decision-<sha256 prefix>`` so the id is stable and non-lossy.
+    """
+    lowered = text.strip().lower()
+    slug = "".join(char if char in _SLUG_ALPHABET_OK else "-" for char in lowered).strip("-")
+    if slug:
+        return slug
+    digest = hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:_HASH_SLUG_CHARS]
+    return f"decision-{digest}"
+
+
+def _unique_id(base: str, used: set[str]) -> str:
+    """Return *base*, or *base*-2, -3, ... -- the first id not in *used*.
+
+    Ids compare case-insensitively (the validator's ``concept_id_duplicate``
+    rule). Callers visit decisions in the policy's sorted order, so the
+    suffix a colliding title receives is deterministic.
+    """
+    candidate = base
+    counter = 2
+    while candidate.lower() in used:
+        candidate = f"{base}-{counter}"
+        counter += 1
+    used.add(candidate.lower())
+    return candidate
+
+
+def _source(payload: dict[str, Any]) -> dict[str, Any]:
+    source: dict[str, Any] = {
+        "type": payload["type"],
+        "title": payload.get("title", ""),
+        "path": payload.get("path", ""),
+        "url": payload.get("url", ""),
+        "status": "current",
+    }
+    # Line fields are absent, never null: the loader requires a positive
+    # integer when the key is present.
+    if payload.get("line_start") is not None:
+        source["line_start"] = payload["line_start"]
+    if payload.get("line_end") is not None:
+        source["line_end"] = payload["line_end"]
+    return source
+
+
+def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
+    """Project resolved facts into the raw manifest mapping (deterministic)."""
+    # Intent-authored concepts come first, verbatim, and reserve their ids;
+    # generated concepts are disambiguated against them.
+    concepts: list[dict[str, Any]] = [dict(concept) for concept in facts.intent_concepts]
+    used_ids: set[str] = {str(concept.get("id", "")).lower() for concept in concepts}
+
+    if facts.structure_summary is not None:
+        sources = [_source({"type": "memory", "title": "Menhir structure scan"})]
+        if facts.structure_fingerprint:
+            sources[0]["title"] = f"Menhir structure scan ({facts.structure_fingerprint})"
+        if facts.git_head:
+            short = facts.git_head[:12]
+            sources.append(_source({"type": "commit", "title": f"git HEAD {short}", "url": ""}))
+        concepts.append(
+            {
+                "id": _unique_id(STRUCTURE_CONCEPT_ID, used_ids),
+                "name": "Project structure",
+                "definition": facts.structure_summary,
+                "why_it_exists": "",
+                "status": "current",
+                "related_concepts": [],
+                "implementation_locations": [],
+                "sources": sources,
+            }
+        )
+
+    # The structure concept id stays reserved even without a structure
+    # concept, so a decision titled "Project Structure" never takes it.
+    used_ids.add(STRUCTURE_CONCEPT_ID)
+    for decision in facts.decisions:
+        concepts.append(
+            {
+                "id": _unique_id(_slug(decision.title), used_ids),
+                "name": decision.title,
+                "definition": decision.summary,
+                "why_it_exists": "",
+                "status": decision.status,
+                "related_concepts": [],
+                "implementation_locations": list(decision.locations),
+                "sources": [
+                    _source({"type": "file", "title": location, "path": location})
+                    for location in decision.locations
+                ],
+            }
+        )
+
+    raw: dict[str, Any] = {
+        "beacon_version": MANIFEST_SCHEMA_VERSION,
+        "project": {
+            "name": facts.name,
+            "tagline": facts.tagline,
+            "description": facts.project_description or facts.description,
+            "status": facts.status,
+            "repository": facts.repository,
+            "primary_language": facts.primary_language,
+            "license": facts.license,
+        },
+        "purpose": {
+            "one_sentence": facts.description,
+            "problem": facts.purpose_problem,
+            "non_goals": list(facts.non_goals),
+        },
+        "audiences": list(facts.audiences),
+        "current_focus": list(facts.current_focus),
+        "core_concepts": concepts,
+        "canonical_docs": [
+            {
+                "path": doc["path"],
+                "role": doc["role"],
+                "status": doc.get("status", "current"),
+                "title": doc["title"],
+            }
+            for doc in facts.canonical_docs
+        ],
+        "agent_guidance": {
+            "read_first": list(facts.read_first),
+            "safe_first_tasks": list(facts.agent_guidance.get("safe_first_tasks", ())),
+            "avoid_without_review": list(facts.agent_guidance.get("avoid_without_review", ())),
+            "expected_behavior": list(facts.agent_guidance.get("expected_behavior", ())),
+        },
+        "build_and_test": dict(facts.build_and_test),
+        "guardrails": list(facts.guardrails),
+    }
+    if facts.project_state is not None:
+        raw["project_state"] = facts.project_state
+    return raw
+
+
+def render_manifest_yaml(raw: dict[str, Any], *, note: str | None = None) -> bytes:
+    """Render the raw mapping as deterministic manifest YAML bytes.
+
+    Sorted keys, plain style, ASCII, exactly one trailing newline -- the same
+    manifest always renders to identical bytes. An optional fixed ``note`` is
+    prepended as a YAML comment line (used by embedding generators to mark
+    provenance).
+    """
+    body = yaml.safe_dump(raw, sort_keys=True, allow_unicode=False, default_flow_style=False)
+    encoded = body.encode("utf-8")
+    if note:
+        sanitized = " ".join(note.splitlines()).strip()
+        if sanitized:
+            encoded = f"# {sanitized}\n".encode() + encoded
+    if not encoded.endswith(b"\n"):
+        encoded += b"\n"
+    return encoded
+
+
+def manifest_bytes_sha256(data: bytes) -> str:
+    """Return the hex sha256 of the exact manifest bytes (report metadata)."""
+    return hashlib.sha256(data).hexdigest()
+
+
+__all__ = [
+    "ACK_GUARDRAILS_MISSING",
+    "ACK_TEST_COMMAND_MISSING",
+    "MANIFEST_SCHEMA_VERSION",
+    "STRUCTURE_CONCEPT_ID",
+    "build_raw_manifest",
+    "manifest_bytes_sha256",
+    "render_manifest_yaml",
+]

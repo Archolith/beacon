@@ -136,10 +136,12 @@ def test_envelope_payload_matches_positive_fixture(cli_schema: dict) -> None:
 
 
 def test_commands_exact_set() -> None:
-    assert COMMANDS == {"init", "validate", "inspect", "export"}
+    # v0.3 adds the `build` command to the envelope contract (schema widened
+    # in place; additive for consumers — old envelopes stay valid).
+    assert COMMANDS == {"init", "validate", "inspect", "export", "build"}
 
 
-@pytest.mark.parametrize("name", ["init", "validate", "inspect", "export"])
+@pytest.mark.parametrize("name", ["init", "validate", "inspect", "export", "build"])
 def test_valid_command_accepted(name: str) -> None:
     envelope = result(name, ok=True)
     assert envelope.command.value == name

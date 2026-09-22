@@ -25,7 +25,8 @@
         "init",
         "validate",
         "inspect",
-        "export"
+        "export",
+        "build"
       ]
     },
     "ok": {

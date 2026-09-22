@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from beacon.core.limits import (
     LIMIT_CHUNKS,
@@ -27,6 +28,9 @@ from beacon.core.limits import (
 )
 from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconDoc, BeaconSource
+
+if TYPE_CHECKING:
+    from beacon.core.snapshot import SnapshotDocument
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -142,6 +146,47 @@ class DocIndex:
                     limit_value=active.chunks,
                 )
             chunks.extend(doc_chunks)
+        return cls(tuple(chunks))
+
+    @classmethod
+    def from_snapshot_documents(
+        cls,
+        documents: tuple[SnapshotDocument, ...],
+        *,
+        limits: ResourceLimits | None = None,
+    ) -> DocIndex:
+        """Rebuild the index from a canonical snapshot's embedded documents.
+
+        This is the snapshot-serving path: the chunk text ships inside the
+        snapshot, so no source file is read. Chunk identity (path, heading
+        path, line range, status) is exactly what the export path recorded.
+        """
+        active = limits if limits is not None else ResourceLimits()
+        chunks: list[DocChunk] = []
+        for document in documents:
+            for chunk in document.chunks:
+                if chunk.text is None:
+                    # Plan-role documents are title-only in a snapshot (the
+                    # writer's policy), so snapshot-served search cannot hit
+                    # plan text; every other document is indexed identically.
+                    continue
+                if len(chunks) >= active.chunks:
+                    raise LimitError(
+                        LIMIT_CHUNKS,
+                        f"resource limit exceeded: {LIMIT_CHUNKS} (limit={active.chunks})",
+                        limit="chunks",
+                        limit_value=active.chunks,
+                    )
+                chunks.append(
+                    DocChunk(
+                        path=document.path,
+                        heading_path=chunk.heading_path,
+                        text=chunk.text,
+                        start_line=chunk.line_start,
+                        end_line=chunk.line_end,
+                        status=document.status,
+                    )
+                )
         return cls(tuple(chunks))
 
     def search(self, query: str, *, limit: int = 8) -> list[tuple[DocChunk, float]]:

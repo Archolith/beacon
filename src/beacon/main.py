@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import socket
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,13 +38,20 @@ import typer
 from beacon.core import cli_result, cli_support, scaffold
 from beacon.core import snapshot as snapshot_mod
 from beacon.core.discovery import DiscoveryError
-from beacon.core.limits import FIELD_ENV_VARS, LimitError, ResourceLimits
+from beacon.core.limits import (
+    FIELD_ENV_VARS,
+    LIMIT_SNAPSHOT_BYTES,
+    LimitError,
+    ResourceLimits,
+    read_bytes_bounded,
+)
 from beacon.core.loader import ManifestError
 from beacon.core.paths import UnsafeCanonicalPath, resolve_canonical_path
 from beacon.core.scaffold import OPERATION_REFUSED, InitReport
 from beacon.core.schema import to_payload as schema_payload
 from beacon.core.security import SecurityOverrideError, parse_security_overrides
 from beacon.core.status import StatusObservation, observe_project_status
+from beacon.sources.git import GitSourceAdapter, GitSourceError, GitSourceUnavailable
 
 EXIT_OK = cli_support.EXIT_OK
 EXIT_VALIDATION = cli_support.EXIT_VALIDATION
@@ -137,22 +146,44 @@ def _set_serve_env(context: cli_support.CommandContext) -> None:
 
 #: Environment variables the explicit ``serve`` path mutates (restored after run).
 _SERVE_MUTATED_ENV = (
-    ("BEACON_MANIFEST_PATH", "BEACON_DOCS_ROOT")
+    ("BEACON_MANIFEST_PATH", "BEACON_DOCS_ROOT", "BEACON_SNAPSHOT_PATH")
     + tuple(FIELD_ENV_VARS.values())
     + ("FASTMCP_CHECK_FOR_UPDATES", "FASTMCP_SHOW_SERVER_BANNER")
 )
 
 
-def _serve_with_env(context: cli_support.CommandContext) -> None:
+def _serve_with_env(
+    context: cli_support.CommandContext | None,
+    *,
+    snapshot_path: str | None = None,
+    limits: ResourceLimits | None = None,
+) -> None:
     """Run the stdio server with *context* env overrides, restoring prior values.
 
     The manifest/docs-root/limit (and privacy) overrides are scoped to the
     server run so embedding callers and CliRunner never retain them afterward.
     Prior values are restored exactly, including variables that were absent.
+    When *snapshot_path* is given the server runs snapshot-only: the manifest
+    and document chunks come from the canonical snapshot and no source file
+    is read at startup, and *limits* (the CLI ceilings) are exported so the
+    server enforces the same limits the preflight used.
     """
     saved = {var: os.environ.get(var) for var in _SERVE_MUTATED_ENV}
     try:
-        _set_serve_env(context)
+        # Explicit CLI inputs win over inherited environment: an explicit
+        # manifest clears an ambient BEACON_SNAPSHOT_PATH (the lifespan would
+        # otherwise serve a different artifact from the one just validated),
+        # and an explicit snapshot clears the manifest/docs-root variables.
+        if context is not None:
+            _set_serve_env(context)
+            os.environ.pop("BEACON_SNAPSHOT_PATH", None)
+        if snapshot_path:
+            os.environ["BEACON_SNAPSHOT_PATH"] = snapshot_path
+            os.environ.pop("BEACON_MANIFEST_PATH", None)
+            os.environ.pop("BEACON_DOCS_ROOT", None)
+            if limits is not None:
+                for field, var in FIELD_ENV_VARS.items():
+                    os.environ[var] = str(limits.ceiling(field))
         _prepare_runtime()
         _run_mcp_server()
     finally:
@@ -197,6 +228,9 @@ def serve(
         None, "--manifest", "-m", help="Path to beacon.yaml (default: ./beacon.yaml)."
     ),
     docs_root: str | None = typer.Option(None, "--docs-root", help="Docs root directory."),
+    snapshot: str | None = typer.Option(
+        None, "--snapshot", help="Serve from a canonical snapshot instead of a manifest."
+    ),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
     max_documents: int | None = typer.Option(None, "--max-documents"),
     max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
@@ -205,16 +239,57 @@ def serve(
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
     """Validate servability, then run the same stdio server with the given inputs."""
+    cli_limits = _cli_limit_mapping(
+        max_manifest_bytes,
+        max_documents,
+        max_document_bytes,
+        max_total_document_bytes,
+        max_chunks,
+        max_snapshot_bytes,
+    )
+
+    if snapshot is not None:
+        # Snapshot-only serving: load and verify, then let the lifespan build
+        # the provider from the snapshot (no manifest read, no doc file reads).
+        if manifest is not None or docs_root is not None:
+            typer.echo(
+                "✗ serve_source_conflict: --snapshot cannot be combined with "
+                "--manifest/--docs-root",
+                err=True,
+            )
+            raise typer.Exit(EXIT_INPUT)
+        try:
+            limits = cli_support.build_resource_limits(cli_limits)
+        except LimitError as exc:
+            typer.echo(f"✗ {exc.code}: {exc}", err=True)
+            raise typer.Exit(EXIT_INPUT) from exc
+        from beacon.build.snapshot import SnapshotReadError, load_snapshot
+        from beacon.provider.manifest_provider import ManifestBeaconProvider
+
+        try:
+            loaded = load_snapshot(snapshot, limits=limits)
+            ManifestBeaconProvider.from_snapshot(loaded, limits=limits)
+        except SnapshotReadError as exc:
+            typer.echo(f"✗ {exc.code}: {exc}", err=True)
+            raise typer.Exit(EXIT_INPUT) from exc
+        except Exception as exc:  # noqa: BLE001 - normalized safely for the CLI
+            fail = cli_support.normalize_internal(exc)
+            typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
+            raise typer.Exit(fail.exit_code) from exc
+        try:
+            _serve_with_env(None, snapshot_path=snapshot, limits=limits)
+        except cli_support.CliFailure as exc:
+            typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
+            raise typer.Exit(exc.exit_code) from exc
+        except Exception as exc:  # noqa: BLE001 - normalized safely for the CLI
+            fail = cli_support.normalize_internal(exc)
+            typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
+            raise typer.Exit(fail.exit_code) from exc
+        return
+
     try:
         context = cli_support.build_command_context(
-            cli_limits=_cli_limit_mapping(
-                max_manifest_bytes,
-                max_documents,
-                max_document_bytes,
-                max_total_document_bytes,
-                max_chunks,
-                max_snapshot_bytes,
-            ),
+            cli_limits=cli_limits,
             manifest_path=manifest,
             docs_root=docs_root,
         )
@@ -688,6 +763,560 @@ def _text_init(report: InitReport) -> None:
             typer.echo(f"Git: {branch} @ {commit} ({dirty})")
     for item in report.review_required:
         typer.echo(f"  ⚠ {item.code}: {item.reason}")
+
+
+# ---------------------------------------------------------------------------
+# beacon build
+# ---------------------------------------------------------------------------
+
+
+@app.command("build")
+def build(
+    intent: str | None = typer.Option(
+        None, "--intent", help="Hand-authored manifest merged as the intent authority."
+    ),
+    repo: str | None = typer.Option(
+        None, "--repo", help="Repository root for the git reality adapter."
+    ),
+    menhir_evidence: str | None = typer.Option(
+        None, "--menhir-evidence", help="Menhir evidence document (JSON) for the history tier."
+    ),
+    out: str = typer.Option(
+        "beacon.generated.yaml", "--out", help="Output manifest path (relative to --docs-root)."
+    ),
+    snapshot_out: str | None = typer.Option(
+        None, "--snapshot-out", help="Also write the canonical static snapshot to this path."
+    ),
+    docs_root: str | None = typer.Option(
+        None, "--docs-root", help="Docs root for canonical docs (default: output directory)."
+    ),
+    note: str | None = typer.Option(
+        None, "--note", help="Fixed provenance comment prepended to the generated manifest."
+    ),
+    force: bool = typer.Option(False, "--force", help="Replace an existing regular output file."),
+    format: str = typer.Option("text", "--format", help="Output format: text|json."),
+    max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
+    max_documents: int | None = typer.Option(None, "--max-documents"),
+    max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
+    max_total_document_bytes: int | None = typer.Option(None, "--max-total-document-bytes"),
+    max_chunks: int | None = typer.Option(None, "--max-chunks"),
+    max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
+) -> None:
+    """Build a manifest/snapshot from merged sources (exit 1/2 on refusal)."""
+    _require_format(format)
+    _safe(
+        "build",
+        format,
+        lambda: _build_impl(
+            intent=intent,
+            repo=repo,
+            menhir_evidence=menhir_evidence,
+            out=out,
+            snapshot_out=snapshot_out,
+            docs_root=docs_root,
+            note=note,
+            force=force,
+            fmt=format,
+            cli_limits=_six_limit_args(
+                max_manifest_bytes,
+                max_documents,
+                max_document_bytes,
+                max_total_document_bytes,
+                max_chunks,
+                max_snapshot_bytes,
+            ),
+        ),
+    )
+
+
+def _build_impl(
+    *,
+    intent: str | None,
+    repo: str | None,
+    menhir_evidence: str | None,
+    out: str,
+    snapshot_out: str | None,
+    docs_root: str | None,
+    note: str | None,
+    force: bool,
+    fmt: str,
+    cli_limits: dict[str, Any],
+) -> int:
+    from beacon.build.policy import BuildError, resolve_project_facts
+    from beacon.build.project import (
+        build_raw_manifest,
+        manifest_bytes_sha256,
+        render_manifest_yaml,
+    )
+    from beacon.core.loader import parse_manifest
+    from beacon.core.validator import ManifestValidationError, require_valid_manifest
+    from beacon.sources.menhir import MenhirEvidenceError, MenhirSourceAdapter
+
+    try:
+        limits = cli_support.build_resource_limits(cli_limits)
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+
+    if intent is None and menhir_evidence is None and repo is None:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_no_sources", "build requires --intent, --menhir-evidence, or --repo"
+        )
+
+    # -- resolve the output location and docs root ---------------------------
+    # `--out -` streams the manifest YAML to stdout (no envelope, no file):
+    # the same convention as `beacon export --output -`, for embedding
+    # generators that own publication. A relative --out otherwise resolves
+    # against the repository root when one is given (the generated manifest
+    # belongs to that repo), otherwise the CWD.
+    to_stdout = out == "-"
+    if to_stdout and snapshot_out:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_stdout_snapshot_unsupported",
+            "snapshot output requires a file --out",
+        )
+    base_dir = Path(repo) if repo else Path.cwd()
+    root_dir = Path(docs_root) if docs_root else base_dir
+    # The build's own inputs are never output targets, not even with --force.
+    protected_inputs = tuple(Path(path) for path in (menhir_evidence, intent) if path)
+    target: Path | None = None
+    snapshot_path: Path | None = None
+    if not to_stdout:
+        try:
+            target = scaffold.resolve_output_path(root_dir, out)
+        except UnsafeCanonicalPath as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "unsafe_canonical_path", "unsafe output path"
+            ) from exc
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        _preflight_build_manifest_target(
+            target, force=force, limits=limits, protected=protected_inputs
+        )
+        if snapshot_out:
+            # The snapshot output resolves next to the manifest and must stay
+            # inside the same root --out is confined to (--repo, or
+            # --docs-root when given).
+            snapshot_path = _resolve_build_snapshot_path(snapshot_out, target, root_dir)
+            # A snapshot target that is a build input or the manifest is refused
+            # here; the exists/--force rule runs after projection so that a
+            # collision with a canonical document is reported as such.
+            _preflight_build_snapshot_target(
+                snapshot_path,
+                target,
+                force=True,
+                limits=limits,
+                protected=protected_inputs,
+                check_existing=False,
+            )
+    docs_home = target.parent if target is not None else root_dir
+
+    # -- collect the source tiers ---------------------------------------------
+    menhir_records: tuple[Any, ...] = ()
+    if menhir_evidence:
+        adapter = MenhirSourceAdapter(menhir_evidence, limits=limits)
+        try:
+            menhir_records = adapter.collect()
+        except MenhirEvidenceError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, "menhir_evidence_invalid", str(exc)) from exc
+
+    git_records: tuple[Any, ...] = ()
+    git_origin: str | None = None
+    if repo:
+        git_adapter = GitSourceAdapter(repo)
+        try:
+            git_records = git_adapter.collect()
+        except GitSourceUnavailable:
+            # Tier 1 is optional by design: no git repository means the
+            # repository tier is absent and the build degrades to the
+            # remaining sources (build-pipeline plan §3).
+            git_records = ()
+        except GitSourceError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_git_failed", "a bounded git query failed"
+            ) from exc
+        if git_records:
+            url, _url_findings = git_adapter.repository_url()
+            git_origin = url
+
+    intent_manifest = None
+    if intent:
+        from beacon.core.loader import load_beacon_manifest
+
+        try:
+            intent_manifest = load_beacon_manifest(Path(intent), limits=limits)
+        except ManifestError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "intent_manifest_invalid", "malformed or invalid intent manifest"
+            ) from exc
+
+    try:
+        facts = resolve_project_facts(
+            intent=intent_manifest,
+            git_records=git_records,
+            menhir_records=menhir_records,
+            docs_root=docs_home,
+            repo_root=Path(repo) if repo else None,
+            git_origin=git_origin,
+        )
+        raw = build_raw_manifest(facts)
+        manifest_obj = parse_manifest(raw)
+        require_valid_manifest(manifest_obj, docs_root=docs_home)
+    except BuildError as exc:
+        raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
+    except ManifestValidationError as exc:
+        raise cli_support.CliFailure(
+            EXIT_VALIDATION, "build_projection_invalid", "projected manifest is invalid"
+        ) from exc
+
+    data = render_manifest_yaml(raw, note=note)
+
+    if target is None:
+        # Raw manifest bytes to stdout: exactly one document, no envelope.
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is not None:
+            buffer.write(data)
+            buffer.flush()
+        else:  # pragma: no cover - defensive when stdout has no byte buffer
+            sys.stdout.write(data.decode("utf-8"))
+            sys.stdout.flush()
+        return EXIT_OK
+
+    # -- every remaining gate runs before any write ----------------------------
+    # The output checks are repeated (source collection may have taken a
+    # while) and extended with the projected canonical documents; the
+    # snapshot policy gate and the reader check run on a temporary sibling of
+    # the manifest. Only when all of them pass is anything replaced, so a
+    # refused build leaves the previous manifest and snapshot untouched.
+    _preflight_build_manifest_target(target, force=force, limits=limits, protected=protected_inputs)
+    _refuse_build_output_over_canonical_doc(target, manifest_obj, docs_home)
+    if snapshot_path is not None:
+        # Collision with a canonical document is reported before the generic
+        # exists/--force rule: it names the actual hazard.
+        _preflight_build_snapshot_output(snapshot_path, target, manifest_obj, docs_home)
+        _preflight_build_snapshot_target(
+            snapshot_path, target, force=force, limits=limits, protected=protected_inputs
+        )
+    snapshot_sha = _write_build_outputs(target, data, snapshot_path, limits)
+
+    payload = {
+        "manifest_path": str(target),
+        "manifest_sha256": manifest_bytes_sha256(data),
+        "manifest_bytes": len(data),
+        "snapshot_path": str(snapshot_path) if snapshot_path else None,
+        "snapshot_manifest_sha256": snapshot_sha,
+        "docs": len(facts.canonical_docs),
+        "concepts": 1 + len(facts.decisions) if facts.structure_summary else len(facts.decisions),
+        "guardrails": len(facts.guardrails),
+        "drift": [{"code": d.code, "detail": d.detail} for d in facts.drift],
+        "authorities": {
+            "name": facts.name_authority,
+            "description": facts.description_authority,
+            "repository": facts.repository_authority,
+            "language": facts.primary_language_authority,
+            "status": facts.status_authority,
+            "docs": facts.canonical_docs_authority,
+            "audiences": facts.audiences_authority,
+        },
+        "git_head": facts.git_head,
+    }
+    if fmt == "json":
+        _json("build", ok=True, result_payload=payload)
+    else:
+        _text_build(payload)
+    return EXIT_OK
+
+
+def _text_build(payload: dict[str, Any]) -> None:
+    typer.echo(f"✓ Built manifest at {payload['manifest_path']}")
+    typer.echo(
+        f"  sha256={payload['manifest_sha256'][:16]}…  docs={payload['docs']}  "
+        f"concepts={payload['concepts']}  guardrails={payload['guardrails']}"
+    )
+    authorities = payload["authorities"]
+    typer.echo(
+        f"  authorities: name={authorities['name']} description={authorities['description']} "
+        f"repository={authorities['repository']}"
+    )
+    for drift in payload["drift"]:
+        typer.echo(f"  ⚠ drift {drift['code']}: {drift['detail']}")
+    if payload["snapshot_path"]:
+        typer.echo(f"  snapshot: {payload['snapshot_path']}")
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _write_temp_sibling(path: Path, data: bytes) -> str:
+    """Write *data* to a fsynced temporary file next to *path*; return its name."""
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb", dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp", delete=False
+    )
+    temp_name = handle.name
+    try:
+        with handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        _unlink_quietly(temp_name)
+        raise
+    return temp_name
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Atomically replace *path* with *data* (temp file + fsync + rename)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = _write_temp_sibling(path, data)
+    try:
+        os.replace(temp_name, path)
+    except BaseException:
+        _unlink_quietly(temp_name)
+        raise
+
+
+def _write_build_outputs(
+    target: Path, data: bytes, snapshot_path: Path | None, limits: ResourceLimits
+) -> str | None:
+    """Write the manifest and optional snapshot; every gate has already passed.
+
+    With a snapshot, the manifest bytes go to a temporary sibling first (so
+    canonical docs resolve exactly as they will for the final file), the
+    snapshot is built -- policy gate included -- and verified through the
+    reader, and only then is the snapshot written and the manifest renamed
+    into place. Any refusal removes the temporary file and replaces nothing.
+    Returns the snapshot's recorded manifest digest, or ``None``.
+    """
+    if snapshot_path is None:
+        _atomic_write_bytes(target, data)
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = _write_temp_sibling(target, data)
+    committed = False
+    try:
+        snap, snapshot_sha = _build_verified_snapshot(Path(temp_name), target.parent, limits)
+        try:
+            snapshot_mod.write_snapshot_atomic(snapshot_path, snap, byte_ceiling=snap.byte_ceiling)
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+        except OSError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
+            ) from exc
+        os.replace(temp_name, target)
+        committed = True
+    finally:
+        if not committed:
+            _unlink_quietly(temp_name)
+    return snapshot_sha
+
+
+def _build_verified_snapshot(
+    manifest_file: Path, docs_root: Path, limits: ResourceLimits
+) -> tuple[snapshot_mod.Snapshot, str]:
+    """Build the canonical snapshot (v0.2 writer end to end) and verify it loads."""
+    from beacon.build.project import ACK_GUARDRAILS_MISSING, ACK_TEST_COMMAND_MISSING
+    from beacon.build.snapshot import snapshot_from_payload
+    from beacon.core.policy import Acknowledgement
+
+    acknowledgements = (
+        Acknowledgement(code=ACK_GUARDRAILS_MISSING[0], reason=ACK_GUARDRAILS_MISSING[1]),
+        Acknowledgement(code=ACK_TEST_COMMAND_MISSING[0], reason=ACK_TEST_COMMAND_MISSING[1]),
+    )
+    try:
+        snap = snapshot_mod.build_snapshot(
+            manifest_file,
+            docs_root=docs_root,
+            content_mode=snapshot_mod.CONTENT_EMBEDDED,
+            acknowledgements=acknowledgements,
+            limits=limits,
+        )
+        encoded = snapshot_mod.snapshot_bytes(snap)
+    except snapshot_mod.SnapshotError as exc:
+        raise cli_support.CliFailure(
+            EXIT_VALIDATION if "policy" in exc.code or "security" in exc.code else EXIT_INPUT,
+            exc.code,
+            str(exc),
+        ) from exc
+    except LimitError as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+    except OSError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_write_failed", "could not write snapshot"
+        ) from exc
+    # Load the exact bytes back through the reader before anything is written,
+    # so an artifact that would not be servable is never published.
+    try:
+        verified = snapshot_from_payload(json.loads(encoded.decode("utf-8")))
+    except Exception as exc:  # noqa: BLE001 - reader errors are stable codes
+        raise cli_support.CliFailure(
+            EXIT_INTERNAL, "build_snapshot_unreadable", "built snapshot failed to load back"
+        ) from exc
+    return snap, verified.manifest.source_sha256
+
+
+def _same_path(first: Path, second: Path) -> bool:
+    """Return whether two paths name the same file (symlinks and case aware)."""
+    try:
+        if first.exists() and second.exists():
+            return os.path.samefile(first, second)
+        return os.path.normcase(str(first.resolve())) == os.path.normcase(str(second.resolve()))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _preflight_build_manifest_target(
+    target: Path, *, force: bool, limits: ResourceLimits, protected: tuple[Path, ...]
+) -> None:
+    """Refuse a manifest output that is a build input, unusable, or not replaceable.
+
+    ``--force`` replaces only a file that is recognizably a Beacon manifest
+    (the v0.2 ``init --force`` rule); a build input is never replaced.
+    """
+    if any(_same_path(target, path) for path in protected):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_output_protected", "output path is a build input"
+        )
+    if target.is_symlink() or target.is_dir():
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_output_unusable", "output path exists and is not a regular file"
+        )
+    if target.exists():
+        if not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_exists", "output already exists (use --force to replace)"
+            )
+        if not scaffold.is_recognizable_manifest(target, limits=limits):
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_output_not_manifest",
+                "existing output is not a Beacon manifest; --force replaces only a manifest",
+            )
+
+
+def _refuse_build_output_over_canonical_doc(
+    target: Path, manifest_obj: Any, docs_root: Path
+) -> None:
+    """Refuse a manifest output that is one of the projected canonical documents."""
+    for doc in manifest_obj.canonical_docs:
+        try:
+            doc_target = resolve_canonical_path(docs_root, doc.path)
+        except UnsafeCanonicalPath:
+            continue
+        if _same_path(target, doc_target):
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "build_output_protected", "output path is a canonical document"
+            )
+
+
+def _resolve_build_snapshot_path(snapshot_out: str, target: Path, root_dir: Path) -> Path:
+    """Resolve ``--snapshot-out`` next to the manifest, contained in *root_dir*.
+
+    Relative paths resolve against the manifest's directory; absolute paths
+    are accepted only inside *root_dir*. Containment is checked on the fully
+    resolved path, so ``..`` and symlinked components cannot escape.
+    """
+    candidate = Path(snapshot_out)
+    if not candidate.is_absolute():
+        candidate = target.parent / candidate
+    try:
+        resolved = candidate.resolve()
+        root_resolved = root_dir.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_path_invalid", "invalid snapshot path"
+        ) from exc
+    if resolved == root_resolved or not resolved.is_relative_to(root_resolved):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_path_invalid", "snapshot output escapes the output root"
+        )
+    if candidate.is_symlink() or resolved.is_dir():
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "build_snapshot_path_invalid",
+            "snapshot output exists and is not a regular file",
+        )
+    return resolved
+
+
+def _is_beacon_snapshot(path: Path, limits: ResourceLimits) -> bool:
+    """Return whether *path* is recognizably a Beacon snapshot (bounded read)."""
+    try:
+        raw = read_bytes_bounded(
+            path, ceiling=limits.snapshot_bytes, code=LIMIT_SNAPSHOT_BYTES, field="snapshot_bytes"
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, LimitError, UnicodeDecodeError, ValueError):
+        return False
+    return isinstance(payload, dict) and "beacon_snapshot_version" in payload
+
+
+def _preflight_build_snapshot_target(
+    snapshot_path: Path,
+    manifest_target: Path,
+    *,
+    force: bool,
+    limits: ResourceLimits,
+    protected: tuple[Path, ...],
+    check_existing: bool = True,
+) -> None:
+    """Refuse a snapshot output that collides with an input or is not replaceable.
+
+    Overwriting requires ``--force``, and ``--force`` replaces only a file
+    that is recognizably a Beacon snapshot (skipped when *check_existing* is
+    false; the caller runs that rule later).
+    """
+    if _same_path(snapshot_path, manifest_target):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with the manifest"
+        )
+    if any(_same_path(snapshot_path, path) for path in protected):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with a build input"
+        )
+    if check_existing and snapshot_path.exists():
+        if not force:
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_output_exists",
+                "snapshot output already exists (use --force to replace)",
+            )
+        if not _is_beacon_snapshot(snapshot_path, limits):
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_not_replaceable",
+                "existing snapshot output is not a Beacon snapshot; --force replaces only one",
+            )
+
+
+def _preflight_build_snapshot_output(
+    snapshot_path: Path, manifest_target: Path, manifest_obj: Any, docs_root: Path
+) -> None:
+    """Refuse a snapshot output colliding with the manifest or a canonical doc.
+
+    Canonical documents resolve against *docs_root* -- the directory the
+    manifest is written to, exactly as the projection and the snapshot
+    builder resolve them.
+    """
+    if _same_path(snapshot_path, manifest_target):
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "build_snapshot_collision", "snapshot output collides with the manifest"
+        )
+    for doc in manifest_obj.canonical_docs:
+        try:
+            doc_target = resolve_canonical_path(docs_root, doc.path)
+        except UnsafeCanonicalPath:
+            continue
+        if _same_path(snapshot_path, doc_target):
+            raise cli_support.CliFailure(
+                EXIT_INPUT,
+                "build_snapshot_collision",
+                "snapshot output collides with a canonical document",
+            )
 
 
 # ---------------------------------------------------------------------------

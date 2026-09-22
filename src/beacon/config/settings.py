@@ -33,6 +33,12 @@ class BeaconSettings:
     # Defaults to the directory containing beacon.yaml when empty.
     docs_root: str = ""
 
+    # Path to a canonical snapshot (beacon.snapshot.json). When set, the
+    # server serves snapshot-only: the manifest and document chunks come from
+    # the snapshot and no source file is read. Takes precedence over
+    # manifest_path, which may then be empty.
+    snapshot_path: str = ""
+
     # Whether to hard-fail at startup if the manifest has validation errors.
     validate_on_load: bool = True
 
@@ -44,8 +50,11 @@ class BeaconSettings:
     limits: ResourceLimits = field(default_factory=ResourceLimits)
 
     def __post_init__(self) -> None:
-        if not self.manifest_path:
-            raise ValueError("BEACON_MANIFEST_PATH must be set to the beacon.yaml path")
+        if not self.manifest_path and not self.snapshot_path:
+            raise ValueError(
+                "BEACON_MANIFEST_PATH must be set to the beacon.yaml path "
+                "(or BEACON_SNAPSHOT_PATH to a canonical snapshot)"
+            )
 
     def resolved_docs_root(self) -> str:
         """Derive docs_root from manifest_path when not explicitly set."""
@@ -62,6 +71,7 @@ class BeaconSettings:
         return cls(
             manifest_path=_getenv("BEACON_MANIFEST_PATH"),
             docs_root=_getenv("BEACON_DOCS_ROOT"),
+            snapshot_path=_getenv("BEACON_SNAPSHOT_PATH"),
             validate_on_load=validate_raw not in ("false", "0", "no"),
             host=_getenv("BEACON_HOST", default="127.0.0.1"),
             port=int(_getenv("BEACON_PORT", default="8788")),

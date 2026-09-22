@@ -1,0 +1,43 @@
+{
+ "documents": [
+  {
+   "document_type": "generic",
+   "path": "README.md",
+   "title": "Read Me"
+  },
+  {
+   "document_type": "generic",
+   "path": "docs/architecture.md",
+   "title": "Architecture"
+  }
+ ],
+ "evidence_version": "1.0",
+ "files": [
+  {
+   "description": "",
+   "path": "src/__main__.py",
+   "role": "entrypoint"
+  },
+  {
+   "description": "core",
+   "path": "src/core.py",
+   "role": "file"
+  }
+ ],
+ "project": {
+  "description": "Fixture project for the evidence dump.",
+  "name": "fixture",
+  "primary_language": "python",
+  "root": "/repo/fixture",
+  "scan_fingerprint": "5f0c3b9a2d7e41c68a9b0e1f2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f",
+  "status": "experimental"
+ },
+ "structure": {
+  "edges": {
+   "IMPORTS": 2
+  },
+  "entities": {
+   "file": 3
+  }
+ }
+}

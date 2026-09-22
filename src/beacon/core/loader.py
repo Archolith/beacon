@@ -478,8 +478,14 @@ def _collapse(value: Any, field: str) -> str:
 
 
 def _opt_line(value: Any, field: str) -> int | None:
-    """Require *value* to be a positive integer when present (never a bool)."""
-    if value is _MISSING:
+    """Require *value* to be a positive integer when present (never a bool).
+
+    An explicit ``null`` is accepted as "no line range" alongside a missing
+    key: the canonical snapshot embeds the manifest via ``asdict``, which
+    serializes absent optional line fields as ``null``. The loader must be
+    able to parse Beacon's own snapshot form back.
+    """
+    if value is _MISSING or value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise ManifestError(f"{field} must be a positive integer")
