@@ -9,13 +9,18 @@ exclusion, and honest degradation.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import jsonschema
 import pytest
+import yaml
 
+import beacon.sources.git as gitmod
 from beacon.core.scaffold import init, to_payload
 from beacon.sources.git import (
     GitCaps,
@@ -397,17 +402,38 @@ def test_init_without_git_omits_the_section(tmp_path: Path) -> None:
     jsonschema.validate(payload, _v11_schema())
 
 
+def _linked_worktree(tmp_path: Path, repo: Path, url: str) -> Path:
+    """A linked worktree of *repo*: its ``.git`` is a file, so discovery's
+    pure ``.git/config`` read finds no remote and only the adapter can
+    resolve *url*. That makes the two sources genuinely differ."""
+    _git(repo, "remote", "add", "origin", url)
+    worktree = tmp_path / "linked-worktree"
+    _git(repo, "worktree", "add", "-q", str(worktree), "-b", "linked")
+    assert (worktree / ".git").is_file()
+    return worktree
+
+
 def test_init_prefers_adapter_url_over_config_read(tmp_path: Path, repo: Path) -> None:
-    _git(repo, "remote", "add", "origin", "https://github.com/acme/from-adapter.git")
-    # A conflicting legacy config value must lose to the resolved remote.
-    (repo / ".git" / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/acme/from-config.git\n',
-        encoding="utf-8",
-    )
-    report = init(repo)
+    worktree = _linked_worktree(tmp_path, repo, "https://github.com/acme/from-adapter.git")
+    # The config read has nothing to offer here (no .git/config in a
+    # linked worktree), so any repository value must come from the adapter.
+    report = init(worktree)
     assert report.git_evidence is not None
     repository = next(f for f in report.discovered if f.manifest_path == "project.repository")
-    assert any(e.kind == "git_remote" for e in repository.evidence)
+    assert [(e.kind, e.path) for e in repository.evidence] == [("git_remote", ".")]
+    manifest = yaml.safe_load((worktree / "beacon.yaml").read_text(encoding="utf-8"))
+    assert manifest["project"]["repository"] == "https://github.com/acme/from-adapter.git"
+
+
+def test_init_reports_credential_url_findings_from_the_adapter(tmp_path: Path, repo: Path) -> None:
+    worktree = _linked_worktree(
+        tmp_path, repo, "https://alice:s3cr3tvalue@github.com/acme/acme.git"
+    )
+    report = init(worktree, dry_run=True)
+    assert any(f.code == "sensitive_credential_url" for f in report.security_findings)
+    serialized = json.dumps(to_payload(report))
+    assert "s3cr3tvalue" not in serialized
+    jsonschema.validate(to_payload(report), _v11_schema())
 
 
 def test_records_to_git_evidence_is_a_pure_projection(repo: Path) -> None:
@@ -415,3 +441,346 @@ def test_records_to_git_evidence_is_a_pure_projection(repo: Path) -> None:
     first = records_to_git_evidence(records)
     second = records_to_git_evidence(records)
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# Hard deadline and process-tree kill
+# ---------------------------------------------------------------------------
+
+
+def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _fake_git(tmp_path: Path, body: str) -> Path:
+    """An executable stand-in for git that answers ``--version`` and runs *body*.
+
+    On Windows it is a ``.cmd`` wrapper around a Python child, which mirrors
+    Git for Windows' ``cmd\\git.exe`` wrapper: killing only the wrapper would
+    leave the child running.
+    """
+    script = tmp_path / "fake_git.py"
+    script.write_text(
+        "import os, sys, time\n"
+        "if '--version' in sys.argv:\n"
+        "    print('git version 2.99.0')\n"
+        "    sys.exit(0)\n" + body,
+        encoding="utf-8",
+    )
+    if sys.platform == "win32":
+        wrapper = tmp_path / "fake_git.cmd"
+        wrapper.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+        return wrapper
+    wrapper = tmp_path / "fake_git"
+    wrapper.write_text(f"#!{sys.executable}\n" + script.read_text(encoding="utf-8"))
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def test_silent_hung_git_is_killed_at_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "hung"
+    (root / ".git").mkdir(parents=True)
+    pidfile = tmp_path / "child.pid"
+    fake = _fake_git(
+        tmp_path,
+        f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\ntime.sleep(20)\n",
+    )
+    monkeypatch.setattr(gitmod, "_GIT_TIMEOUT_SECONDS", 1)
+    started = time.monotonic()
+    with pytest.raises(GitSourceError):
+        GitSourceAdapter(root, git_executable=str(fake)).collect()
+    elapsed = time.monotonic() - started
+    # The deadline covers the whole command, not just the wait after EOF.
+    assert elapsed < 10, f"collect() blocked for {elapsed:.1f}s past a 1s deadline"
+    # The kill reaches the process tree, not only a wrapper process.
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while _pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not _pid_alive(pid)
+
+
+# ---------------------------------------------------------------------------
+# Child environment and repository-config hardening
+# ---------------------------------------------------------------------------
+
+
+def _rev_parse_head(root: Path) -> str:
+    return (
+        subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+
+
+def test_inherited_git_env_cannot_redirect_the_adapter(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = tmp_path / "other-repo"
+    other.mkdir()
+    _git(other, "init", "-q")
+    (other / "other.txt").write_text("other\n", encoding="utf-8")
+    _commit_all(other, "a different repository")
+    assert _rev_parse_head(other) != _rev_parse_head(repo)
+    # A git hook (or any wrapper) exports these for its children.
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'core.bare'='true'")
+    records = GitSourceAdapter(repo).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    monkeypatch.delenv("GIT_DIR")
+    monkeypatch.delenv("GIT_WORK_TREE")
+    monkeypatch.delenv("GIT_INDEX_FILE")
+    monkeypatch.delenv("GIT_CONFIG_PARAMETERS")
+    assert head.payload["commit"] == _rev_parse_head(repo)
+
+
+def _object_store(git_dir: Path) -> dict[str, int]:
+    objects = git_dir / "objects"
+    return {
+        str(path.relative_to(objects)): path.stat().st_size
+        for path in objects.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_partial_clone_is_never_lazily_fetched(tmp_path: Path, repo: Path) -> None:
+    # An inexact rename (moved and edited) makes `log -M` compare blob
+    # contents, which a blobless clone does not have locally.
+    body = "".join(f"line {n}\n" for n in range(40))
+    (repo / "src" / "big.py").write_text(body, encoding="utf-8")
+    _commit_all(repo, "add big")
+    _git(repo, "mv", "src/big.py", "src/moved.py")
+    (repo / "src" / "moved.py").write_text(body + "edited\n", encoding="utf-8")
+    _commit_all(repo, "move and edit big")
+    _git(repo, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "blobless"
+    subprocess.run(
+        ["git", "clone", "-q", "--filter=blob:none", repo.as_uri(), str(clone)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    before = _object_store(clone / ".git")
+    records = GitSourceAdapter(clone).collect()
+    # No promisor contact: the object store is byte-for-byte unchanged.
+    assert _object_store(clone / ".git") == before
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["commit"] == _rev_parse_head(repo)
+    assert head.payload["window_commits"] == 6
+    # Rename detection was skipped, so the evidence is reported as partial.
+    assert head.payload["truncated"] is True
+
+
+def _marker_command(tmp_path: Path, marker: Path, *, echo_stdin: bool = False) -> str:
+    """A git config command value that records its execution in *marker*."""
+    script = tmp_path / f"{marker.stem}-hook.py"
+    script.write_text(
+        "import sys\n"
+        f"open({str(marker)!r}, 'a').write('ran')\n"
+        + ("sys.stdout.write(sys.stdin.read())\n" if echo_stdin else ""),
+        encoding="utf-8",
+    )
+    return f'"{sys.executable}" "{script}"'.replace("\\", "/")
+
+
+def test_repository_fsmonitor_hook_never_runs(tmp_path: Path, repo: Path) -> None:
+    marker = tmp_path / "fsmonitor.marker"
+    _git(repo, "config", "core.fsmonitor", _marker_command(tmp_path, marker))
+    # Sanity: a plain `git status` in this repository does run the hook.
+    subprocess.run(["git", "-C", str(repo), "status"], capture_output=True, timeout=60)
+    assert marker.exists(), "fixture hook is not wired; the test would prove nothing"
+    marker.unlink()
+    GitSourceAdapter(repo).collect()
+    assert not marker.exists()
+    init(repo, dry_run=True)
+    assert not marker.exists()
+
+
+def test_repository_clean_filter_never_runs(tmp_path: Path, repo: Path) -> None:
+    marker = tmp_path / "filter.marker"
+    (repo / ".gitattributes").write_text("*.txt filter=evil\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("one\n", encoding="utf-8")
+    _commit_all(repo, "add filtered file")
+    _git(repo, "config", "filter.evil.clean", _marker_command(tmp_path, marker, echo_stdin=True))
+    _git(repo, "config", "filter.evil.required", "true")
+    # A content change git must hash (through the clean filter) to report.
+    (repo / "notes.txt").write_text("two\n", encoding="utf-8")
+    records = GitSourceAdapter(repo).collect()
+    assert not marker.exists()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["dirty"] is True
+
+
+# ---------------------------------------------------------------------------
+# Walk framing and truncation honesty
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("control", ["\x1e", "\x1f"])
+def test_control_bytes_in_a_subject_do_not_drop_the_walk(
+    tmp_path: Path, repo: Path, control: str
+) -> None:
+    message = tmp_path / "message.txt"
+    message.write_bytes(f"odd {control} subject {control} here\n".encode())
+    (repo / "src" / "y.py").write_text("y = 5\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "--cleanup=verbatim", "-F", str(message))
+    records = GitSourceAdapter(repo).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["window_commits"] == 5
+    newest = next(r for r in records if r.kind == "git_commit")
+    assert newest.payload["subject"] == "odd  subject  here"
+    y = next(r for r in records if r.payload.get("path") == "src/y.py")
+    assert y.payload["changes"] == 4
+    assert init(repo, dry_run=True).git_evidence is not None
+
+
+_FIXTURE_PATHS = {"README.md", "src/x.py", "src/y.py", "src/renamed.py"}
+
+
+def test_walk_byte_cap_never_emits_a_partial_path(repo: Path) -> None:
+    raw = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "log",
+            "-n400",
+            "--name-status",
+            "-z",
+            "-M",
+            "--format=%H%x00%aI%x00%P%x00%s",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    ).stdout
+    # Land the cap inside the rename target of the rename commit.
+    cut = raw.index(b"src/renamed.py") + len(b"src/ren")
+    records = GitSourceAdapter(repo, caps=GitCaps(walk_output_bytes=cut)).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True
+    for record in records:
+        if record.kind == "git_file_history":
+            assert record.payload["path"] in _FIXTURE_PATHS
+            assert set(record.payload["renamed_from"]) <= _FIXTURE_PATHS
+        if record.kind == "git_co_change":
+            assert set(record.payload["paths"]) <= _FIXTURE_PATHS
+
+
+def test_inventory_byte_cap_never_counts_a_partial_path(repo: Path) -> None:
+    # ls-files -z order: ".env", "README.md", "src/renamed.py", "src/y.py";
+    # cut inside "src/renamed.py".
+    cap = len(b".env\x00README.md\x00src/re")
+    records = GitSourceAdapter(repo, caps=GitCaps(inventory_output_bytes=cap)).collect()
+    inventory = next(r for r in records if r.kind == "git_inventory")
+    assert inventory.payload["tracked_dirs"] == [{"path": ".", "files": 1}]
+    assert inventory.payload["tracked_file_count"] == 2  # a lower bound, flagged below
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True
+
+
+def test_shallow_clone_never_claims_introductions(tmp_path: Path, repo: Path) -> None:
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(clone)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    records = GitSourceAdapter(clone).collect()
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["window_commits"] == 1
+    # The history is cut off, so the window is incomplete by construction.
+    assert head.payload["truncated"] is True
+    histories = [r for r in records if r.kind == "git_file_history"]
+    assert histories
+    # The boundary commit shows every file as added; that is not evidence
+    # of introduction, so none may be claimed.
+    assert all(r.payload["introduced_in"] is None for r in histories)
+
+
+# ---------------------------------------------------------------------------
+# Secret scanning order and coverage
+# ---------------------------------------------------------------------------
+
+_TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+
+
+def test_secret_straddling_the_subject_cut_is_redacted(repo: Path) -> None:
+    subject = "x" * 105 + " " + _TOKEN  # the cut at 120 falls inside the token
+    _git(repo, "commit", "-q", "--allow-empty", "-m", subject)
+    records = GitSourceAdapter(repo).collect()
+    newest = next(r for r in records if r.kind == "git_commit")
+    assert newest.payload["subject_redacted"] is True
+    assert newest.payload["subject"] == "[redacted]"
+    assert "ghp_" not in json.dumps([r.payload for r in records])
+
+
+def test_branch_and_tag_names_are_scanned_for_secrets(repo: Path) -> None:
+    _git(repo, "tag", f"leak-{_TOKEN}")
+    _git(repo, "checkout", "-q", "-b", f"fix/{_TOKEN}")
+    records = GitSourceAdapter(repo).collect()
+    serialized = json.dumps([r.payload for r in records]) + json.dumps(
+        [r.identity for r in records]
+    )
+    assert _TOKEN not in serialized
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["branch"] == "[redacted]"
+    tags = {t.payload["name"] for t in records if t.kind == "git_tag"}
+    assert "v0.1.0" in tags
+    assert "[redacted]" in tags
+    report = init(repo, dry_run=True)
+    assert _TOKEN not in json.dumps(to_payload(report))
+    jsonschema.validate(to_payload(report), _v11_schema())
+
+
+def test_tag_on_a_blob_keeps_the_report_schema_valid(repo: Path) -> None:
+    blob = (
+        subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD:README.md"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    _git(repo, "tag", "blobtag", blob)
+    _git(repo, "tag", "-a", "annotated-blobtag", "-m", "signing key", blob)
+    records = GitSourceAdapter(repo).collect()
+    tags = {t.payload["name"]: t.payload for t in records if t.kind == "git_tag"}
+    # Non-commit tags are omitted rather than mislabelled with a blob as
+    # their "commit"; the omission is reported as truncation.
+    assert set(tags) == {"v0.1.0"}
+    head = next(r for r in records if r.kind == "git_head")
+    assert head.payload["truncated"] is True
+    report = init(repo, dry_run=True)
+    assert report.git_evidence is not None
+    jsonschema.validate(to_payload(report), _v11_schema())

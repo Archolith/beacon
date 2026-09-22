@@ -104,6 +104,9 @@ def build_knowledge_catalogs(
         item_url_template="/v1/guardrails/{id}",
         entries_key="guardrails",
         selectors=("id", "severity", "scope"),
+        # ``scope`` is optional in the manifest contract (loader default ``""``),
+        # so an empty scope is a valid selector value; ``id``/``severity`` are not.
+        optional_selectors=frozenset({"scope"}),
     )
     return StaticKnowledgeCatalogs(concepts=concepts, guardrails=guardrails)
 
@@ -123,6 +126,7 @@ def _build_catalog(
     item_url_template: str,
     entries_key: str,
     selectors: tuple[str, ...],
+    optional_selectors: frozenset[str] = frozenset(),
 ) -> StaticKnowledgeCatalog:
     raw_records = manifest_data.get(collection_key, [])
     if not isinstance(raw_records, list):
@@ -139,7 +143,9 @@ def _build_catalog(
         selector_values: dict[str, str] = {}
         for selector in selectors:
             value = raw_record.get(selector)
-            if not isinstance(value, str) or not value.strip():
+            if not isinstance(value, str):
+                raise ValueError(f"{kind} {selector} must be a string")
+            if selector not in optional_selectors and not value.strip():
                 raise ValueError(f"{kind} {selector} must be a non-empty string")
             selector_values[selector] = value
 

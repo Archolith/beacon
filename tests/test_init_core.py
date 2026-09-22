@@ -214,6 +214,28 @@ def test_python_without_pytest_has_no_test_command(tmp_path: Path) -> None:
     assert result.test_command is None
 
 
+@pytest.mark.parametrize(
+    "table",
+    [
+        "[tool.pytest]\nminversion = '9.0'\n",
+        "[tool.pytest.ini_options]\n",
+        "[tool.pytest ]\n",
+    ],
+    ids=["native-table", "ini-options", "spaced-header"],
+)
+def test_python_pytest_tables_yield_test_command(tmp_path: Path, table: str) -> None:
+    root = _repo(tmp_path, py=True)
+    (root / "pyproject.toml").write_text(f'[project]\nname = "acme"\n\n{table}', encoding="utf-8")
+    assert discover(root).test_command == "python -m pytest tests/ -x --tb=short"
+
+
+@pytest.mark.parametrize("table", ["[tool.pytest-cov]\n", "[tool.pytest,]\n", "[tool.pytester]\n"])
+def test_non_pytest_tool_tables_yield_no_test_command(tmp_path: Path, table: str) -> None:
+    root = _repo(tmp_path, py=True)
+    (root / "pyproject.toml").write_text(f'[project]\nname = "acme"\n\n{table}', encoding="utf-8")
+    assert discover(root).test_command is None
+
+
 def test_package_json_without_lockfile_omits_commands(tmp_path: Path) -> None:
     root = _repo(tmp_path, py=False)
     (root / "package.json").write_text('{"scripts": {"test": "mocha"}}', encoding="utf-8")

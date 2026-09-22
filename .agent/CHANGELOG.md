@@ -86,14 +86,29 @@
 - `docs/schemas/beacon-init-report-1.1.schema.json` (new) — additive schema evolution from 1.0:
   same shape plus optional `git_evidence`; emitted reports declare version `1.1`. The 1.0
   schema and its golden fixtures remain valid compatibility fixtures.
-- Tests: `tests/test_git_source.py` (22 tests over real fixture repositories: determinism,
+- Tests: `tests/test_git_source.py` (36 tests over real fixture repositories: determinism,
   provenance, caps/truncation honesty, rename direction, sensitive exclusion, no repo mutation,
   init integration, SHA-256 repository support, annotated-tag peeling, subject-secret
-  redaction). Full suite: 720 passed, 8 skipped; ruff format and ruff check clean against
-  framework 0.3.0. Review fixes: git object ids are accepted in both SHA-1 (40) and SHA-256
-  (64) hex, mirroring the v0.2 verified-status policy; annotated tags are peeled to their
-  target commit before any digest is cited; commit subjects pass Beacon's high-confidence
-  secret detector and unsafe ones are redacted instead of reproduced.
+  redaction, plus the review-fix regressions below) and 3 schema tests in
+  `tests/test_init_core.py`; 39 new tests (40 test items: one is parametrized). Full suite:
+  735 passed, 8 skipped (base branch: 695 passed, 8 skipped); ruff check, ruff format,
+  mypy and bandit clean against framework 0.3.0. Review fixes: git object ids are accepted in
+  both SHA-1 (40) and SHA-256 (64) hex, mirroring the v0.2 verified-status policy; annotated
+  tags are peeled to their target commit before any digest is cited; commit subjects pass
+  Beacon's high-confidence secret detector and unsafe ones are redacted instead of reproduced.
+- PR #9 review fixes (safety contract now enforced by code and tests): a wall-clock deadline
+  covers the whole git command and kills the process tree (`taskkill /T` on Windows, session
+  group on POSIX); inherited `GIT_*` variables are stripped (allowlist: `GIT_EXEC_PATH`);
+  `GIT_NO_LAZY_FETCH=1` plus `-c protocol.allow=never`, and partial clones are walked with
+  `--no-renames` (marked truncated); repository config cannot run programs (`core.fsmonitor`,
+  `core.hooksPath`, `log.showSignature` overridden, repository-scoped filter drivers emptied
+  for `status`); the walk uses NUL-only positional framing so no subject can break it; a byte
+  cap drops the partial trailing record instead of inventing a path; shallow clones are marked
+  truncated and boundary additions are never claimed as introductions; the full subject and
+  every branch/tag name are secret-scanned before any cut; tags on non-commit objects are
+  omitted (report always validates against 1.1); init keeps the adapter's credential-URL
+  findings (linked worktrees); the "adapter URL beats config" test uses a linked worktree so
+  the two sources genuinely differ.
 - Branch `v03/git-source-adapter`, stacked on `release/v0.2.0`; the v0.2 release branch and
   PR #4 are unchanged. `beacon build` will consume these same records in the merge-policy step.
 

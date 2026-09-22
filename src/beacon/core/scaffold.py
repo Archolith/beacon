@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
@@ -256,6 +257,7 @@ def init(
     force: bool = False,
     manifest_path: str = DEFAULT_MANIFEST_NAME,
     limits: ResourceLimits | None = None,
+    before_write: Callable[[InitReport], None] | None = None,
 ) -> InitReport:
     """Run core init against *root* and return a report (no CLI side effects).
 
@@ -265,6 +267,11 @@ def init(
     path is resolved safely and written atomically unless ``dry_run`` is set.
     ``force`` permits replacement only of an existing recognizable Beacon
     manifest; unrelated files, directories, symlinks, and escapes are refused.
+
+    *before_write*, when given, is called with the final report immediately
+    before the manifest is written (only when a write will happen). If it
+    raises, the manifest is not written. This lets a caller persist a report
+    first so a report failure never leaves a half-applied init behind.
     """
     active = limits if limits is not None else ResourceLimits()
     discovery = _discovery.discover(root, limits=active)
@@ -316,6 +323,8 @@ def init(
 
     if (not dry_run) and writable:
         rendered = render_manifest_yaml(discovery)
+        if before_write is not None:
+            before_write(report)
         _write_manifest_atomic(target, rendered, limits=active)
     return report
 
@@ -541,17 +550,20 @@ def _collect_git_evidence(
         return discovery, None
     git_evidence = records_to_git_evidence(records)
     url, url_findings = adapter.repository_url()
-    findings = discovery.security_findings
+    # The adapter's URL findings (a credential embedded in the origin URL,
+    # for example) are merged into the report whether or not the URL itself
+    # is used, deduplicated against discovery's own config-read findings.
+    merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
+    for finding in (*discovery.security_findings, *url_findings):
+        merged[(finding.code, finding.path, finding.blocked)] = finding
+    findings = tuple(merged.values())
     if url is not None:
         discovery = dataclass_replace(
             discovery,
             repository=url,
             git_evidence=Evidence(kind=KIND_GIT_REMOTE, path="."),
+            security_findings=findings,
         )
-        merged: dict[tuple[str, str | None, bool], SecurityFinding] = {}
-        for finding in (*findings, *url_findings):
-            merged[(finding.code, finding.path, finding.blocked)] = finding
-        findings = tuple(merged.values())
     else:
         discovery = dataclass_replace(discovery, security_findings=findings)
     return discovery, git_evidence

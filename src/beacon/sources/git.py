@@ -14,14 +14,26 @@ Safety contract:
   guardrails, or any other intent-bearing manifest field. Consumers decide
   meaning; the adapter decides nothing.
 * **Local only.** Every command is a read-only, local git query. There is no
-  fetch, no push, no remote contact of any kind. ``GIT_TERMINAL_PROMPT=0``
-  guarantees git cannot prompt for network credentials, and every invocation
-  uses ``--no-optional-locks`` so git never writes to the repository (not even
-  an index refresh).
+  fetch, no push, no remote contact of any kind: ``GIT_TERMINAL_PROMPT=0``
+  stops credential prompts, ``GIT_NO_LAZY_FETCH=1`` and
+  ``-c protocol.allow=never`` stop partial clones fetching missing objects
+  (their walk skips rename detection and is marked truncated), and every
+  invocation uses ``--no-optional-locks`` so git never writes to the
+  repository (not even an index refresh).
+* **The repository cannot steer git.** Inherited ``GIT_*`` variables are
+  stripped (so a hook's ``GIT_DIR`` cannot redirect the adapter), and
+  command-line config overrides neutralize the execution vectors a
+  repository's own ``.git/config`` could set for the commands run here
+  (``core.fsmonitor``, ``core.hooksPath``, ``log.showSignature``, and
+  repository-scoped filter drivers).
 * **Fixed commands, no shell.** Each command is a fixed argument vector
-  executed directly (``shell=False``) with a hard timeout and a hard output
-  byte cap; an over-producing command is killed, and the truncation is
-  reported, never hidden.
+  executed directly (``shell=False``) under a wall-clock deadline that kills
+  the whole process tree, and a hard output byte cap; an over-producing
+  command is killed, and the truncation is reported, never hidden.
+* **Truncated, never invented.** A cap drops the partial trailing record
+  rather than parsing it; a shallow clone is marked truncated and its
+  boundary commit never counts as an introduction; a tag on a non-commit
+  object is omitted rather than mislabelled.
 * **Deterministic.** For a frozen repository state, ``collect()`` returns
   byte-identical records: fixed command sets, fixed caps, stable sort orders,
   and no wall-clock collection stamps.
@@ -31,17 +43,25 @@ Safety contract:
   omitted (with ``window_commits`` stated), never extrapolated.
 * **Secret exclusions.** Known-sensitive paths (via
   :func:`beacon.core.security.is_known_sensitive_path`) never appear in any
-  path-bearing record; they are counted in the tracked-file total only. A
-  longer, separate generated-file policy belongs to the files adapter.
+  path-bearing record; they are counted in the tracked-file total only.
+  Commit subjects, the branch name and tag names pass Beacon's
+  high-confidence secret detector in full, before any length cut, and are
+  redacted rather than reproduced. A longer, separate generated-file policy
+  belongs to the files adapter.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import signal
 
 # Fixed local Git inspection is the only subprocess use here: fixed argv, no
 # shell, no network, bounded output.
 import subprocess  # nosec B404
+import sys
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field, fields
 from datetime import datetime
@@ -71,12 +91,45 @@ from beacon.sources.base import (
 ADAPTER_NAME = "git"
 ADAPTER_VERSION = "1"
 
-#: Field separator inside one log header record.
-_US = "\x1f"
-#: Record separator starting one log block.
-_RS = "\x1e"
+#: A ``--name-status`` status token: one letter plus an optional score.
+_STATUS_TOKEN = re.compile(rb"[ACDMRTUXB][0-9]{0,3}")
 
+#: Wall-clock deadline for one git command, enforced while it runs.
 _GIT_TIMEOUT_SECONDS = 60
+#: Upper bound on waiting for a killed process tree to go away.
+_KILL_GRACE_SECONDS = 5
+
+#: The only inherited ``GIT_*`` variable passed through to git: it locates
+#: git's own helper programs and never selects a repository or config.
+_INHERITED_GIT_ENV = frozenset({"GIT_EXEC_PATH"})
+#: ``GIT_*`` variables the adapter sets for every child.
+_CHILD_GIT_ENV: dict[str, str] = {
+    # Never prompt for credentials.
+    "GIT_TERMINAL_PROMPT": "0",
+    # Never fetch missing objects from a promisor remote (partial clones).
+    "GIT_NO_LAZY_FETCH": "1",
+}
+#: ``-c`` overrides applied to every git invocation. Command-line config
+#: outranks every config file, including the repository's own.
+_HARDENING_CONFIG: tuple[str, ...] = (
+    # Defense in depth for "local only": every transport is refused, so an
+    # older git that ignores GIT_NO_LAZY_FETCH still cannot reach a remote.
+    "protocol.allow=never",
+    # A repository's own .git/config must not run programs: `status` (and
+    # any index read) would execute a configured fsmonitor hook.
+    "core.fsmonitor=false",
+    # No hook runs for these read-only commands; pin that anyway.
+    f"core.hooksPath={os.devnull}",
+    # `log` would run gpg (and splice its output into stdout) otherwise.
+    "log.showSignature=false",
+)
+#: Per-driver keys neutralized for every filter driver configured by the
+#: repository itself (clean/smudge/process programs run during `status`).
+_FILTER_DRIVER_OVERRIDES: tuple[str, ...] = ("clean=", "smudge=", "process=", "required=false")
+#: Config scopes whose filter drivers are user-trusted and left alone.
+_TRUSTED_CONFIG_SCOPES = frozenset({"system", "global"})
+#: Output bound for the filter-driver config listing.
+_CONFIG_LIST_OUTPUT_BYTES = 64 * 1024
 _HEX_RE_ALPHABET = frozenset("0123456789abcdef")
 
 #: Redaction marker for commit subjects that carry high-confidence secret
@@ -99,11 +152,63 @@ def _strip_control(text: str) -> str:
     return "".join(ch for ch in text if ord(ch) >= 0x20 and ord(ch) != 0x7F)
 
 
+def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Kill *proc* and its descendants, best effort.
+
+    ``Popen.kill()`` alone reaches only the direct child. On Windows that is
+    often Git for Windows' ``cmd\\git.exe`` launcher, whose real
+    ``mingw64\\bin\\git.exe`` child would survive, so the tree is killed with
+    ``taskkill /T``. On POSIX the child leads its own session (see
+    ``_run``), so its whole process group is signalled.
+    """
+    if proc.poll() is not None:
+        return
+    if sys.platform == "win32":
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        taskkill = str(Path(system_root) / "System32" / "taskkill.exe")
+        # Fixed argv naming the absolute system tool path; no shell.
+        try:
+            subprocess.run(  # nosec B603
+                [taskkill, "/F", "/T", "/PID", str(proc.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=_KILL_GRACE_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _carries_secret(text: str, *, path: str | None = None) -> bool:
+    """True when Beacon's high-confidence detector flags *text*."""
+    return bool(detect_sensitive_text(text, path=path))
+
+
 def _epoch_or_zero(iso_date: str) -> float:
     try:
         return datetime.fromisoformat(iso_date).timestamp()
     except ValueError:
         return 0.0
+
+
+def _is_iso_date(value: str) -> bool:
+    """True for the strict ISO-8601 form git emits with ``iso-strict``."""
+    if not value:
+        return False
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False
 
 
 class GitSourceError(RuntimeError):
@@ -177,6 +282,17 @@ class _MutableFileHistory:
 
 
 @dataclass(frozen=True)
+class _RawCommit:
+    """One commit exactly as framed by the walk output (before policy)."""
+
+    sha: str
+    date: str
+    parents: tuple[str, ...]
+    subject: str
+    statuses: tuple[tuple[str, str, str | None], ...]
+
+
+@dataclass(frozen=True)
 class _WalkCommit:
     """One parsed commit block from the history walk."""
 
@@ -184,6 +300,10 @@ class _WalkCommit:
     date: str
     subject: str
     statuses: tuple[tuple[str, str, str | None], ...]
+    subject_redacted: bool = False
+    #: True for a shallow-clone boundary commit: its ``A`` statuses are an
+    #: artifact of the cut-off history, not evidence of introduction.
+    boundary: bool = False
 
 
 class GitSourceAdapter:
@@ -287,64 +407,114 @@ class GitSourceAdapter:
     # ------------------------------------------------------------------
 
     def _env(self) -> dict[str, str]:
-        env = dict(os.environ)
-        env["GIT_TERMINAL_PROMPT"] = "0"
+        """Build the child environment.
+
+        Every inherited ``GIT_*`` variable is dropped except the explicit
+        allowlist: ``GIT_DIR``, ``GIT_WORK_TREE``, ``GIT_INDEX_FILE``,
+        ``GIT_OBJECT_DIRECTORY``, ``GIT_CONFIG_*`` and friends (which git
+        hooks and wrappers export) would otherwise point the adapter at a
+        different repository or inject config. The adapter then sets only
+        the variables in :data:`_CHILD_GIT_ENV`.
+        """
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.upper().startswith("GIT_") or key.upper() in _INHERITED_GIT_ENV
+        }
+        env.update(_CHILD_GIT_ENV)
         env["LC_ALL"] = "C"
         env["LANG"] = "C"
         return env
 
-    def _run(self, args: list[str], max_bytes: int) -> tuple[bytes, bool, int]:
+    def _run(
+        self, args: list[str], max_bytes: int, *, extra_config: tuple[str, ...] = ()
+    ) -> tuple[bytes, bool, int]:
         """Run one fixed git command; return ``(stdout, truncated, returncode)``.
 
-        Output is read incrementally and the child is killed once *max_bytes*
-        is reached (``truncated=True``), so no command can exhaust memory.
+        Output is read incrementally on a reader thread and the child is
+        killed once *max_bytes* is reached (``truncated=True``), so no command
+        can exhaust memory. ``_GIT_TIMEOUT_SECONDS`` is a wall-clock deadline
+        for the whole command, including a child that blocks without writing
+        anything; on expiry the process tree is killed and
+        :class:`GitSourceError` is raised.
         """
-        argv = [self._git, "--no-optional-locks", *args]
+        config_args = [arg for item in (*_HARDENING_CONFIG, *extra_config) for arg in ("-c", item)]
+        argv = [self._git, "--no-pager", *config_args, "--no-optional-locks", *args]
+        deadline = time.monotonic() + _GIT_TIMEOUT_SECONDS
         try:
             proc = subprocess.Popen(  # nosec B603
                 argv,
                 cwd=self._root,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=self._env(),
+                # POSIX: a fresh session makes the whole tree killable as one
+                # process group (and leaves git no controlling terminal).
+                start_new_session=sys.platform != "win32",
             )
         except OSError as exc:
             raise GitSourceError(f"git executable unusable: {self._git}") from exc
+        stream = proc.stdout
+        if stream is None:  # pragma: no cover - guaranteed by stdout=PIPE
+            _kill_process_tree(proc)
+            raise GitSourceError("git produced no readable output stream")
         chunks: list[bytes] = []
-        total = 0
-        killed = False
+        capped = threading.Event()
+
+        def pump() -> None:
+            total = 0
+            try:
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        return
+                    total += len(chunk)
+                    if total >= max_bytes:
+                        chunks.append(chunk[: max_bytes - (total - len(chunk))])
+                        capped.set()
+                        _kill_process_tree(proc)
+                        return
+                    chunks.append(chunk)
+            except (OSError, ValueError):
+                return
+
+        reader = threading.Thread(target=pump, name="beacon-git-reader", daemon=True)
+        reader.start()
         try:
-            stream = proc.stdout
-            if stream is None:  # pragma: no cover - guaranteed by stdout=PIPE
-                raise GitSourceError("git produced no readable output stream")
-            while True:
-                chunk = stream.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total >= max_bytes:
-                    keep = max_bytes - (total - len(chunk))
-                    chunks.append(chunk[:keep])
-                    self._truncated = True
-                    proc.kill()
-                    killed = True
-                    break
-                chunks.append(chunk)
-            code = proc.wait(timeout=_GIT_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            proc.kill()
-            proc.wait()
-            raise GitSourceError("git command timed out") from exc
+            reader.join(max(deadline - time.monotonic(), 0.0))
+            if reader.is_alive():
+                raise GitSourceError("git command timed out")
+            try:
+                code = proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
+            except subprocess.TimeoutExpired as exc:
+                raise GitSourceError("git command timed out") from exc
         finally:
-            stream = proc.stdout
-            if stream is not None:
+            if proc.poll() is None:
+                _kill_process_tree(proc)
+                try:
+                    proc.wait(timeout=_KILL_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass
+            # Killing the tree closes the pipe's write end, which ends the
+            # reader; never close the stream under a still-blocked reader.
+            reader.join(_KILL_GRACE_SECONDS)
+            if not reader.is_alive():
                 stream.close()
-        if killed:
+        if capped.is_set():
+            self._truncated = True
             return b"".join(chunks), True, 0
         return b"".join(chunks), False, code
 
-    def _require_run(self, args: list[str], max_bytes: int, what: str) -> tuple[bytes, bool]:
-        out, truncated, code = self._run(args, max_bytes)
+    def _require_run(
+        self,
+        args: list[str],
+        max_bytes: int,
+        what: str,
+        *,
+        extra_config: tuple[str, ...] = (),
+    ) -> tuple[bytes, bool]:
+        out, truncated, code = self._run(args, max_bytes, extra_config=extra_config)
         if code != 0:
             raise GitSourceError(f"git query failed: {what}")
         return out, truncated
@@ -371,27 +541,72 @@ class GitSourceAdapter:
         name = out.decode("utf-8", errors="replace").strip()
         if truncated or not name:
             return "HEAD"
+        name = _strip_control(name)
+        # Ref names are user-controlled text too: scan the whole name before
+        # any cut, so a secret straddling the cut cannot leak in part.
+        if _carries_secret(name):
+            return REDACTED_SUBJECT
         if len(name) > self._caps.branch_max_chars:
             name = name[: self._caps.branch_max_chars]
             self._truncated = True
-        return _strip_control(name)
+        return name
+
+    def _repository_filter_overrides(self) -> tuple[str, ...]:
+        """``-c`` overrides disabling every repository-configured filter driver.
+
+        ``status`` hashes changed files through ``filter.<driver>.clean`` (or
+        ``.process``), so a repository could otherwise run a program of its
+        choosing. Drivers from system/global config are the user's own and
+        stay active; drivers from repository (local, worktree, or included)
+        config are emptied, which git treats as "no filter". A driver name
+        that cannot be expressed as a ``-c`` key fails closed.
+        """
+        out, truncated, code = self._run(
+            ["config", "-z", "--show-scope", "--name-only", "--get-regexp", r"^filter\."],
+            _CONFIG_LIST_OUTPUT_BYTES,
+        )
+        if code == 1 and not out:
+            return ()  # no filter configuration at all
+        if code != 0 or truncated:
+            raise GitSourceError("could not list filter drivers")
+        tokens = out.decode("utf-8", errors="replace").split("\x00")
+        drivers: set[str] = set()
+        for scope, key in zip(tokens[0::2], tokens[1::2], strict=False):
+            if not key or scope in _TRUSTED_CONFIG_SCOPES:
+                continue
+            section, _, rest = key.partition(".")
+            driver, dot, _variable = rest.rpartition(".")
+            if section.lower() != "filter" or not dot or not driver:
+                continue
+            if "=" in driver or "\n" in driver:
+                raise GitSourceError("unsupported filter driver name")
+            drivers.add(driver)
+        return tuple(
+            f"filter.{driver}.{override}"
+            for driver in sorted(drivers)
+            for override in _FILTER_DRIVER_OVERRIDES
+        )
 
     def _dirty_state(self) -> tuple[bool, int]:
-        out, _truncated = self._require_run(
-            ["status", "--porcelain=v1", "-z"], self._caps.status_output_bytes, "status"
+        out, truncated = self._require_run(
+            ["status", "--porcelain=v1", "-z"],
+            self._caps.status_output_bytes,
+            "status",
+            extra_config=self._repository_filter_overrides(),
         )
-        count = sum(1 for token in out.split(b"\x00") if token)
+        # At a cap the count is a lower bound (the head record says truncated).
+        count = len(_complete_nul_tokens(out, complete=not truncated))
         return count > 0, count
 
     def _inventory(self) -> tuple[int, list[tuple[str, int]]]:
-        out, _ = self._require_run(
+        out, truncated = self._require_run(
             ["ls-files", "-z"], self._caps.inventory_output_bytes, "ls-files"
         )
         total = 0
         dirs: Counter[str] = Counter()
-        for token in out.split(b"\x00"):
-            if not token:
-                continue
+        # At a cap only complete entries count: the total becomes a lower
+        # bound and no partial name is ever bucketed (truncated is already set).
+        for token in _complete_nul_tokens(out, complete=not truncated):
             total += 1
             rel = token.decode("utf-8", errors="replace")
             if is_known_sensitive_path(rel):
@@ -405,62 +620,107 @@ class GitSourceAdapter:
         return total, ordered
 
     def _walk(self) -> list[_WalkCommit]:
-        """Run the single bounded history walk in git's reverse-chronological order."""
-        out, _ = self._require_run(
+        """Run the single bounded history walk in git's reverse-chronological order.
+
+        In a partial clone, inexact rename detection would need blob contents
+        the clone does not hold, so the walk runs with ``--no-renames`` (lazy
+        fetching is disabled anyway) and the evidence is marked truncated:
+        renames then appear as a delete plus an add.
+
+        In a shallow clone the history is cut off, so the window is
+        incomplete by construction (``truncated``), and the boundary commits
+        (grafted: no parents in the clone) show every file as added; those
+        additions are never recorded as introductions.
+        """
+        partial = self._is_partial_clone()
+        shallow = self._is_shallow()
+        if partial or shallow:
+            self._truncated = True
+        out, truncated = self._require_run(
             [
                 "log",
                 f"-n{self._caps.log_commits}",
                 "--name-status",
                 "-z",
-                "-M",
-                # %xHH hex escapes: raw control bytes cannot survive Windows
-                # argv quoting, so git decodes them from literal format text.
-                "--format=%x1e%H%x1f%aI%x1f%s%x1f",
+                "--no-renames" if partial else "-M",
+                "--no-ext-diff",
+                # NUL-framed, positional header: a commit subject can hold
+                # any byte except NUL (and never a newline under %s), so no
+                # subject can forge a field or record boundary. %x00 is a hex
+                # escape because raw NULs cannot travel through argv.
+                "--format=%H%x00%aI%x00%P%x00%s",
             ],
             self._caps.walk_output_bytes,
             "log walk",
         )
         blocks: list[_WalkCommit] = []
-        for raw_block in out.split(b"\x1e"):
-            if not raw_block:
-                continue
-            tokens = raw_block.split(b"\x00")
-            header = tokens[0].lstrip(b"\n").decode("utf-8", errors="replace")
-            parts = header.split(_US)
-            if len(parts) < 3 or not parts[0]:
-                raise GitSourceError("unparseable log header")
-            sha, date, subject = parts[0], parts[1], _strip_control(parts[2])
-            if not _is_git_oid(sha):
-                raise GitSourceError("git commit is not a 40- or 64-hex digest")
-            if len(subject) > self._caps.subject_max_chars:
+        for raw in _parse_walk(out, complete=not truncated):
+            # Commit subjects are attacker- and accident-controlled text that
+            # this adapter exists to publish, so the FULL subject passes
+            # through Beacon's high-confidence secret detector before it is
+            # cut to the cap: a token straddling the cut would otherwise be
+            # published in part and never matched. Unsafe subjects are
+            # redacted, never reproduced.
+            subject = _strip_control(raw.subject)
+            redacted = _carries_secret(subject, path=raw.sha)
+            if redacted:
+                subject = REDACTED_SUBJECT
+            elif len(subject) > self._caps.subject_max_chars:
                 subject = subject[: self._caps.subject_max_chars]
                 self._truncated = True
-            statuses: list[tuple[str, str, str | None]] = []
-            i = 1
-            while i < len(tokens):
-                # The first status token carries the newline that separates
-                # git's format output from the NUL-framed status records.
-                status = tokens[i].lstrip(b"\n").decode("utf-8", errors="replace")
-                if not status:
-                    i += 1
-                    continue
-                path = (
-                    tokens[i + 1].decode("utf-8", errors="replace") if i + 1 < len(tokens) else ""
-                )
-                orig: str | None = None
-                if status[:1] in ("R", "C") and i + 2 < len(tokens):
-                    orig = tokens[i + 2].decode("utf-8", errors="replace")
-                    i += 1
-                statuses.append((status[:1], path, orig))
-                i += 2
             blocks.append(
-                _WalkCommit(sha=sha, date=date, subject=subject, statuses=tuple(statuses))
+                _WalkCommit(
+                    sha=raw.sha,
+                    date=raw.date,
+                    subject=subject,
+                    subject_redacted=redacted,
+                    statuses=raw.statuses,
+                    boundary=shallow and not raw.parents,
+                )
             )
         if len(blocks) >= self._caps.log_commits:
             # The walk filled its cap, so older history may exist outside the
             # window; report that honestly instead of implying completeness.
             self._truncated = True
         return blocks
+
+    def _is_shallow(self) -> bool:
+        """True when the repository is a shallow clone (or unknowably so)."""
+        out, truncated, code = self._run(
+            ["rev-parse", "--is-shallow-repository"], self._caps.head_output_bytes
+        )
+        if code != 0 or truncated:
+            return True
+        return out.strip() != b"false"
+
+    def _is_partial_clone(self) -> bool:
+        """True when the repository is a partial (promisor) clone.
+
+        Older git records ``extensions.partialClone``; current git marks the
+        promisor remote with ``remote.<name>.promisor``. Either counts, and an
+        unreadable answer is treated as partial (the safe direction).
+        """
+        out, truncated, code = self._run(
+            [
+                "config",
+                "-z",
+                "--get-regexp",
+                r"^(extensions\.partialclone|remote\..*\.promisor)$",
+            ],
+            self._caps.head_output_bytes,
+        )
+        if code == 1 and not out:
+            return False  # no such keys
+        if code != 0 or truncated:
+            return True
+        for entry in out.split(b"\x00"):
+            key, _, value = entry.decode("utf-8", errors="replace").partition("\n")
+            value = value.strip().lower()
+            if key.lower() == "extensions.partialclone" and value:
+                return True
+            if key.lower().endswith(".promisor") and value in ("", "true", "yes", "on", "1"):
+                return True
+        return False
 
     def _tags(self) -> list[tuple[str, str, str]]:
         """Return bounded ``(name, peeled_commit, date)`` triples.
@@ -471,35 +731,46 @@ class GitSourceAdapter:
         already is the commit; an annotated tag pointing at a commit peels via
         ``%(*objectname)``; a nested tag (tag -> tag) is peeled with one
         ``rev-parse <ref>^{commit}`` call (bounded by the tag cap).
+
+        A tag whose target is not a commit (a blob or tree, such as a
+        published signing key) has no commit to cite and, when lightweight,
+        no date either, so it is omitted and the omission is reported as
+        truncation; the schema's ``commit``/``date`` fields are never filled
+        with a mislabelled object or an empty string.
         """
-        out, _ = self._require_run(
+        out, truncated = self._require_run(
             [
                 "tag",
                 "--sort=-creatordate",
-                "--format=%(refname:short)%09%(objectname)%09%(*objectname)"
+                "--format=%(refname:short)%09%(objectname)%09%(objecttype)%09%(*objectname)"
                 "%09%(*objecttype)%09%(creatordate:iso-strict)",
             ],
             self._caps.tags_output_bytes,
             "tag list",
         )
         parsed: list[tuple[str, str, str, float]] = []
-        for line in out.decode("utf-8", errors="replace").splitlines():
+        lines = out.decode("utf-8", errors="replace").splitlines()
+        if truncated and lines:
+            lines.pop()  # a cut line is never parsed as a record
+        for line in lines:
             if not line:
                 continue
             parts = line.split("\t")
-            if len(parts) != 5:
+            if len(parts) != 6:
                 raise GitSourceError("unparseable tag line")
-            name, object_name, peeled, peeled_type, date = parts
-            if peeled and peeled_type == "commit":
-                commit = peeled
-            elif peeled and peeled_type == "tag":
-                commit = self._peel_tag(name) or peeled
-            elif not peeled:
-                commit = object_name
+            name, object_name, object_type, peeled, peeled_type, date = parts
+            commit: str | None
+            if object_type == "commit":
+                commit = object_name  # lightweight tag on a commit
+            elif object_type == "tag" and peeled_type == "commit":
+                commit = peeled  # annotated tag on a commit
+            elif object_type == "tag" and peeled_type == "tag":
+                commit = self._peel_tag(name)  # nested tag
             else:
-                # A tag pointing at a non-commit object; record the direct
-                # target honestly rather than guessing a commit.
-                commit = peeled
+                commit = None  # blob or tree target
+            if commit is None or not _is_git_oid(commit) or not _is_iso_date(date):
+                self._truncated = True
+                continue
             parsed.append((name, commit, date, _epoch_or_zero(date)))
         parsed.sort(key=lambda item: (-item[3], item[0]))
         if len(parsed) > self._caps.tags:
@@ -578,11 +849,20 @@ class GitSourceAdapter:
         )
 
     def _tag_records(self, tags: list[tuple[str, str, str]]) -> list[NormalizedRecord]:
+        # Tag names are user-controlled text: a name carrying a secret is
+        # redacted, and its identity is keyed by the target commit instead
+        # so the redacted record still has a stable, non-colliding identity.
         return [
             NormalizedRecord(
-                identity=f"git:tag:{name}",
+                identity=f"git:tag:{name}"
+                if not _carries_secret(name)
+                else f"git:tag:{REDACTED_SUBJECT}:{sha}",
                 kind=KIND_GIT_TAG,
-                payload={"name": name, "commit": sha, "date": date},
+                payload={
+                    "name": REDACTED_SUBJECT if _carries_secret(name) else name,
+                    "commit": sha,
+                    "date": date,
+                },
                 citations=(Citation(CITATION_COMMIT, sha),),
                 adapter=ADAPTER_NAME,
                 adapter_version=ADAPTER_VERSION,
@@ -596,12 +876,7 @@ class GitSourceAdapter:
     def _commit_records(self, walk: list[_WalkCommit]) -> list[NormalizedRecord]:
         records = []
         for commit in walk[: self._caps.recent_commits]:
-            # Commit subjects are attacker- and accident-controlled text that
-            # this adapter exists to publish, so they pass through Beacon's
-            # high-confidence secret detector before entering any artifact;
-            # unsafe subjects are redacted, never reproduced.
-            findings = detect_sensitive_text(commit.subject, path=commit.sha)
-            redacted = bool(findings)
+            # The walk already scanned the full subject (see _walk).
             records.append(
                 NormalizedRecord(
                     identity=f"git:commit:{commit.sha}",
@@ -609,8 +884,8 @@ class GitSourceAdapter:
                     payload={
                         "commit": commit.sha,
                         "date": commit.date,
-                        "subject": REDACTED_SUBJECT if redacted else commit.subject,
-                        "subject_redacted": redacted,
+                        "subject": commit.subject,
+                        "subject_redacted": commit.subject_redacted,
                     },
                     citations=(Citation(CITATION_COMMIT, commit.sha),),
                     adapter=ADAPTER_NAME,
@@ -734,6 +1009,79 @@ class GitSourceAdapter:
 # ----------------------------------------------------------------------
 
 
+def _complete_nul_tokens(out: bytes, *, complete: bool) -> list[bytes]:
+    """Split NUL-terminated output, dropping a partial final token at a cap."""
+    tokens = out.split(b"\x00")
+    if not complete:
+        tokens = tokens[:-1]
+    return [token for token in tokens if token]
+
+
+def _parse_walk(out: bytes, *, complete: bool = True) -> list[_RawCommit]:
+    """Parse ``log -z --name-status --format=%H%x00%aI%x00%P%x00%s`` output.
+
+    The stream is one NUL-separated token sequence. Each commit is four
+    positional header tokens (digest, date, parents, subject) followed by
+    zero or more status entries: a status token (``M``, ``A``, ``R100`` ...,
+    the first one prefixed by a newline) and then one path, or two for a
+    rename/copy. Header fields and paths are consumed by position, never by
+    content, so only a status token or a commit digest can start the next
+    entry, and the two cannot be confused (1-4 characters vs 40/64 hex).
+
+    When *complete* is false the output was cut at a byte cap: the partial
+    token after the last NUL is discarded, and so is the final commit
+    (header or status list), because nothing proves it ended. What remains
+    is a truthful prefix of the walk; nothing is completed by guesswork.
+    """
+    tokens = out.split(b"\x00")
+    if not complete:
+        tokens = tokens[:-1]
+    count = len(tokens)
+    commits: list[_RawCommit] = []
+    i = 0
+    while i < count:
+        token = tokens[i].lstrip(b"\n")
+        if not token:
+            i += 1
+            continue
+        sha = token.decode("ascii", errors="replace")
+        if not _is_git_oid(sha):
+            raise GitSourceError("unparseable log record")
+        if i + 3 >= count:
+            if not complete:
+                break
+            raise GitSourceError("unparseable log header")
+        date = tokens[i + 1].decode("ascii", errors="replace")
+        parents = tuple(tokens[i + 2].decode("ascii", errors="replace").split())
+        subject = tokens[i + 3].decode("utf-8", errors="replace")
+        i += 4
+        statuses: list[tuple[str, str, str | None]] = []
+        while i < count:
+            status = tokens[i].lstrip(b"\n")
+            if not _STATUS_TOKEN.fullmatch(status):
+                break
+            code = status[:1].decode("ascii")
+            width = 2 if code in ("R", "C") else 1
+            if i + width >= count:
+                if not complete:
+                    i = count
+                    break
+                raise GitSourceError("unparseable log status entry")
+            first = tokens[i + 1].decode("utf-8", errors="replace")
+            second = tokens[i + 2].decode("utf-8", errors="replace") if width == 2 else None
+            statuses.append((code, first, second))
+            i += 1 + width
+        if not complete and i >= count:
+            # The cut may have fallen anywhere inside this commit's entries.
+            break
+        commits.append(
+            _RawCommit(
+                sha=sha, date=date, parents=parents, subject=subject, statuses=tuple(statuses)
+            )
+        )
+    return commits
+
+
 def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileHistory]:
     """Aggregate the reverse-chronological walk into per-path history.
 
@@ -766,7 +1114,7 @@ def _aggregate_files(walk: list[_WalkCommit], caps: GitCaps) -> dict[str, _FileH
             if code in ("A", "D") and emit(path):
                 item = entry(path)
                 if code == "A":
-                    if item.introduced_in is None:
+                    if item.introduced_in is None and not commit.boundary:
                         item.introduced_in = commit.sha
                 elif item.removed_in is None:
                     item.removed_in = commit.sha

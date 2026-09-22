@@ -138,7 +138,7 @@ LICENSE_FILENAMES: tuple[str, ...] = (
 _BUILD_MARKERS: tuple[str, ...] = ("pyproject.toml", "package.json", "Cargo.toml", "go.mod")
 
 #: Python: an unambiguous test command requires pytest tool configuration.
-_PYTEST_TOOL_RE = re.compile(r"^\[tool\.pytest(?:\.|,\]|\s)", re.MULTILINE)
+_PYTEST_TOOL_RE = re.compile(r"^\[tool\.pytest(?:\.|\]|\s)", re.MULTILINE)
 
 #: Lockfile -> package manager, in deterministic order.
 _LOCKFILES: tuple[tuple[str, str], ...] = (

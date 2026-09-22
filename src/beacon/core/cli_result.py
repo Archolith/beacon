@@ -269,6 +269,24 @@ def acknowledge(diag: Diagnostic, reason: str) -> Diagnostic:
     )
 
 
+#: Marker inserted where :func:`_elide_middle` removed characters.
+_ELISION = "..."
+
+
+def _elide_middle(text: str, limit: int) -> str:
+    """Return *text* unchanged if it fits *limit*, else keep its head and tail.
+
+    Keeping both ends preserves the location wrapper (``canonical_docs[``) and
+    the suffix (``].status``, file extension) that make the location useful.
+    """
+    if len(text) <= limit:
+        return text
+    keep = limit - len(_ELISION)
+    head = keep // 2
+    tail = keep - head
+    return f"{text[:head]}{_ELISION}{text[-tail:]}"
+
+
 def from_validation_issue(
     issue: ValidationIssue,
     *,
@@ -277,16 +295,20 @@ def from_validation_issue(
 ) -> Diagnostic:
     """Convert a :class:`ValidationIssue` into a :class:`Diagnostic`.
 
-    The issue's ``severity``, ``code``, and ``message`` are carried through
-    verbatim; its ``where`` location becomes the diagnostic ``path``. Nothing
-    is mutated. ``acknowledged``/``acknowledgement_reason`` optionally label
-    the finding without altering its facts.
+    The issue's ``severity`` and ``code`` are carried through verbatim; its
+    ``where`` location becomes the diagnostic ``path``. Because ``where`` and
+    ``message`` embed manifest values (for example a document path that is
+    legal up to the ``path_bytes`` limit plus a ``canonical_docs[...]``
+    wrapper), they are bounded to :data:`MAX_PATH` / :data:`MAX_MESSAGE` with a
+    middle ellipsis instead of failing, so the real finding still surfaces.
+    Nothing is mutated. ``acknowledged``/``acknowledgement_reason`` optionally
+    label the finding without altering its facts.
     """
     return Diagnostic(
         severity=Severity(issue.severity),
         code=issue.code,
-        message=issue.message,
-        path=issue.where,
+        message=_elide_middle(issue.message, MAX_MESSAGE),
+        path=_elide_middle(issue.where, MAX_PATH),
         acknowledged=acknowledged,
         acknowledgement_reason=acknowledgement_reason,
     )
