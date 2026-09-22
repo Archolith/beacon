@@ -314,6 +314,34 @@ def test_validator_duplicate_concept_id() -> None:
     assert any("duplicate concept id" in e.message for e in report.errors)
 
 
+def test_validator_reports_missing_doc_when_stat_raises_name_too_long(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canonical doc path past the platform PATH_MAX must be a missing-file error.
+
+    On macOS (PATH_MAX 1024) ``stat`` raises ENAMETOOLONG for a resolved path just
+    under Beacon's own 1024-byte ``path_bytes`` limit, and ``Path.is_file`` before
+    Python 3.14 re-raises it: CI run 35671989668 showed ``validate`` exiting 3
+    ``internal_error`` on the macOS 3.12/3.13 legs only. Injected here so every
+    platform pins the behaviour without needing a filesystem that enforces it.
+    """
+    import errno
+
+    _write_readme(tmp_path)
+    manifest = parse_manifest(dict(MINIMAL_RAW))
+    original_is_file = Path.is_file
+
+    def _is_file(self: Path, *args: object, **kwargs: object) -> bool:
+        if self.name == "README.md":
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+        return original_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", _is_file)
+    report = validate_beacon_manifest(manifest, docs_root=tmp_path)
+    codes = [issue.code for issue in report.errors]
+    assert "canonical_doc_missing_file" in codes
+
+
 def test_validator_missing_canonical_docs() -> None:
     raw = dict(MINIMAL_RAW)
     raw["canonical_docs"] = []

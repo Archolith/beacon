@@ -242,7 +242,15 @@ def validate_beacon_manifest(
                     )
                 )
             else:
-                if not target.is_file():
+                # ``Path.is_file`` only swallows ENOENT/ENOTDIR-class errors before
+                # Python 3.14; a resolved path past the platform PATH_MAX (1024 on
+                # macOS) raises ENAMETOOLONG from stat and escaped as an internal
+                # error. Any OSError here means "no usable file at that path".
+                try:
+                    is_file = target.is_file()
+                except OSError:
+                    is_file = False
+                if not is_file:
                     issues.append(
                         ValidationIssue(
                             "error",
