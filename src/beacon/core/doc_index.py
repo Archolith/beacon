@@ -166,7 +166,10 @@ class DocIndex:
         for document in documents:
             for chunk in document.chunks:
                 if chunk.text is None:
-                    continue  # plan-role documents are title-only by policy
+                    # Plan-role documents are title-only in a snapshot (the
+                    # writer's policy), so snapshot-served search cannot hit
+                    # plan text; every other document is indexed identically.
+                    continue
                 if len(chunks) >= active.chunks:
                     raise LimitError(
                         LIMIT_CHUNKS,

@@ -27,7 +27,10 @@
   `ManifestBeaconProvider.from_snapshot` parses the embedded manifest through the one loader
   and rebuilds the doc index from embedded chunks; `DocIndex.from_snapshot_documents` is the
   snapshot-fed index constructor. Snapshot-served answers are verified identical to
-  manifest-served answers. The loader accepts explicit `null` line fields (the snapshot's
+  manifest-served answers, with one documented exception: the v0.2 writer embeds no
+  plan-role document body (title-only by policy), so a snapshot-served search cannot hit
+  plan text that a manifest-served search finds (pinned by
+  `test_snapshot_served_plan_docs_are_title_only_by_policy`). The loader accepts explicit `null` line fields (the snapshot's
   embedded asdict form); mappings stay strict and the provider adapts the embedded form.
 - `beacon-cli-result` envelope: the `build` command joins the fixed command set (schema enum
   widened in place — additive; existing envelopes stay valid).

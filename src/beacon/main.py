@@ -152,7 +152,10 @@ _SERVE_MUTATED_ENV = (
 
 
 def _serve_with_env(
-    context: cli_support.CommandContext | None, *, snapshot_path: str | None = None
+    context: cli_support.CommandContext | None,
+    *,
+    snapshot_path: str | None = None,
+    limits: ResourceLimits | None = None,
 ) -> None:
     """Run the stdio server with *context* env overrides, restoring prior values.
 
@@ -161,14 +164,25 @@ def _serve_with_env(
     Prior values are restored exactly, including variables that were absent.
     When *snapshot_path* is given the server runs snapshot-only: the manifest
     and document chunks come from the canonical snapshot and no source file
-    is read at startup.
+    is read at startup, and *limits* (the CLI ceilings) are exported so the
+    server enforces the same limits the preflight used.
     """
     saved = {var: os.environ.get(var) for var in _SERVE_MUTATED_ENV}
     try:
+        # Explicit CLI inputs win over inherited environment: an explicit
+        # manifest clears an ambient BEACON_SNAPSHOT_PATH (the lifespan would
+        # otherwise serve a different artifact from the one just validated),
+        # and an explicit snapshot clears the manifest/docs-root variables.
         if context is not None:
             _set_serve_env(context)
+            os.environ.pop("BEACON_SNAPSHOT_PATH", None)
         if snapshot_path:
             os.environ["BEACON_SNAPSHOT_PATH"] = snapshot_path
+            os.environ.pop("BEACON_MANIFEST_PATH", None)
+            os.environ.pop("BEACON_DOCS_ROOT", None)
+            if limits is not None:
+                for field, var in FIELD_ENV_VARS.items():
+                    os.environ[var] = str(limits.ceiling(field))
         _prepare_runtime()
         _run_mcp_server()
     finally:
@@ -236,6 +250,13 @@ def serve(
     if snapshot is not None:
         # Snapshot-only serving: load and verify, then let the lifespan build
         # the provider from the snapshot (no manifest read, no doc file reads).
+        if manifest is not None or docs_root is not None:
+            typer.echo(
+                "✗ serve_source_conflict: --snapshot cannot be combined with "
+                "--manifest/--docs-root",
+                err=True,
+            )
+            raise typer.Exit(EXIT_INPUT)
         try:
             limits = cli_support.build_resource_limits(cli_limits)
         except LimitError as exc:
@@ -255,7 +276,7 @@ def serve(
             typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
             raise typer.Exit(fail.exit_code) from exc
         try:
-            _serve_with_env(None, snapshot_path=snapshot)
+            _serve_with_env(None, snapshot_path=snapshot, limits=limits)
         except cli_support.CliFailure as exc:
             typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
             raise typer.Exit(exc.exit_code) from exc
