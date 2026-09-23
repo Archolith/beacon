@@ -37,7 +37,7 @@ def rc() -> Any:
 def _plan(rc, **kw):
     defaults = {
         "beacon_cmd": ("beacon",),
-        "manifest": Path("/repo/beacon.yaml"),
+        "manifest": Path("/repo/beacon.generated.yaml"),
         "repo": Path("/repo"),
         "out_dir": Path("/out"),
         "socket_guard_dir": Path("/guard"),
@@ -60,6 +60,7 @@ def test_plan_step_names_and_order(rc) -> None:
         "help",
         "init",
         "review_edit",
+        "build",
         "validate_strict",
         "inspect",
         "export_1",
@@ -110,16 +111,33 @@ def test_init_command_construction(rc) -> None:
     assert init.cwd == Path("/repo")
 
 
-def test_validate_strict_command(rc) -> None:
-    plan = _plan(rc, beacon_cmd=("beacon",), manifest=Path("/repo/beacon.yaml"))
+def test_build_command_construction(rc) -> None:
+    """init writes the overlay; build derives beacon.generated.yaml from it and the files."""
+    plan = _plan(rc, beacon_cmd=("beacon",), repo=Path("/repo"))
     step = plan.steps[4]
+    assert step.name == "build"
+    assert step.argv == (
+        "beacon",
+        "build",
+        "--repo",
+        str(Path("/repo")),
+        "--format",
+        "json",
+        "--force",
+    )
+    assert step.cwd == Path("/repo")
+
+
+def test_validate_strict_command(rc) -> None:
+    plan = _plan(rc, beacon_cmd=("beacon",), manifest=Path("/repo/beacon.generated.yaml"))
+    step = plan.steps[5]
     assert step.argv == (
         "beacon",
         "validate",
         "--strict-warnings",
         "--format",
         "json",
-        str(Path("/repo/beacon.yaml")),
+        str(Path("/repo/beacon.generated.yaml")),
     )
 
 
@@ -130,7 +148,7 @@ def test_inspect_command_with_task_hint(rc) -> None:
         manifest=Path("/repo/beacon.yaml"),
         inspect_task_hint="add a parser",
     )
-    step = plan.steps[5]
+    step = plan.steps[6]
     assert step.argv == (
         "beacon",
         "inspect",
@@ -146,21 +164,21 @@ def test_export_commands_output_paths(rc) -> None:
     plan = _plan(
         rc, beacon_cmd=("beacon",), manifest=Path("/repo/beacon.yaml"), out_dir=Path("/out")
     )
-    assert plan.steps[6].argv == (
+    assert plan.steps[7].argv == (
         "beacon",
         "export",
         str(Path("/repo/beacon.yaml")),
         "--output",
         str(Path("/out/export-1.json")),
     )
-    assert plan.steps[7].argv == (
+    assert plan.steps[8].argv == (
         "beacon",
         "export",
         str(Path("/repo/beacon.yaml")),
         "--output",
         str(Path("/out/export-2.json")),
     )
-    meta = plan.steps[9]
+    meta = plan.steps[10]
     assert "--metadata-only" in meta.argv
     assert meta.argv[-1] == str(Path("/out/export-meta.json"))
 

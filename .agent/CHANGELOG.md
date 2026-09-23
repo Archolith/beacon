@@ -25,6 +25,8 @@
   behaviour (repo-only builds now succeed from the README; refusal cases use a repo with no prose).
 - Docs: README quick start and build sections, `docs/beacon-open-standard.md` (catalogue 1.1, settled decision
   on declared sources), `.agent/data_models.md`.
+- `scripts/release_check.py`: the installed-wheel journey now runs init -> fill judgment fields in `beacon.yaml`
+  -> `build` -> strict validate / inspect / export / serve on `beacon.generated.yaml`.
 
 ## 2026-09-22 — memory providers: find the project by repository
 

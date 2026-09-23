@@ -202,6 +202,7 @@ def build_plan(
     inspect_task_hint: str = DEFAULT_TASK_HINT,
     serve_cmd: tuple[str, ...] | None = None,
     run_stdio_mcp: bool = True,
+    intent: Path | None = None,
 ) -> Plan:
     """Build the ordered :class:`Plan` of steps for the release journey.
 
@@ -210,6 +211,9 @@ def build_plan(
     """
     plan = Plan()
     guard_env = socket_guard_env(socket_guard_dir, guard_marker)
+    # init writes the beacon.yaml overlay (judgment only); build derives the rest
+    # into *manifest* (beacon.generated.yaml), which every later step uses.
+    intent_path = intent if intent is not None else repo / "beacon.yaml"
 
     plan.extend(
         [
@@ -243,8 +247,16 @@ def build_plan(
             ),
             Step(
                 name="review_edit",
-                description="apply the explicit review edit to produce a clean manifest",
-                func=lambda: apply_review_edits(manifest),
+                description="fill the judgment fields init leaves empty in beacon.yaml",
+                func=lambda: apply_review_edits(intent_path),
+            ),
+            Step(
+                name="build",
+                description="build beacon.generated.yaml from beacon.yaml and the project's files",
+                argv=beacon_cmd + ("build", "--repo", str(repo), "--format", "json", "--force"),
+                cwd=repo,
+                env=guard_env,
+                checker=_check_build,
             ),
             Step(
                 name="validate_strict",
@@ -1005,6 +1017,14 @@ def _check_init(completed: Any) -> None:
         raise JourneyError("init report is missing manifest_path")
 
 
+def _check_build(completed: Any) -> None:
+    _assert_exit(completed, 0, "build")
+    payload = json.loads(completed.stdout.decode("utf-8"))
+    _require_envelope(payload, "build")
+    if payload.get("ok") is not True:
+        raise JourneyError("build envelope ok is not true")
+
+
 def _check_validate(completed: Any) -> None:
     _assert_exit(completed, 0, "validate --strict-warnings")
     payload = json.loads(completed.stdout.decode("utf-8"))
@@ -1216,7 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
                 '[project]\nname = "journey-project"\n\n[tool.pytest.ini_options]\n',
                 encoding="utf-8",
             )
-        manifest = repo / "beacon.yaml"
+        manifest = repo / "beacon.generated.yaml"
         out_dir = work / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
         guard_dir, guard_marker, _ = _setup_guard(work, write_sitecustomize=not dry_run)
