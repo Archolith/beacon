@@ -237,7 +237,11 @@ beacon build --repo . --memory https://memory.example.com/mcp --memory-project m
 beacon build --repo . --memory-evidence evidence.json
 ```
 
-- **Contract.** One MCP tool, `get_beacon_evidence(project_id)`, returning a
+- **Which project.** `--memory-project` is the project's id at the provider. Omit it and Beacon
+  asks the provider by this checkout's `origin`; a provider that indexed several checkouts of
+  the repository refuses and names them, so pass the one you mean.
+- **Contract.** One MCP tool, `get_beacon_evidence(project_id)` or
+  `get_beacon_evidence(repository)`, returning a
   [`beacon-memory-evidence-1.1`](docs/schemas/beacon-memory-evidence-1.1.schema.json) document.
   Its `binding` names the provider, the project's id there, the repository it indexed and the
   commit it indexed.
