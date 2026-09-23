@@ -182,6 +182,7 @@ def collect_conventions(
     avoid: list[str] = []
     commands: dict[str, dict[str, Any]] = {}
     texts: dict[str, str] = {}
+    marked_rule_docs: set[str] = set()
 
     for rel in MARKER_DOCS:
         text = read_text(root, rel)
@@ -209,6 +210,7 @@ def collect_conventions(
                     }
                 )
                 by_marker.add("guardrails")
+                marked_rule_docs.add(rel)
             elif kind == "concept":
                 ident = attrs.get("id") or _slug(attrs.get("name", _excerpt(body)[:40]))
                 concepts.append(_concept(ident, attrs.get("name", ident), _excerpt(body), where))
@@ -230,34 +232,37 @@ def collect_conventions(
                 by_marker.add("agent_guidance.avoid_without_review")
 
     expected: list[str] = []
-    if "guardrails" not in by_marker:
-        for rel in _RULE_DOCS:
-            text = texts.get(rel)
-            if text is None:
+    # Markers replace the heading fallback per document: a document with guardrail
+    # markers contributes only those, while unmarked documents still use their headings.
+    for rel in _RULE_DOCS:
+        text = texts.get(rel)
+        if text is None:
+            continue
+        lines = text.replace("\r\n", "\n").split("\n")
+        for heading, start, end in _sections(lines):
+            body = [line for line in lines[start - 1 : end] if line.strip()]
+            if not body:
                 continue
-            lines = text.replace("\r\n", "\n").split("\n")
-            for heading, start, end in _sections(lines):
-                body = [line for line in lines[start - 1 : end] if line.strip()]
-                if not body:
-                    continue
-                is_rule = _GUARD_HEADING.search(heading) or (
-                    rel == "SECURITY.md" and _SECURITY_HEADING.search(heading)
+            is_rule = _GUARD_HEADING.search(heading) or (
+                rel == "SECURITY.md" and _SECURITY_HEADING.search(heading)
+            )
+            if is_rule:
+                if rel in marked_rule_docs or len(guardrails) >= _MAX_GUARDRAILS:
+                    continue  # this document's markers are its rules
+                guardrails.append(
+                    {
+                        "id": _slug(f"{Path(rel).stem}-{heading}"),
+                        "rule": _excerpt(body),
+                        "scope": Path(rel).stem.lower(),
+                        "severity": "medium",
+                        "applies_to": [],
+                        "sources": [_source(rel, f"{rel} > {heading}", text, start, end)],
+                    }
                 )
-                if is_rule and len(guardrails) < _MAX_GUARDRAILS:
-                    guardrails.append(
-                        {
-                            "id": _slug(f"{Path(rel).stem}-{heading}"),
-                            "rule": _excerpt(body),
-                            "scope": Path(rel).stem.lower(),
-                            "severity": "medium",
-                            "applies_to": [],
-                            "sources": [_source(rel, f"{rel} > {heading}", text, start, end)],
-                        }
-                    )
-                    by_convention.add("guardrails")
-                elif rel == "AGENTS.md" and len(expected) < _MAX_POINTERS:
-                    expected.append(f"{rel} > {heading} (lines {start}-{end})")
-                    by_convention.add("agent_guidance.expected_behavior")
+                by_convention.add("guardrails")
+            elif rel == "AGENTS.md" and len(expected) < _MAX_POINTERS:
+                expected.append(f"{rel} > {heading} (lines {start}-{end})")
+                by_convention.add("agent_guidance.expected_behavior")
 
     if "purpose.non_goals" not in by_marker:
         for rel in ("README.md", "CONTRIBUTING.md"):

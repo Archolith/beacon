@@ -280,3 +280,15 @@ def test_a_doc_listed_without_status_takes_its_frontmatter(tmp_path: Path) -> No
     assert statuses["docs/old.md"] == "superseded"
     assert statuses["docs/pinned.md"] == "current"
     assert statuses["docs/plain.md"] == "current"
+
+
+def test_markers_in_one_document_keep_the_fallback_for_the_others(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "AGENTS.md",
+        _AGENTS + "\n<!-- beacon:guardrail id=marked -->\nThe marked rule.\n<!-- /beacon -->\n",
+    )
+    _write(tmp_path, "SECURITY.md", "# Security\n\n## Reporting\n\nEmail security@example.com.\n")
+    ids = [g["id"] for g in collect_declared(tmp_path).conventions.guardrails]
+    # AGENTS.md's markers replace its headings; SECURITY.md still uses its own.
+    assert ids == ["marked", "security-reporting"]
