@@ -82,6 +82,8 @@ def test_a_provider_refusal_by_origin_writes_nothing(tmp_path: Path) -> None:
 
     assert code == 2
     assert _code(payload) == "memory_invalid"
+    # The provider's reason (its list of checkouts) reaches the user.
+    assert "2 indexed projects" in str(payload["diagnostics"][0]["message"])
     assert not (root / "beacon.generated.yaml").exists()
 
 

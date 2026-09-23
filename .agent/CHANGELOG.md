@@ -10,6 +10,13 @@
   selector. `src/beacon/main.py`: the git tier is read before the provider call.
 - `tests/test_memory_lookup.py`: lookup by origin, mismatched evidence still refused, provider refusal, no origin.
 
+## 2026-09-22 — memory providers: show the provider's reason for a refusal
+
+- `src/beacon/sources/memory_client.py`: a provider refusal (MCP error result) and a text that is not an
+  evidence document are both `memory_invalid` with the provider's own reason, reduced to one printable line of at
+  most 300 characters. Before, a refusal sent as plain text surfaced as "evidence document is not valid JSON".
+- `tests/test_memory_provider.py`: both cases, including control characters and truncation.
+
 ## 2026-09-22 — docs: Beacon as an open standard
 
 - `docs/beacon-open-standard.md` (new): Beacon as an MCP endpoint that answers agents live with citations (static,
