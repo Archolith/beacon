@@ -802,7 +802,12 @@ def build(
         "The credential is read from BEACON_MEMORY_TOKEN.",
     ),
     memory_project: str | None = typer.Option(
-        None, "--memory-project", help="This project's id at the memory provider (with --memory)."
+        None,
+        "--memory-project",
+        help=(
+            "This project's id at the memory provider (with --memory). Omitted, the provider "
+            "is asked by this checkout's origin (needs --repo)."
+        ),
     ),
     out: str = typer.Option(
         "beacon.generated.yaml", "--out", help="Output manifest path (relative to --docs-root)."
@@ -932,9 +937,11 @@ def _build_impl(
             "build_memory_conflict",
             "--memory and --memory-evidence are mutually exclusive",
         )
-    if memory and not (memory_project or "").strip():
+    if memory and not (memory_project or "").strip() and repo is None:
         raise cli_support.CliFailure(
-            EXIT_INPUT, "build_memory_conflict", "--memory requires --memory-project"
+            EXIT_INPUT,
+            "build_memory_conflict",
+            "--memory needs --memory-project, or --repo so the provider can be asked by origin",
         )
 
     if intent is None and memory_evidence is None and memory is None and repo is None:
@@ -998,30 +1005,7 @@ def _build_impl(
     docs_home = target.parent if target is not None else root_dir
 
     # -- collect the source tiers ---------------------------------------------
-    memory_records: tuple[Any, ...] = ()
-    evidence: Any = None
-    if memory_evidence or memory:
-        if memory:
-            try:
-                raw_evidence = fetch_evidence(memory, (memory_project or "").strip())
-            except MemoryProviderError as exc:
-                raise cli_support.CliFailure(EXIT_INPUT, exc.code, str(exc)) from exc
-            adapter = MemorySourceAdapter(raw=raw_evidence, limits=limits)
-        else:
-            adapter = MemorySourceAdapter(memory_evidence, limits=limits)
-        try:
-            memory_records = adapter.collect()
-        except MemoryEvidenceError as exc:
-            raise cli_support.CliFailure(EXIT_INPUT, "memory_invalid", str(exc)) from exc
-        evidence = adapter.evidence
-        if memory and evidence is not None and evidence.bound:
-            if evidence.binding["project_id"] != (memory_project or "").strip():
-                raise cli_support.CliFailure(
-                    EXIT_INPUT,
-                    "memory_binding_mismatch",
-                    "the provider returned evidence for a different project",
-                )
-
+    # Git first: with no --memory-project the provider is asked by this checkout's origin.
     git_records: tuple[Any, ...] = ()
     git_origin: str | None = None
     git_adapter: GitSourceAdapter | None = None
@@ -1041,6 +1025,39 @@ def _build_impl(
         if git_records:
             url, _url_findings = git_adapter.repository_url()
             git_origin = url
+
+    memory_records: tuple[Any, ...] = ()
+    evidence: Any = None
+    if memory_evidence or memory:
+        if memory:
+            project_id = (memory_project or "").strip()
+            if not project_id and not git_origin:
+                raise cli_support.CliFailure(
+                    EXIT_INPUT,
+                    "build_memory_conflict",
+                    "no --memory-project and this checkout has no git origin to look it up by",
+                )
+            try:
+                raw_evidence = fetch_evidence(
+                    memory, project_id, repository="" if project_id else str(git_origin)
+                )
+            except MemoryProviderError as exc:
+                raise cli_support.CliFailure(EXIT_INPUT, exc.code, str(exc)) from exc
+            adapter = MemorySourceAdapter(raw=raw_evidence, limits=limits)
+        else:
+            adapter = MemorySourceAdapter(memory_evidence, limits=limits)
+        try:
+            memory_records = adapter.collect()
+        except MemoryEvidenceError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, "memory_invalid", str(exc)) from exc
+        evidence = adapter.evidence
+        if memory and memory_project and evidence is not None and evidence.bound:
+            if evidence.binding["project_id"] != memory_project.strip():
+                raise cli_support.CliFailure(
+                    EXIT_INPUT,
+                    "memory_binding_mismatch",
+                    "the provider returned evidence for a different project",
+                )
 
     intent_manifest = None
     intent_digest: str | None = None

@@ -1,5 +1,15 @@
 # Changelog — beacon
 
+## 2026-09-22 — memory providers: find the project by repository
+
+- `beacon build --memory URL` no longer requires `--memory-project`: without it Beacon asks the provider by
+  this checkout's `origin` (`get_beacon_evidence(repository=...)`), so a provider that keeps its ids to itself
+  (Menhir writes nothing into a checkout) still works. Needs `--repo` with a git origin, else
+  `build_memory_conflict` before any request. The evidence is held to the same binding and freshness checks.
+- `src/beacon/sources/memory_client.py`: `fetch_evidence(url, project_id="", *, repository="")` sends exactly one
+  selector. `src/beacon/main.py`: the git tier is read before the provider call.
+- `tests/test_memory_lookup.py`: lookup by origin, mismatched evidence still refused, provider refusal, no origin.
+
 ## 2026-09-22 — memory providers: show the provider's reason for a refusal
 
 - `src/beacon/sources/memory_client.py`: a provider refusal (MCP error result) and a text that is not an

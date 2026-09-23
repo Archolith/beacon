@@ -1,9 +1,11 @@
 """Fetch memory evidence from a provider over MCP (streamable HTTP).
 
 The provider contract is one read-only tool, :data:`EVIDENCE_TOOL`, called
-with ``{"project_id": ...}``. It returns one text content item holding a
-``beacon-memory-evidence-1.1`` document. Beacon never writes to a provider and
-never sends it a local path.
+with ``{"project_id": ...}`` or, when the caller does not know the id,
+``{"repository": <origin>}``. It returns one text content item holding a
+``beacon-memory-evidence-1.1`` document. A provider that indexed several
+checkouts of one repository refuses a repository request and names them.
+Beacon never writes to a provider and never sends it a local path.
 
 Every failure maps to one stable code and nothing is written:
 
@@ -68,12 +70,16 @@ def check_provider_url(url: str) -> None:
 
 def fetch_evidence(
     url: str,
-    project_id: str,
+    project_id: str = "",
     *,
+    repository: str = "",
     token: str | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> bytes:
-    """Return the evidence document bytes for *project_id*, or raise."""
+    """Return the evidence document bytes for *project_id* (or *repository*), or raise."""
+    if bool(project_id) == bool(repository):
+        raise ValueError("name exactly one of project_id or repository")
+    selector = {"project_id": project_id} if project_id else {"repository": repository}
     check_provider_url(url)
     credential = token if token is not None else os.environ.get(TOKEN_ENV) or None
     if not credential and urlsplit(url).scheme == "https":
@@ -83,7 +89,7 @@ def fetch_evidence(
         )
     try:
         return asyncio.run(
-            asyncio.wait_for(_fetch(url, project_id, credential, timeout_s), timeout_s)
+            asyncio.wait_for(_fetch(url, selector, credential, timeout_s), timeout_s)
         )
     except MemoryProviderError:
         raise
@@ -91,7 +97,7 @@ def fetch_evidence(
         raise _classify(exc) from exc
 
 
-async def _fetch(url: str, project_id: str, token: str | None, timeout_s: float) -> bytes:
+async def _fetch(url: str, selector: dict[str, str], token: str | None, timeout_s: float) -> bytes:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
     from mcp.types import TextContent
@@ -104,7 +110,7 @@ async def _fetch(url: str, project_id: str, token: str | None, timeout_s: float)
         read, write = streams[0], streams[1]
         async with ClientSession(read, write) as session:
             await session.initialize()
-            result = await session.call_tool(EVIDENCE_TOOL, {"project_id": project_id})
+            result = await session.call_tool(EVIDENCE_TOOL, selector)
     texts = [item.text for item in result.content if isinstance(item, TextContent)]
     if result.isError:
         raise MemoryProviderError(
