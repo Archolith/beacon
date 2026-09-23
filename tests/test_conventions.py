@@ -253,3 +253,30 @@ def test_connect_instructions_ask_agents_to_load_lazily() -> None:
     instructions = mcp.instructions or ""
     assert "lazily" in instructions and "task_hint" in instructions
     assert len(instructions) < 500  # paid on every connection
+
+
+def test_a_doc_listed_without_status_takes_its_frontmatter(tmp_path: Path) -> None:
+    import yaml
+
+    _write(tmp_path, "README.md", "# W\n\nWidgets for every team.\n")
+    _write(tmp_path, "docs/old.md", "---\nstatus: superseded\n---\n# Old roadmap\n")
+    _write(tmp_path, "docs/pinned.md", "---\nstatus: superseded\n---\n# Pinned\n")
+    _write(tmp_path, "docs/plain.md", "# Plain\n")
+    overlay = {
+        "beacon_version": "0.1",
+        "project": {"status": "experimental"},
+        "canonical_docs": [
+            {"path": "docs/old.md"},
+            {"path": "docs/pinned.md", "status": "current"},
+            {"path": "docs/plain.md"},
+        ],
+    }
+    _write(tmp_path, "beacon.yaml", yaml.safe_dump(overlay, sort_keys=False))
+    result = runner.invoke(app, ["build", "--repo", str(tmp_path), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    built = yaml.safe_load((tmp_path / "beacon.generated.yaml").read_text(encoding="utf-8"))
+    statuses = {doc["path"]: doc["status"] for doc in built["canonical_docs"]}
+    # Unstated -> frontmatter; stated -> intent wins; neither -> current.
+    assert statuses["docs/old.md"] == "superseded"
+    assert statuses["docs/pinned.md"] == "current"
+    assert statuses["docs/plain.md"] == "current"

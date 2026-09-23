@@ -1414,9 +1414,20 @@ def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None, limit
     document = yaml.safe_load(raw)
     project = document.get("project") if isinstance(document, dict) else None
     if isinstance(project, dict) and "status" not in project:
-        return dataclasses.replace(
+        manifest = dataclasses.replace(
             manifest, project=dataclasses.replace(manifest.project, status="")
         )
+    # Likewise a canonical doc listed without a status: the document's own
+    # frontmatter may state it (the build falls back to "current" as before).
+    raw_docs = document.get("canonical_docs") if isinstance(document, dict) else None
+    if isinstance(raw_docs, list) and len(raw_docs) == len(manifest.canonical_docs):
+        docs = tuple(
+            dataclasses.replace(doc, status="")
+            if isinstance(raw, dict) and "status" not in raw
+            else doc
+            for doc, raw in zip(manifest.canonical_docs, raw_docs, strict=True)
+        )
+        manifest = dataclasses.replace(manifest, canonical_docs=docs)
     return manifest
 
 

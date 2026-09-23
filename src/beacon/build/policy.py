@@ -369,8 +369,10 @@ def resolve_project_facts(
                         "path": doc.path,
                         "role": doc.role,
                         "title": doc.title,
-                        # Intent owns currentness: a superseded doc stays superseded.
-                        "status": doc.status,
+                        # Intent owns currentness: a superseded doc stays superseded. A doc
+                        # listed without a status takes its own frontmatter, else current.
+                        "status": doc.status
+                        or _frontmatter(docs_root, doc.path).get("status", "current"),
                     }
                 )
     memory_docs = sorted(
