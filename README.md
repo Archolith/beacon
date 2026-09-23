@@ -229,6 +229,26 @@ Pin a citation so a stale claim is caught: `beacon digest AGENTS.md --lines 12-1
 `sha256:` digest to store as `sources[].digest`; `beacon validate` warns `source_changed` when
 the cited text later changes.
 
+**Say it once, in your docs.** Judgment can also live in the documents agents already read.
+Mark a span in `README.md`, `AGENTS.md`, `CONTRIBUTING.md` or `SECURITY.md` and the build cites
+it by line and pins it automatically:
+
+```markdown
+<!-- beacon:guardrail id=no-writes severity=high -->
+Never write files into indexed projects.
+<!-- /beacon -->
+```
+
+Kinds: `purpose`, `non-goals`, `guardrail` (`id`, `severity`, `scope`), `concept` (`id`,
+`name`), `command` (`for=setup|test`), `avoid`. Without markers the build falls back to
+conventions: guardrail-like sections of `AGENTS.md`/`CONTRIBUTING.md`/`SECURITY.md` (one cited
+entry per section), other `AGENTS.md` sections as pointers, a `Non-goals` section, a glossary,
+`CODEOWNERS`, document frontmatter (`status`, `role`) and the `mkdocs.yml` nav. That works on
+any repository; the build notes which fields came from conventions or guesses, because marked
+docs give better results. Excerpts are capped at 300 characters: agents get pointers and pull
+full text only when they need it. Agent-vendor files (`CLAUDE.md`, `.cursor/rules`) are never
+read; point them at `AGENTS.md`.
+
 - `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority. When it exists it is
   the only intent that build may use: `--intent` may name it, or supply intent for a repository
   that has none, but never replace it (`intent_manifest_conflict`). A malformed or symlinked

@@ -99,6 +99,15 @@ Traceable reference backing a claim. Used in both manifest types and answer resp
 | `status` | `str` | Knowledge status at citation point |
 | `digest` | `str` | `sha256:<hex>` of the cited text when pinned (`beacon digest`), else `""`. Validation and build recompute it; a mismatch is `source_changed`. Authoring-only: dropped from served snapshots and resources |
 
+### ConventionFacts (`sources/conventions.py`)
+
+Judgment the project wrote in its docs: `<!-- beacon:<kind> -->` markers (exact, digest-pinned)
+in README/AGENTS/CONTRIBUTING/SECURITY, else conventions (guardrail-like sections, `AGENTS.md`
+pointers, Non-goals, glossary, `CODEOWNERS`, `mkdocs.yml` nav). Fields: `purpose`, `non_goals`,
+`guardrails`, `concepts`, `expected_behavior`, `avoid`, `commands`, `nav_docs`, and
+`by_marker` / `by_convention` (catalogue fields each route answered, reported as `conformance`
+by the build). Excerpts are capped at 300 characters. Carried on `DeclaredFacts.conventions`.
+
 ### DeclaredFacts (`sources/declared.py`)
 
 What the project's own files state, read by `beacon build --repo` on every run. Each field is a

@@ -65,6 +65,17 @@ project_state:
         path: docs/beacon-functional-product-roadmap.md
         status: current
   recently_completed:
+    - title: Near-zero authoring P1 -- markers and conventions
+      summary: >
+        beacon build reads beacon markers and conventions in README/AGENTS/CONTRIBUTING/SECURITY,
+        CODEOWNERS, a glossary, frontmatter and the mkdocs nav, reports conformance, and the MCP
+        server asks agents to load lazily.
+      next_step: P2 forge adapter for project state, then the P3 agent-task evaluation.
+      sources:
+        - type: file
+          title: Convention readers
+          path: src/beacon/sources/conventions.py
+          status: current
     - title: Near-zero authoring P0 -- declared sources
       summary: >
         beacon build reads the project's own files (package manifest, license text, CI commands,
