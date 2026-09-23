@@ -10,6 +10,8 @@ Every failure maps to one stable code and nothing is written:
 * ``memory_unavailable`` -- the provider could not be reached or timed out;
 * ``memory_unauthorized`` -- the credential was missing or rejected (401/403);
 * ``memory_invalid`` -- the provider answered, but not with usable evidence.
+  A provider refusal (an MCP error result) or a text that is not an evidence
+  document is reported with the provider's own reason, cleaned and truncated.
 
 There is no retry, no cache and no fallback: a configured provider that fails
 refuses the build (plan: provider states).
@@ -18,7 +20,9 @@ refuses the build (plan: provider states).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 from urllib.parse import urlsplit
 
 import httpx
@@ -34,6 +38,8 @@ MEMORY_UNAUTHORIZED = "memory_unauthorized"
 MEMORY_INVALID = "memory_invalid"
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_REASON_LIMIT = 300
+_UNPRINTABLE = re.compile(r"[^\x20-\x7e]+")
 
 
 class MemoryProviderError(RuntimeError):
@@ -99,14 +105,30 @@ async def _fetch(url: str, project_id: str, token: str | None, timeout_s: float)
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(EVIDENCE_TOOL, {"project_id": project_id})
-    if result.isError:
-        raise MemoryProviderError(MEMORY_INVALID, "the provider refused the evidence request")
     texts = [item.text for item in result.content if isinstance(item, TextContent)]
+    if result.isError:
+        raise MemoryProviderError(
+            MEMORY_INVALID, f"the provider refused the evidence request: {_reason(texts)}"
+        )
     if len(texts) != 1:
         raise MemoryProviderError(
             MEMORY_INVALID, "the provider must return exactly one text evidence document"
         )
+    try:
+        json.loads(texts[0])
+    except ValueError:
+        # Some providers report a refusal as plain text rather than an MCP error result.
+        raise MemoryProviderError(
+            MEMORY_INVALID,
+            f"the provider did not return an evidence document: {_reason(texts)}",
+        ) from None
     return texts[0].encode("utf-8")
+
+
+def _reason(texts: list[str]) -> str:
+    """The provider's own words, as one short printable line (it is untrusted text)."""
+    reason = _UNPRINTABLE.sub(" ", " ".join(texts)).strip() or "no reason given"
+    return reason if len(reason) <= _REASON_LIMIT else reason[: _REASON_LIMIT - 3] + "..."
 
 
 def _classify(exc: BaseException) -> MemoryProviderError:
