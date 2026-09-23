@@ -137,6 +137,32 @@ def _fixture_repo(tmp_path: Path, *, with_git: bool = True) -> Path:
     return tmp_path
 
 
+def _commit_removal(root: Path, *paths: str) -> None:
+    """Delete *paths* from the fixture repo and commit, so the checkout stays clean."""
+    subprocess.run(
+        ["git", "-C", str(root), "rm", "-q", *paths],
+        check=True,
+        capture_output=True,  # nosec B603 B607
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "remove",
+        ],
+        check=True,
+        capture_output=True,  # nosec B603 B607
+    )
+
+
 def _head_commit(root: Path) -> str:
     """The fixture's HEAD, or a placeholder id when *root* is not a git repo."""
     result = subprocess.run(
@@ -635,12 +661,13 @@ def test_absent_evidence_status_is_attributed_to_beacon_default(tmp_path: Path) 
     authorities = result["authorities"]
     assert isinstance(authorities, dict)
     # The schema-required project.status is still filled, but the report says
-    # it is Beacon's default -- never a claim attributed to Menhir.
+    # it is Beacon's default -- never a claim attributed to Menhir. The default
+    # is "unknown": unknown is an answer, a guessed maturity is not.
     assert authorities["status"] == "default"
     manifest = parse_manifest(
         yaml.safe_load((root / "beacon.generated.yaml").read_text(encoding="utf-8"))
     )
-    assert manifest.project.status == "experimental"
+    assert manifest.project.status == "unknown"
 
 
 def test_evidence_status_is_attributed_to_menhir(tmp_path: Path) -> None:
@@ -1243,7 +1270,9 @@ def test_cli_build_snapshot_unreadable(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_cli_build_no_canonical_docs_and_description_unresolved(tmp_path: Path) -> None:
+    # No entry document on disk, and memory cites only a missing one: nothing survives.
     root = _fixture_repo(tmp_path)
+    _commit_removal(root, "README.md", "docs/architecture.md")
     evidence = _evidence_file(root, ["docs/absent.md"])
     envelope = _envelope(runner.invoke(app, _build_args(root, evidence)), exit_code=1)
     assert "build_no_canonical_docs" in {d["code"] for d in envelope["diagnostics"]}

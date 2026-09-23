@@ -259,7 +259,7 @@ def _parse_project(data: dict[str, Any]) -> BeaconProjectInfo:
         name=_opt_str(data.get("name", _MISSING), "project.name"),
         tagline=_opt_str(data.get("tagline", _MISSING), "project.tagline"),
         description=_collapse(data.get("description", _MISSING), "project.description"),
-        status=_opt_str(data.get("status", _MISSING), "project.status", "experimental"),
+        status=_opt_str(data.get("status", _MISSING), "project.status", "unknown"),
         repository=_opt_str(data.get("repository", _MISSING), "project.repository"),
         primary_language=_opt_str(
             data.get("primary_language", _MISSING), "project.primary_language"
@@ -396,6 +396,18 @@ def _bounded_state_text(value: Any, field: str, maximum: int) -> str:
     return text
 
 
+_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _parse_digest(value: Any) -> str:
+    text = _opt_str(value, "sources[].digest")
+    if text and not _DIGEST_RE.match(text):
+        raise ManifestError(
+            "sources[].digest must be 'sha256:' followed by 64 lowercase hex digits"
+        )
+    return text
+
+
 def _parse_sources(value: Any) -> tuple[BeaconSource, ...]:
     if value is _MISSING:
         return ()
@@ -415,6 +427,7 @@ def _parse_sources(value: Any) -> tuple[BeaconSource, ...]:
                 line_start=line_start,
                 line_end=line_end,
                 status=_opt_str(data.get("status", _MISSING), "sources[].status", "current"),
+                digest=_parse_digest(data.get("digest", _MISSING)),
             )
         )
     return tuple(sources)

@@ -250,6 +250,7 @@ def build_command_context(
     acknowledgements: Iterable[str] = (),
     build_provider: bool = False,
     cwd: str | Path = ".",
+    intent: bool = False,
 ) -> CommandContext:
     """Load, validate, and evaluate one shared command context.
 
@@ -269,6 +270,7 @@ def build_command_context(
             acknowledgements=acknowledgements,
             build_provider=build_provider,
             cwd=cwd,
+            intent=intent,
         )
     except CliFailure:
         raise
@@ -285,6 +287,7 @@ def _build_command_context(
     acknowledgements: Iterable[str],
     build_provider: bool,
     cwd: str | Path,
+    intent: bool = False,
 ) -> CommandContext:
     try:
         limits = build_resource_limits(cli_limits, env)
@@ -309,7 +312,7 @@ def _build_command_context(
     except ManifestError as exc:
         raise manifest_failure(exc) from exc
 
-    report = validate_beacon_manifest(manifest, docs_root=docs_root_resolved)
+    report = validate_beacon_manifest(manifest, docs_root=docs_root_resolved, intent=intent)
     policy = evaluate_policy(report, acknowledgements=acks)
 
     provider = None

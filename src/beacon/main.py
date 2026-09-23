@@ -1026,6 +1026,16 @@ def _build_impl(
             url, _url_findings = git_adapter.repository_url()
             git_origin = url
 
+    # The project's own files (manifests, license, CI, README, entry docs).
+    declared = None
+    if repo:
+        from beacon.sources.declared import collect_declared
+
+        try:
+            declared = collect_declared(repo, limits=limits)
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+
     memory_records: tuple[Any, ...] = ()
     evidence: Any = None
     if memory_evidence or memory:
@@ -1121,6 +1131,7 @@ def _build_impl(
                 repo_root=Path(repo) if repo else None,
                 git_origin=git_origin,
                 strict=False,
+                declared=declared,
             )
         except BuildError as exc:
             raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
@@ -1131,6 +1142,7 @@ def _build_impl(
             "intent": intent_payload,
             "requirements": report,
             "gaps": gaps,
+            "citations": dict(sorted(partial.field_citations.items())),
         }
         if intent and intent_digest is not None:
             _require_intent_unchanged(Path(intent), intent_digest, limits)
@@ -1148,10 +1160,11 @@ def _build_impl(
             docs_root=docs_home,
             repo_root=Path(repo) if repo else None,
             git_origin=git_origin,
+            declared=declared,
         )
         raw = build_raw_manifest(facts)
         manifest_obj = parse_manifest(raw)
-        require_valid_manifest(manifest_obj, docs_root=docs_home)
+        validation = require_valid_manifest(manifest_obj, docs_root=docs_home)
     except BuildError as exc:
         message = str(exc)
         if exc.code in _GAP_REPORTABLE_BUILD_CODES:
@@ -1218,7 +1231,13 @@ def _build_impl(
         "docs": len(facts.canonical_docs),
         "concepts": len(manifest_obj.core_concepts),
         "guardrails": len(facts.guardrails),
-        "drift": [{"code": d.code, "detail": d.detail} for d in facts.drift],
+        "drift": [{"code": d.code, "detail": d.detail} for d in facts.drift]
+        + [
+            # A pinned citation whose text changed: the claim needs review.
+            {"code": issue.code, "detail": f"{issue.where}: {issue.message}"}
+            for issue in validation.warnings
+            if issue.code in ("source_changed", "source_unavailable")
+        ],
         "authorities": {
             "name": facts.name_authority,
             "description": facts.description_authority,
@@ -1233,6 +1252,7 @@ def _build_impl(
         "memory": _memory_payload(evidence),
         "requirements": report,
         "gaps": gaps_from_report(report),
+        "citations": dict(sorted(facts.field_citations.items())),
     }
     if fmt == "json":
         _json("build", ok=True, result_payload=payload)
@@ -1416,7 +1436,9 @@ def _text_gaps(payload: dict[str, Any]) -> None:
         by = "/".join(row["supplied_by"]) or "-"
         mark = "ok" if row["status"] == "supplied" else ("!!" if row["required"] else "--")
         allowed = "/".join(row["allowed_sources"])
-        typer.echo(f"  {mark} {row['field']}: {row['status']} (by {by}; allowed {allowed})")
+        cited = payload.get("citations", {}).get(row["field"])
+        at = f"; from {cited}" if cited else ""
+        typer.echo(f"  {mark} {row['field']}: {row['status']} (by {by}{at}; allowed {allowed})")
 
 
 def _text_build(payload: dict[str, Any]) -> None:
@@ -1774,6 +1796,14 @@ def validate(
     acknowledge: list[str] = typer.Option(
         [], "--acknowledge", help="Acknowledge a CODE=REASON warning."
     ),
+    intent: bool = typer.Option(
+        False,
+        "--intent",
+        help=(
+            "Validate a beacon.yaml overlay for `beacon build`: name, description and "
+            "canonical docs may be absent because the build derives them."
+        ),
+    ),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
     max_documents: int | None = typer.Option(None, "--max-documents"),
     max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
@@ -1792,6 +1822,7 @@ def validate(
             fmt=format,
             strict_warnings=strict_warnings,
             acknowledges=acknowledge,
+            intent=intent,
             cli_limits=_six_limit_args(
                 max_manifest_bytes,
                 max_documents,
@@ -1812,12 +1843,14 @@ def _validate_impl(
     strict_warnings: bool,
     acknowledges: list[str],
     cli_limits: dict[str, Any],
+    intent: bool = False,
 ) -> int:
     context = cli_support.build_command_context(
         cli_limits=cli_limits,
         manifest_path=manifest,
         docs_root=docs_root,
         acknowledgements=acknowledges,
+        intent=intent,
     )
     diagnostics = cli_support.report_to_diagnostics(context.report, context.acknowledgements)
     servable = context.report.ok
@@ -1862,6 +1895,59 @@ def _text_validate(
         typer.echo(label)
     if strict_warnings and not publishable:
         typer.echo("✗ strict-warnings: unresolved publication warnings present")
+
+
+# ---------------------------------------------------------------------------
+# beacon digest PATH
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def digest(
+    path: str = typer.Argument(..., help="Repository-relative path of the cited file."),
+    lines: str | None = typer.Option(
+        None, "--lines", help="Line range START-END (1-based, inclusive), or one line."
+    ),
+    root: str = typer.Option(".", "--root", help="Repository root the path is relative to."),
+    format: str = typer.Option("text", "--format"),
+) -> None:
+    """Print the digest to pin a citation (``sources[].digest``) in beacon.yaml."""
+    _require_format(format)
+    _safe("digest", format, lambda: _digest_impl(path, lines, root, fmt=format))
+
+
+def _digest_impl(path: str, lines: str | None, root: str, *, fmt: str) -> int:
+    from beacon.core.citation_digest import CitationUnavailable, digest_citation
+
+    line_start: int | None = None
+    line_end: int | None = None
+    if lines:
+        start_text, _, end_text = lines.partition("-")
+        try:
+            line_start = int(start_text)
+            line_end = int(end_text) if end_text else None
+        except ValueError as exc:
+            raise cli_support.CliFailure(
+                EXIT_INPUT, "invalid_line_range", "--lines must be START-END or one line number"
+            ) from exc
+    try:
+        value = digest_citation(root, path, line_start, line_end)
+    except CitationUnavailable as exc:
+        raise cli_support.CliFailure(EXIT_INPUT, "citation_unavailable", str(exc)) from exc
+    if fmt == "json":
+        _json(
+            "digest",
+            ok=True,
+            result_payload={
+                "path": path,
+                "line_start": line_start,
+                "line_end": line_end,
+                "digest": value,
+            },
+        )
+    else:
+        typer.echo(value)
+    return EXIT_OK
 
 
 # ---------------------------------------------------------------------------

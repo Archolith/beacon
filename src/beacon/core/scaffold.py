@@ -164,18 +164,30 @@ class InitRefused(Exception):
 # ---------------------------------------------------------------------------
 
 
-def render_manifest_yaml(discovery: DiscoveryResult) -> bytes:
-    """Render *discovery* into deterministic UTF-8 ``beacon.yaml`` bytes.
+#: Leading comment of the ``beacon.yaml`` that ``beacon init`` writes.
+INIT_MANIFEST_HEADER = (
+    "# beacon.yaml: what only the maintainers can say about this project.\n"
+    "# `beacon build --repo .` reads everything else (name, description, license,\n"
+    "# language, commands, docs, releases) from the project's own files on every run,\n"
+    "# so do not copy those here. `beacon build --repo . --gaps-only` shows what is\n"
+    "# still missing and where each value came from.\n"
+)
 
-    Field order is fixed for humans (``beacon_version`` first, then project,
-    purpose, audiences/current_focus, concepts, canonical_docs, guidance,
-    build/test, guardrails). Output is one YAML document ending in a single
-    newline. ``project.status`` is ``unknown`` and the description is a factual,
-    nonempty sentence; unknown lists are explicit and empty.
+
+def render_manifest_yaml(discovery: DiscoveryResult) -> bytes:
+    """Render the ``beacon.yaml`` overlay that ``beacon init`` writes.
+
+    It holds only the fields a maintainer must state, all empty: status
+    (``unknown``), tagline, purpose, audiences, focus, review areas and
+    guardrails. Nothing discovered is written: ``beacon build`` reads the
+    project's files every time, so discovered values never freeze into intent.
+    *discovery* is accepted for the report and API stability; it does not
+    change the output. Output is deterministic and ends in a single newline.
     """
+    del discovery  # discovered values belong to the build, not the intent file
     manifest: dict[str, object] = {
         "beacon_version": "0.1",
-        "project": _render_project(discovery),
+        "project": {"tagline": "", "status": "unknown"},
         "purpose": {
             "one_sentence": "",
             "problem": "",
@@ -183,22 +195,11 @@ def render_manifest_yaml(discovery: DiscoveryResult) -> bytes:
         },
         "audiences": [],
         "current_focus": [],
-        "core_concepts": [],
-        "canonical_docs": [
-            {
-                "path": path,
-                "role": "entrypoint" if _is_entrypoint(path) else "reference",
-                "status": "current",
-            }
-            for path in discovery.canonical_docs
-        ],
         "agent_guidance": {
-            "read_first": list(discovery.canonical_docs),
             "safe_first_tasks": [],
             "avoid_without_review": [],
             "expected_behavior": [],
         },
-        "build_and_test": _render_build_test(discovery),
         "guardrails": [],
     }
     text = yaml.safe_dump(
@@ -208,41 +209,8 @@ def render_manifest_yaml(discovery: DiscoveryResult) -> bytes:
         default_flow_style=False,
         width=1_000_000,
     )
-    text = text.rstrip("\n") + "\n"
+    text = INIT_MANIFEST_HEADER + text.rstrip("\n") + "\n"
     return text.encode("utf-8")
-
-
-def _render_project(discovery: DiscoveryResult) -> dict[str, object]:
-    project: dict[str, object] = {
-        "name": discovery.name,
-        "tagline": "",
-        "status": "unknown",
-        "description": (
-            f"Starter Beacon manifest for {discovery.name}. Generated from the repository "
-            "directory name and local signals; purpose, core concepts, and guardrails are "
-            "unknown and require maintainer review."
-        ),
-    }
-    if discovery.repository:
-        project["repository"] = discovery.repository
-    if discovery.primary_language:
-        project["primary_language"] = discovery.primary_language
-    if discovery.license_name:
-        project["license"] = discovery.license_name
-    return project
-
-
-def _render_build_test(discovery: DiscoveryResult) -> dict[str, object]:
-    build_test: dict[str, object] = {"benchmark": ""}
-    if discovery.setup_command:
-        build_test["setup"] = discovery.setup_command
-    if discovery.test_command:
-        build_test["test"] = discovery.test_command
-    return build_test
-
-
-def _is_entrypoint(path: str) -> bool:
-    return path.endswith("README.md")
 
 
 # ---------------------------------------------------------------------------

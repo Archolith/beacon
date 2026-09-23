@@ -7,7 +7,12 @@ Every manifest field is listed here with the source tiers allowed to supply it
 * ``git`` -- the repository (reality);
 * ``memory`` -- a memory/index provider's evidence (history), authority
   label ``memory`` (``menhir`` accepted as a legacy label);
-* ``derived`` -- Beacon computes the value from other fields.
+* ``derived`` -- Beacon computes the value from other fields;
+* ``declared`` -- other files the project wrote (package manifests, the license
+  file, CI workflows, the README lead, entry documents);
+* ``inferred`` -- a heuristic guess from those files, labelled low confidence;
+* ``forge`` -- the code host's API (issues, milestones, releases); catalogued
+  now, supplied by a later adapter.
 
 ``beacon_version`` is fixed by Beacon and is the only field not catalogued.
 
@@ -17,7 +22,7 @@ which tier actually supplied it, and the gap code. A test checks that every supp
 names only allowed tiers, so the catalogue and :mod:`beacon.build.policy`
 cannot drift apart silently.
 
-The catalogue is published as ``docs/schemas/beacon-requirements-1.0.json``;
+The catalogue is published as ``docs/schemas/beacon-requirements-1.1.json``;
 a test keeps that file identical to :func:`catalogue_payload`.
 """
 
@@ -29,12 +34,15 @@ from typing import Any
 from beacon.build.policy import MergedProjectFacts
 
 CATALOGUE_NAME = "beacon.requirements"
-CATALOGUE_VERSION = "1.0"
+CATALOGUE_VERSION = "1.1"
 
 TIER_INTENT = "intent"
 TIER_GIT = "git"
 TIER_MEMORY = "memory"
 TIER_DERIVED = "derived"
+TIER_DECLARED = "declared"
+TIER_INFERRED = "inferred"
+TIER_FORGE = "forge"
 
 STATUS_SUPPLIED = "supplied"
 STATUS_MISSING = "missing"
@@ -53,6 +61,9 @@ _AUTHORITY_TIER = {
     "git": TIER_GIT,
     "memory": TIER_MEMORY,
     "menhir": TIER_MEMORY,
+    "declared": TIER_DECLARED,
+    "inferred": TIER_INFERRED,
+    "forge": TIER_FORGE,
 }
 
 
@@ -66,12 +77,19 @@ class Requirement:
 
 
 _I, _G, _M, _D = TIER_INTENT, TIER_GIT, TIER_MEMORY, TIER_DERIVED
+_DC, _IN = TIER_DECLARED, TIER_INFERRED
 
 CATALOGUE: tuple[Requirement, ...] = (
-    Requirement("project.name", (_I, _M), True, "build_identity_unresolved", "The project's name."),
+    Requirement(
+        "project.name",
+        (_I, _DC, _M, _G, _IN),
+        True,
+        "build_identity_unresolved",
+        "The project's name.",
+    ),
     Requirement(
         "project.description",
-        (_I, _M),
+        (_I, _DC, _M),
         True,
         "build_description_unresolved",
         "A grounded description of the project.",
@@ -82,7 +100,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "project.primary_language",
-        (_I, _M),
+        (_I, _DC, _M),
         False,
         "primary_language_unknown",
         "The main implementation language.",
@@ -94,10 +112,12 @@ CATALOGUE: tuple[Requirement, ...] = (
         "project_status_unknown",
         "Maturity (experimental, active, stable, ...) as the maintainers state it.",
     ),
-    Requirement("project.license", (_I,), False, "license_omitted", "The license identifier."),
+    Requirement(
+        "project.license", (_I, _DC, _IN), False, "license_omitted", "The license identifier."
+    ),
     Requirement(
         "purpose.one_sentence",
-        (_I, _M),
+        (_I, _DC, _M),
         False,
         "purpose_missing",
         "One sentence, in the maintainers' words, saying what the project is for.",
@@ -122,7 +142,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "canonical_docs",
-        (_I, _M),
+        (_I, _M, _DC),
         True,
         "build_no_canonical_docs",
         "The documents an agent should treat as authoritative.",
@@ -163,9 +183,15 @@ CATALOGUE: tuple[Requirement, ...] = (
         "How agents are expected to behave in this project.",
     ),
     Requirement(
-        "build_and_test.setup", (_I,), False, "build_commands_unknown", "The setup/build command."
+        "build_and_test.setup",
+        (_I, _DC, _IN),
+        False,
+        "build_commands_unknown",
+        "The setup/build command.",
     ),
-    Requirement("build_and_test.test", (_I,), False, "test_command_missing", "The test command."),
+    Requirement(
+        "build_and_test.test", (_I, _DC, _IN), False, "test_command_missing", "The test command."
+    ),
     Requirement(
         "build_and_test.benchmark",
         (_I,),
@@ -182,7 +208,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "project_state",
-        (_I,),
+        (_I, _G),
         False,
         "project_state_missing",
         "Active work, recent completions, blockers and pending decisions.",
@@ -251,6 +277,9 @@ def catalogue_payload() -> dict[str, Any]:
             TIER_GIT: "the repository (reality)",
             TIER_MEMORY: "a memory/index provider's evidence (history)",
             TIER_DERIVED: "computed by Beacon from other fields",
+            TIER_DECLARED: "other files the project wrote (manifests, license, CI, README, docs)",
+            TIER_INFERRED: "a heuristic guess from the project's files (low confidence)",
+            TIER_FORGE: "the code host's API (issues, milestones, releases); planned",
         },
         "beacon_owned": sorted(BEACON_OWNED_FIELDS),
         "requirements": [
