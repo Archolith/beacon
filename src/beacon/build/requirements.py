@@ -127,7 +127,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "purpose.non_goals",
-        (_I,),
+        (_I, _DC),
         False,
         "non_goals_missing",
         "What the project deliberately does not do.",
@@ -149,7 +149,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "core_concepts",
-        (_I, _M),
+        (_I, _M, _DC),
         False,
         "concepts_omitted",
         "The domain concepts an agent must understand.",
@@ -170,14 +170,14 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "agent_guidance.avoid_without_review",
-        (_I,),
+        (_I, _DC),
         False,
         "avoid_without_review_missing",
         "Areas an agent must not change without review.",
     ),
     Requirement(
         "agent_guidance.expected_behavior",
-        (_I,),
+        (_I, _DC),
         False,
         "expected_behavior_missing",
         "How agents are expected to behave in this project.",
@@ -201,7 +201,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "guardrails",
-        (_I,),
+        (_I, _DC),
         False,
         "guardrails_missing",
         "Rules an agent must follow, each citing its source.",

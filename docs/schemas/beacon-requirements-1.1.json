@@ -112,7 +112,8 @@
     {
       "field": "purpose.non_goals",
       "sources": [
-        "intent"
+        "intent",
+        "declared"
       ],
       "required": false,
       "gap_code": "non_goals_missing",
@@ -151,7 +152,8 @@
       "field": "core_concepts",
       "sources": [
         "intent",
-        "memory"
+        "memory",
+        "declared"
       ],
       "required": false,
       "gap_code": "concepts_omitted",
@@ -179,7 +181,8 @@
     {
       "field": "agent_guidance.avoid_without_review",
       "sources": [
-        "intent"
+        "intent",
+        "declared"
       ],
       "required": false,
       "gap_code": "avoid_without_review_missing",
@@ -188,7 +191,8 @@
     {
       "field": "agent_guidance.expected_behavior",
       "sources": [
-        "intent"
+        "intent",
+        "declared"
       ],
       "required": false,
       "gap_code": "expected_behavior_missing",
@@ -228,7 +232,8 @@
     {
       "field": "guardrails",
       "sources": [
-        "intent"
+        "intent",
+        "declared"
       ],
       "required": false,
       "gap_code": "guardrails_missing",
