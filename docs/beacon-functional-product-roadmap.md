@@ -397,7 +397,8 @@ Deliverables:
 
 - provider composition and explicit live/degraded/snapshot-only modes;
 - generic current/superseded View semantics and decision lineage;
-- `MenhirBeaconProvider` over the normalized envelope boundary;
+- a live memory provider over the normalized envelope boundary, through the backend-neutral
+  provider contract (Menhir first);
 - one current decision, one superseded predecessor, and cited project status proven end to end;
 - refresh scheduling, idempotent rebuild, conflict/ambiguity handling, and last-known-good snapshot;
 - publisher/server key rotation, signed snapshot lineage, anti-rollback checks, and local trust
@@ -446,7 +447,8 @@ Deliverables:
 
 - versioned manifest, snapshot, normalized-record, provider, and answer-contract specifications;
 - backward-compatibility and migration policy with executable fixtures;
-- provider conformance kit and reference adapters;
+- provider conformance kit and reference adapters (see
+  [`beacon-open-standard.md`](beacon-open-standard.md) sections 5-8);
 - end-to-end evaluation suite covering onboarding, citations, lifecycle, freshness, guardrails, and
   failure behavior;
 - polished maintainer and operator journeys, troubleshooting, and upgrade docs;
@@ -527,7 +529,9 @@ no-memory language-model baseline.
 
 ## 9. Relationship to Menhir and full-500
 
-Menhir is Beacon's first rich temporal provider and reference implementation. It proves capabilities
+Menhir is Beacon's first rich temporal provider. It implements Beacon's backend-neutral
+memory-provider contract (`beacon-memory-evidence-1.1`) and never writes into a project; the
+roles and the standard track are in [`beacon-open-standard.md`](beacon-open-standard.md). It proves capabilities
 that static repository indexing cannot: durable current/superseded state, decision history, temporal
 project memory, and richer cross-source joins.
 

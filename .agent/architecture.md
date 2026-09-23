@@ -27,7 +27,7 @@ structure graph, git history) can be swapped in later without touching the tools
 ├────────────────────────────────────────────────┤
 │  BeaconProvider Protocol                       │
 │  ManifestBeaconProvider (v0)                   │
-│  ← future: MenhirBeaconProvider               │
+│  ← future: live memory provider (Menhir first) │
 ├────────────────────────────────────────────────┤
 │  beacon-core                                   │
 │  BeaconManifest schema · YAML loader           │
@@ -249,7 +249,7 @@ class BeaconProvider(Protocol):
     def guardrails(self, *, task_hint) -> GuardrailResponse: ...
 ```
 
-v0 ships `ManifestBeaconProvider`. Future `MenhirBeaconProvider` plugs in here.
+v0 ships `ManifestBeaconProvider`. A future live memory provider plugs in here.
 
 ## Manifest Schema (beacon.yaml)
 
@@ -349,10 +349,11 @@ heading matches, normalized by chunk size. Deterministic, no embeddings.
 5. Add to `always_visible` in `mcp/server.py` if it should be pinned.
 6. Add offline tests in `tests/`.
 
-## Future: MenhirBeaconProvider
+## Future: live memory provider
 
-A Menhir-backed provider would implement the same `BeaconProvider` Protocol but answer
-queries using:
+A live provider (Menhir first) would implement the same `BeaconProvider` Protocol through the
+backend-neutral memory-provider contract, never Menhir internals, and answer queries using what
+Menhir offers through that contract, for example:
 - `recall_memories` for semantic search over project memories
 - `query_structure` for file/symbol/blast-radius data
 - temporal reasoning (Chronostratum) for "what changed" and "what is current"

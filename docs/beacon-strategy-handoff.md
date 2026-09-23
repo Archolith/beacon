@@ -3,6 +3,10 @@
 > Status: strategic handoff / product-research note  
 > Scope: Beacon as an agent-accessible project knowledge surface, with Menhir as the reference implementation  
 > Origin: project planning discussion, June 2026
+> Update 2026-09-22: the ownership model changed. Beacon builds every beacon; Menhir is one
+> swappable memory provider behind a backend-neutral contract and never writes into a project.
+> Where this note says Menhir "generates" a beacon, read it that way. The current direction is
+> [`beacon-open-standard.md`](beacon-open-standard.md).
 
 ## 0. Core idea
 
@@ -20,7 +24,7 @@ For Menhir and Archolith, Beacon serves three jobs at once:
 
 Strategic positioning:
 
-> Beacon becomes the standard interface. Menhir becomes the richest way to generate one.
+> Beacon becomes the standard interface. Menhir becomes the richest memory provider behind one.
 
 ## 1. Why this matters
 
