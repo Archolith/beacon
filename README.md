@@ -533,12 +533,16 @@ matrix. One release gate remains, not missing feature scope:
   acceptance gate to be measured with a developer who did not write the
   implementation; documentation does not assert that it has passed.
 
-A `MenhirBeaconProvider` is a deferred v0.3 limitation, not evidence that this
-v0.2 scope is unfinished. Beacon is static and has no outbound runtime network call: no database,
+Build-time memory evidence is available through the backend-neutral provider contract (see
+[Memory providers](#memory-providers)); a live, query-time memory provider is later roadmap work,
+not evidence that this v0.2 scope is unfinished. Beacon is static and has no outbound runtime network call: no database,
 no LLM or embedding, no telemetry, and no update check. The optional HTTP compatibility process
 listens only on loopback and serves the same startup snapshot. Beacon reads only the manifest and
 the documents it lists.
 
+Beacon aims to become an open standard: an MCP endpoint each project publishes so coding agents can
+ask it, live and with citations, what the project is and how to work on it;
+the direction, roles and track are in [`docs/beacon-open-standard.md`](docs/beacon-open-standard.md).
 Track the product path in
 [`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The
 tool-level interface history and backlog remain in
