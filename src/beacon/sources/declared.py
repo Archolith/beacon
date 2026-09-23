@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ import yaml
 from beacon.core import discovery as _discovery
 from beacon.core.limits import ResourceLimits
 from beacon.core.security import classify_path
+from beacon.sources.conventions import ConventionFacts, collect_conventions
 
 TIER_DECLARED = "declared"
 TIER_INFERRED = "inferred"
@@ -121,6 +122,8 @@ class DeclaredFacts:
     setup: DeclaredValue | None = None
     test: DeclaredValue | None = None
     canonical_docs: tuple[str, ...] = ()
+    #: Markers and conventions (guardrails, non-goals, concepts, review areas, ...).
+    conventions: ConventionFacts = field(default_factory=ConventionFacts)
 
     def doc_role(self, path: str) -> str:
         return "entrypoint" if path in _ENTRYPOINTS else "reference"
@@ -137,14 +140,29 @@ def collect_declared(root: str | Path, *, limits: ResourceLimits | None = None) 
     language = _language(manifest, root_path, active)
     setup, test = _ci_commands(root_path, active)
     guess_setup, guess_test = _marker_commands(root_path, active)
+    conventions = collect_conventions(
+        root_path, lambda base, rel: _read_text(base, rel, active), limits=active
+    )
+    # A command marked in the project's docs is the most exact statement of all.
+    marked = {
+        key: DeclaredValue(item["value"], TIER_DECLARED, item["path"], item["line"])
+        for key, item in conventions.commands.items()
+    }
+    docs = _docs(root_path, active)
+    nav = tuple(
+        rel
+        for rel in conventions.nav_docs
+        if rel not in docs and _discovery._safe_regular(root_path, root_path / rel, active)
+    )
     return DeclaredFacts(
         name=name,
         description=description,
         license=license_value,
         primary_language=language,
-        setup=setup or guess_setup,
-        test=test or guess_test,
-        canonical_docs=_docs(root_path, active),
+        setup=marked.get("setup") or setup or guess_setup,
+        test=marked.get("test") or test or guess_test,
+        canonical_docs=(docs + nav)[: active.documents],
+        conventions=conventions,
     )
 
 

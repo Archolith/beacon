@@ -52,6 +52,7 @@ from beacon.sources.base import (
     KIND_MEMORY_STRUCTURE,
     NormalizedRecord,
 )
+from beacon.sources.conventions import ConventionFacts, read_frontmatter
 from beacon.sources.declared import DeclaredFacts, DeclaredValue
 
 #: Stable build-failure codes (never carry content or paths).
@@ -156,6 +157,10 @@ class MergedProjectFacts:
     #: Catalogue field -> "path" or "path:line" of the project file a declared or
     #: inferred value was read from (reported by the build, not published).
     field_citations: dict[str, str] = field(default_factory=dict)
+    #: Catalogue fields answered by explicit ``<!-- beacon:... -->`` markers (exact) ...
+    marked_fields: frozenset[str] = frozenset()
+    #: ... and by conventions (headings, CODEOWNERS, glossary, nav): usable, less exact.
+    convention_fields: frozenset[str] = frozenset()
 
 
 def _plain(value: Any) -> Any:
@@ -225,6 +230,7 @@ def resolve_project_facts(
         memory_records = menhir_records
     drift: list[DriftRecord] = []
     citations: dict[str, str] = {}
+    conventions = declared.conventions if declared is not None else ConventionFacts()
 
     def _take(value: DeclaredValue | None, *fields: str) -> tuple[str, str]:
         if value is None or not value.value.strip():
@@ -281,6 +287,13 @@ def resolve_project_facts(
     ):
         description = intent.purpose.one_sentence.strip() or intent.project.description.strip()
         description_authority = "intent"
+    if not description and conventions.purpose:
+        # A purpose the maintainers marked in their own docs: their words, exactly.
+        description, description_authority = conventions.purpose, "declared"
+        source = conventions.purpose_source or {}
+        citations["purpose.one_sentence"] = (
+            f"{source.get('path', '')}:{source.get('line_start', '')}"
+        )
     if not description and declared is not None:
         description, description_authority = _take(
             declared.description, "project.description", "purpose.one_sentence"
@@ -356,8 +369,10 @@ def resolve_project_facts(
                         "path": doc.path,
                         "role": doc.role,
                         "title": doc.title,
-                        # Intent owns currentness: a superseded doc stays superseded.
-                        "status": doc.status,
+                        # Intent owns currentness: a superseded doc stays superseded. A doc
+                        # listed without a status takes its own frontmatter, else current.
+                        "status": doc.status
+                        or _frontmatter(docs_root, doc.path).get("status", "current"),
                     }
                 )
     memory_docs = sorted(
@@ -403,6 +418,14 @@ def resolve_project_facts(
                 "status": "unknown",
             }
         )
+    # Frontmatter is the project's own statement of a document's status and role; it
+    # refines memory and declared docs, never a status the intent manifest stated.
+    for index, entry in enumerate(docs):
+        if index < intent_doc_count:
+            continue
+        stated_doc = _frontmatter(docs_root, entry["path"])
+        if stated_doc:
+            docs[index] = {**entry, **stated_doc}
     # Attribute the set to the sources whose documents actually survived.
     docs_authority = "+".join(
         tier
@@ -478,6 +501,9 @@ def resolve_project_facts(
     guardrails: list[dict[str, object]] = []
     purpose_problem = intent.purpose.problem if intent is not None else ""
     non_goals = intent.purpose.non_goals if intent is not None else ()
+    non_goals_authority = "intent" if non_goals else ""
+    if not non_goals and conventions.non_goals:
+        non_goals, non_goals_authority = conventions.non_goals, "declared"
     current_focus = intent.current_focus if intent is not None else ()
     audiences = intent.audiences if intent is not None else ()
     build_and_test = (
@@ -522,6 +548,12 @@ def resolve_project_facts(
             }
             for guard in intent.guardrails
         ]
+    guardrails_authority = "intent" if guardrails else ""
+    known_ids = {str(guard["id"]).lower() for guard in guardrails}
+    extra_guards = [g for g in conventions.guardrails if str(g["id"]).lower() not in known_ids]
+    if extra_guards:
+        guardrails.extend(extra_guards)
+        guardrails_authority = "+".join(t for t in (guardrails_authority, "declared") if t)
 
     git_head: str | None = None
     head = _first_record(git_records, KIND_GIT_HEAD)
@@ -539,6 +571,14 @@ def resolve_project_facts(
             "avoid_without_review": tuple(guidance.avoid_without_review),
             "expected_behavior": tuple(guidance.expected_behavior),
         }
+    guidance_authority = {key: ("intent" if value else "") for key, value in agent_guidance.items()}
+    for key, derived_items in (
+        ("avoid_without_review", conventions.avoid),
+        ("expected_behavior", conventions.expected_behavior),
+    ):
+        if not agent_guidance.get(key) and derived_items:
+            agent_guidance[key] = tuple(derived_items)
+            guidance_authority[key] = "declared"
 
     tagline = intent.project.tagline if intent is not None else ""
     license_name = intent.project.license.strip() if intent is not None else ""
@@ -564,6 +604,11 @@ def resolve_project_facts(
         if intent is not None
         else ()
     )
+    intent_ids = {str(concept.get("id", "")).lower() for concept in intent_concepts}
+    declared_concepts = tuple(
+        concept for concept in conventions.concepts if concept["id"].lower() not in intent_ids
+    )
+    intent_concepts = intent_concepts + declared_concepts
     project_state = _intent_project_state(intent) if intent is not None else None
     project_state_authority = "intent" if project_state else ""
     releases = _recent_releases(git_records)
@@ -581,8 +626,9 @@ def resolve_project_facts(
     concept_authority = "+".join(
         tier
         for tier, supplied in (
-            ("intent", bool(intent_concepts)),
+            ("intent", len(intent_concepts) > len(declared_concepts)),
             ("memory", bool(decisions) or structure_summary is not None),
+            ("declared", bool(declared_concepts)),
         )
         if supplied
     )
@@ -600,7 +646,7 @@ def resolve_project_facts(
         # maintainers actually wrote a purpose (see field_placeholder).
         "purpose.one_sentence": description_authority if description else "",
         "purpose.problem": _from_intent(purpose_problem),
-        "purpose.non_goals": _from_intent(tuple(non_goals)),
+        "purpose.non_goals": non_goals_authority,
         "audiences": _from_intent(tuple(audiences)),
         "current_focus": _from_intent(tuple(current_focus)),
         "canonical_docs": docs_authority if docs else "",
@@ -608,15 +654,13 @@ def resolve_project_facts(
         "agent_guidance.read_first": (
             "intent" if intent_read_first else ("derived" if read_first else "")
         ),
-        "agent_guidance.safe_first_tasks": _from_intent(agent_guidance.get("safe_first_tasks")),
-        "agent_guidance.avoid_without_review": _from_intent(
-            agent_guidance.get("avoid_without_review")
-        ),
-        "agent_guidance.expected_behavior": _from_intent(agent_guidance.get("expected_behavior")),
+        "agent_guidance.safe_first_tasks": guidance_authority.get("safe_first_tasks", ""),
+        "agent_guidance.avoid_without_review": guidance_authority.get("avoid_without_review", ""),
+        "agent_guidance.expected_behavior": guidance_authority.get("expected_behavior", ""),
         "build_and_test.setup": command_authority["setup"],
         "build_and_test.test": command_authority["test"],
         "build_and_test.benchmark": command_authority["benchmark"],
-        "guardrails": _from_intent(tuple(guardrails)),
+        "guardrails": guardrails_authority,
         "project_state": (
             project_state_authority
             if any(bool(value) for value in (project_state or {}).values())
@@ -624,6 +668,8 @@ def resolve_project_facts(
         ),
     }
 
+    if not stated_purpose and conventions.purpose and description == conventions.purpose:
+        stated_purpose = conventions.purpose
     placeholders = set()
     if not stated_purpose:
         placeholders.add("purpose.one_sentence")
@@ -668,7 +714,25 @@ def resolve_project_facts(
         field_authority=field_authority,
         field_placeholder=frozenset(placeholders),
         field_citations=citations,
+        marked_fields=conventions.by_marker,
+        convention_fields=frozenset(
+            name_
+            for name_ in conventions.by_convention
+            if field_authority.get(name_) == "declared"
+            or "declared" in field_authority.get(name_, "").split("+")
+        ),
     )
+
+
+def _frontmatter(docs_root: Path, path: str) -> dict[str, str]:
+    """``status``/``role`` a document states about itself in YAML frontmatter."""
+    try:
+        target = resolve_canonical_path(docs_root, path)
+        with target.open("rb") as handle:
+            head = handle.read(8192)
+    except Exception:  # noqa: BLE001 - unreadable means "states nothing"
+        return {}
+    return read_frontmatter(head.decode("utf-8", errors="replace"))
 
 
 def _recent_releases(git_records: tuple[NormalizedRecord, ...]) -> list[dict[str, Any]]:

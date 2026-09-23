@@ -1,5 +1,24 @@
 # Changelog — beacon
 
+## 2026-09-23 — near-zero authoring P1: markers, conventions, lazy loading
+
+- `src/beacon/sources/conventions.py` (new): `<!-- beacon:<kind> -->` markers in README/AGENTS/
+  CONTRIBUTING/SECURITY (purpose, non-goals, guardrail, concept, command, avoid), cited by line and
+  digest-pinned; fallback conventions (guardrail-like sections as one cited entry each, other AGENTS.md
+  sections as pointers, Non-goals, glossary, CODEOWNERS, mkdocs nav); frontmatter `status`/`role`
+  (including Menhir `artifact_status`). Excerpts capped at 300 chars. Vendor files never read.
+- `src/beacon/sources/declared.py`: carries `conventions`; marked commands win over CI; nav docs added.
+- `src/beacon/build/policy.py`: marked purpose is the maintainers' words (not a placeholder); declared
+  non-goals, guardrails (after intent, intent wins on id), concepts, review areas and expected behaviour
+  fill what intent leaves empty; frontmatter refines non-intent docs; `marked_fields`/`convention_fields`.
+- `src/beacon/build/requirements.py` + catalogue 1.1: `declared` allowed for non-goals, concepts,
+  guardrails, review areas, expected behaviour.
+- `src/beacon/main.py`: build and gaps report `conformance` (marked, by convention, inferred) with a
+  hint that conforming docs give better results -- a note, never an error.
+- `src/beacon/mcp/server.py`: connect-time instructions ask agents to load lazily (overview first,
+  task_hint, pull on demand).
+- Tests: `tests/test_conventions.py` (new). Docs: README, `.agent/data_models.md`.
+
 ## 2026-09-23 — near-zero authoring P0: declared sources, overlay init, citation digests
 
 - `src/beacon/sources/declared.py` (new): the `declared` source reads the project's own files on every build --

@@ -1143,6 +1143,7 @@ def _build_impl(
             "requirements": report,
             "gaps": gaps,
             "citations": dict(sorted(partial.field_citations.items())),
+            "conformance": _conformance(partial),
         }
         if intent and intent_digest is not None:
             _require_intent_unchanged(Path(intent), intent_digest, limits)
@@ -1253,6 +1254,7 @@ def _build_impl(
         "requirements": report,
         "gaps": gaps_from_report(report),
         "citations": dict(sorted(facts.field_citations.items())),
+        "conformance": _conformance(facts),
     }
     if fmt == "json":
         _json("build", ok=True, result_payload=payload)
@@ -1412,9 +1414,20 @@ def _clear_defaulted_status(manifest: Any, path: Path, digest: str | None, limit
     document = yaml.safe_load(raw)
     project = document.get("project") if isinstance(document, dict) else None
     if isinstance(project, dict) and "status" not in project:
-        return dataclasses.replace(
+        manifest = dataclasses.replace(
             manifest, project=dataclasses.replace(manifest.project, status="")
         )
+    # Likewise a canonical doc listed without a status: the document's own
+    # frontmatter may state it (the build falls back to "current" as before).
+    raw_docs = document.get("canonical_docs") if isinstance(document, dict) else None
+    if isinstance(raw_docs, list) and len(raw_docs) == len(manifest.canonical_docs):
+        docs = tuple(
+            dataclasses.replace(doc, status="")
+            if isinstance(raw, dict) and "status" not in raw
+            else doc
+            for doc, raw in zip(manifest.canonical_docs, raw_docs, strict=True)
+        )
+        manifest = dataclasses.replace(manifest, canonical_docs=docs)
     return manifest
 
 
@@ -1425,6 +1438,37 @@ def _require_intent_unchanged(path: Path, digest: str | None, limits: Any) -> No
             "intent_manifest_changed",
             "the intent manifest changed during the build; nothing was written, rebuild",
         )
+
+
+#: Shown when fields came from conventions or guesses: a warning, never an error.
+CONFORMANCE_HINT = (
+    "conforming docs give better results: mark sections with "
+    "<!-- beacon:guardrail id=... --> ... <!-- /beacon --> (also purpose, non-goals, concept, "
+    "command, avoid) for exact, pinned citations"
+)
+
+
+def _conformance(facts: Any) -> dict[str, Any]:
+    """Which fields came from explicit markers, conventions, or guesses."""
+    inferred = sorted(
+        name for name, authority in facts.field_authority.items() if authority == "inferred"
+    )
+    by_convention = sorted(facts.convention_fields)
+    return {
+        "marked": sorted(facts.marked_fields),
+        "by_convention": by_convention,
+        "inferred": inferred,
+        "hint": CONFORMANCE_HINT if (by_convention or inferred) else "",
+    }
+
+
+def _text_conformance(payload: dict[str, Any]) -> None:
+    conformance = payload.get("conformance") or {}
+    if not conformance.get("hint"):
+        return
+    loose = [*conformance.get("by_convention", []), *conformance.get("inferred", [])]
+    typer.echo(f"  i {len(loose)} field(s) from conventions or guesses ({', '.join(loose)})")
+    typer.echo(f"    {conformance['hint']}")
 
 
 def _text_gaps(payload: dict[str, Any]) -> None:
@@ -1439,6 +1483,7 @@ def _text_gaps(payload: dict[str, Any]) -> None:
         cited = payload.get("citations", {}).get(row["field"])
         at = f"; from {cited}" if cited else ""
         typer.echo(f"  {mark} {row['field']}: {row['status']} (by {by}{at}; allowed {allowed})")
+    _text_conformance(payload)
 
 
 def _text_build(payload: dict[str, Any]) -> None:
@@ -1458,6 +1503,7 @@ def _text_build(payload: dict[str, Any]) -> None:
         typer.echo(f"  ⚠ drift {drift['code']}: {drift['detail']}")
     for gap in payload["gaps"]:
         typer.echo(f"  · gap {gap['code']}: {gap['field']} (from {'/'.join(gap['sources'])})")
+    _text_conformance(payload)
     if payload["snapshot_path"]:
         typer.echo(f"  snapshot: {payload['snapshot_path']}")
 

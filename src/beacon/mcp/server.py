@@ -27,10 +27,13 @@ logger = logging.getLogger(__name__)
 # exactly five tools: no gateway meta-tools, no transforms.
 mcp = FastMCP(
     name="beacon",
+    # Sent once on connect, so it is kept to a few lines: load only what the task needs.
     instructions=(
-        "Beacon: a self-describing, machine-readable project knowledge surface. "
-        "Connect your agent to understand the project before touching code. "
-        "Start with beacon_project_overview or beacon_agent_onboarding."
+        "Beacon: cited, current knowledge about this project. Load it lazily: start with "
+        "beacon_project_overview, then call beacon_agent_onboarding or beacon_guardrails "
+        "with a task_hint for what you are about to change. Use beacon_search and "
+        "beacon_explain_concept only when a question comes up, and open cited files only "
+        "when you need their full text."
     ),
     lifespan=beacon_lifespan,
 )
