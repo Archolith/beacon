@@ -1048,22 +1048,6 @@ def _build_impl(
         except LimitError as exc:
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
 
-    # The code host's view of project state (opt-in, never fatal).
-    forge_facts: Any = None
-    forge_payload: dict[str, Any] | None = None
-    if forge:
-        from beacon.sources.forge import ForgeError, collect_forge, forge_token
-
-        try:
-            forge_facts = collect_forge(git_origin, token=forge_token())
-            forge_payload = {
-                "status": "ok",
-                "repository": forge_facts.repository,
-                "fields": sorted(forge_facts.fields),
-            }
-        except ForgeError as exc:
-            forge_payload = {"status": "error", "code": exc.code, "message": str(exc)}
-
     memory_records: tuple[Any, ...] = ()
     evidence: Any = None
     if memory_evidence or memory:
@@ -1117,6 +1101,27 @@ def _build_impl(
         intent_manifest = _clear_defaulted_status(
             intent_manifest, Path(intent), intent_digest, limits
         )
+
+    # The code host's view of project state (opt-in, never fatal).
+    forge_facts: Any = None
+    forge_payload: dict[str, Any] | None = None
+    if forge:
+        from beacon.sources.forge import ForgeError, collect_forge, forge_token
+
+        try:
+            from beacon.sources.forge import DEFAULT_LABELS
+
+            labels = dict(DEFAULT_LABELS)
+            if intent_manifest is not None:
+                labels.update(intent_manifest.forge.labels)
+            forge_facts = collect_forge(git_origin, token=forge_token(), labels=labels)
+            forge_payload = {
+                "status": "ok",
+                "repository": forge_facts.repository,
+                "fields": sorted(forge_facts.fields),
+            }
+        except ForgeError as exc:
+            forge_payload = {"status": "error", "code": exc.code, "message": str(exc)}
 
     intent_payload = {"path": intent, "source": intent_source}
 

@@ -280,6 +280,19 @@ and only sent as a header; public repositories work without one. A rate limit, r
 or an unreachable host stops the forge source at once, without retrying, and the build
 continues without it and reports why.
 
+The label names are the project's call. Override any group in `beacon.yaml` (an empty list
+turns that group off; groups you leave out keep the defaults):
+
+```yaml
+forge:
+  labels:
+    blockers: [P0, blocked]
+    pending_decisions: [needs-decision]
+    safe_first_tasks: []
+```
+
+This block configures the build and is never served to agents.
+
 ### Memory providers
 
 A memory provider reports what it has indexed about a project. Beacon defines the contract;

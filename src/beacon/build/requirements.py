@@ -54,6 +54,9 @@ STATUS_PLACEHOLDER = "placeholder"
 
 #: Manifest fields Beacon itself fixes; never asked for, never a gap.
 BEACON_OWNED_FIELDS = frozenset({"beacon_version"})
+#: beacon.yaml keys that configure the build rather than describe the project:
+#: never asked for, never a gap, never served (``forge`` holds the label names).
+BUILD_CONFIG_FIELDS = frozenset({"forge"})
 
 #: Policy authority labels -> catalogue tiers.
 _AUTHORITY_TIER = {
@@ -297,6 +300,7 @@ def catalogue_payload() -> dict[str, Any]:
 
 __all__ = [
     "BEACON_OWNED_FIELDS",
+    "BUILD_CONFIG_FIELDS",
     "STATUS_PLACEHOLDER",
     "CATALOGUE",
     "CATALOGUE_NAME",

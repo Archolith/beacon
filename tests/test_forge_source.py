@@ -11,7 +11,8 @@ import pytest
 from typer.testing import CliRunner
 
 from beacon.build import policy as policy_mod
-from beacon.core.loader import parse_manifest
+from beacon.core.loader import ManifestError, parse_manifest
+from beacon.core.schema import served_manifest_payload
 from beacon.main import app
 from beacon.sources import forge as forge_mod
 from beacon.sources.forge import ForgeError, ForgeFacts, collect_forge, github_slug
@@ -224,7 +225,7 @@ def test_build_forge_reports_what_it_supplied(
 ) -> None:
     root = _repo(tmp_path)
     facts = _collect(_Recorder(_routes()))
-    monkeypatch.setattr(forge_mod, "collect_forge", lambda origin, token=None: facts)
+    monkeypatch.setattr(forge_mod, "collect_forge", lambda origin, **kwargs: facts)
     result = runner.invoke(
         app, ["build", "--repo", str(root), "--forge", "--format", "json", "--gaps-only"]
     )
@@ -239,7 +240,7 @@ def test_build_continues_when_the_forge_fails(
 ) -> None:
     root = _repo(tmp_path)
 
-    def fail(origin: Any, token: Any = None) -> ForgeFacts:
+    def fail(origin: Any, **kwargs: Any) -> ForgeFacts:
         raise ForgeError(forge_mod.FORGE_RATE_LIMITED, "the code host's rate limit is exhausted")
 
     monkeypatch.setattr(forge_mod, "collect_forge", fail)
@@ -266,3 +267,78 @@ def test_build_without_forge_makes_no_request(
     result = runner.invoke(app, ["build", "--repo", str(root), "--format", "json", "--gaps-only"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["result"]["forge"] is None
+
+
+# ---------------------------------------------------------------------------
+# Label names from beacon.yaml
+# ---------------------------------------------------------------------------
+
+
+def test_beacon_yaml_labels_are_parsed_and_validated() -> None:
+    manifest = parse_manifest(
+        {
+            "beacon_version": "0.1",
+            "project": {"name": "w"},
+            "forge": {"labels": {"blockers": ["P0", "blocked", "P0"], "safe_first_tasks": []}},
+        }
+    )
+    assert manifest.forge.labels == {"blockers": ("P0", "blocked"), "safe_first_tasks": ()}
+    for bad in (
+        {"labels": {"bugs": ["x"]}},
+        {"labels": {"blockers": ["x" * 51]}},
+        {"labels": {"blockers": [f"l{i}" for i in range(11)]}},
+        {"labels": {"blockers": [3]}},
+    ):
+        with pytest.raises(ManifestError):
+            parse_manifest({"beacon_version": "0.1", "project": {"name": "w"}, "forge": bad})
+
+
+def test_forge_config_is_never_served() -> None:
+    manifest = parse_manifest(
+        {
+            "beacon_version": "0.1",
+            "project": {"name": "w"},
+            "forge": {"labels": {"blockers": ["P0"]}},
+        }
+    )
+    assert "forge" not in served_manifest_payload(manifest)
+
+
+def test_build_uses_beacon_yaml_labels_over_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo(tmp_path)
+    (root / "beacon.yaml").write_text(
+        "beacon_version: '0.1'\nproject:\n  status: experimental\n"
+        "forge:\n  labels:\n    blockers: [P0]\n    safe_first_tasks: []\n",
+        encoding="utf-8",
+    )
+    seen: dict[str, Any] = {}
+
+    def capture(origin: Any, **kwargs: Any) -> ForgeFacts:
+        seen.update(kwargs)
+        return ForgeFacts(repository="acme/widgets")
+
+    monkeypatch.setattr(forge_mod, "collect_forge", capture)
+    result = runner.invoke(
+        app, ["build", "--repo", str(root), "--forge", "--format", "json", "--gaps-only"]
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["labels"] == {
+        "blockers": ("P0",),
+        "pending_decisions": forge_mod.DEFAULT_LABELS["pending_decisions"],
+        "safe_first_tasks": (),
+    }
+
+
+def test_an_empty_group_makes_no_request() -> None:
+    recorder = _Recorder(_routes())
+    collect_forge(
+        ORIGIN,
+        labels={"blockers": ("blocker",), "pending_decisions": (), "safe_first_tasks": ()},
+        transport=httpx.MockTransport(recorder),
+    )
+    labels = [
+        r.url.params.get("labels") for r in recorder.requests if r.url.path.endswith("/issues")
+    ]
+    assert labels == ["blocker"]

@@ -28,6 +28,7 @@ from typer.testing import CliRunner
 from beacon.build import policy as policy_mod
 from beacon.build.requirements import (
     BEACON_OWNED_FIELDS,
+    BUILD_CONFIG_FIELDS,
     CATALOGUE,
     catalogue_payload,
 )
@@ -433,7 +434,8 @@ def _leaf_fields(cls: type, prefix: str = "") -> set[str]:
 
 def test_catalogue_covers_every_manifest_field() -> None:
     catalogued = {item.field for item in CATALOGUE}
-    assert _leaf_fields(BeaconManifest) == catalogued | BEACON_OWNED_FIELDS
+    # Build configuration (e.g. forge label names) is not project knowledge.
+    assert _leaf_fields(BeaconManifest) == catalogued | BEACON_OWNED_FIELDS | BUILD_CONFIG_FIELDS
     assert not catalogued & BEACON_OWNED_FIELDS
 
 

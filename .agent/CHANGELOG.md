@@ -14,6 +14,10 @@
   for current focus, safe first tasks and project state.
 - `src/beacon/main.py`: `beacon build --forge`; the report carries `forge` (ok with the fields it
   supplied, or the error code); a forge failure never fails the build.
+- Label names are configurable in `beacon.yaml` (`forge.labels` for blockers, pending_decisions,
+  safe_first_tasks; an empty list disables a group; omitted groups keep the defaults). Validated
+  by the loader (known groups, at most 10 one-line labels of 50 characters), stripped from served
+  output, and exempt from the requirements catalogue as build configuration (`BUILD_CONFIG_FIELDS`).
 - Tests: `tests/test_forge_source.py` (new; HTTP always mocked). Docs: README.
 
 ## 2026-09-23 — near-zero authoring P1: markers, conventions, lazy loading
