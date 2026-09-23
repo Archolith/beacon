@@ -54,6 +54,7 @@ from beacon.sources.base import (
 )
 from beacon.sources.conventions import ConventionFacts, read_frontmatter
 from beacon.sources.declared import DeclaredFacts, DeclaredValue
+from beacon.sources.forge import ForgeFacts
 
 #: Stable build-failure codes (never carry content or paths).
 BUILD_IDENTITY_UNRESOLVED = "build_identity_unresolved"
@@ -210,6 +211,7 @@ def resolve_project_facts(
     strict: bool = True,
     menhir_records: tuple[NormalizedRecord, ...] | None = None,
     declared: DeclaredFacts | None = None,
+    forge: ForgeFacts | None = None,
 ) -> MergedProjectFacts:
     """Resolve merged records into the facts the projection consumes.
 
@@ -505,6 +507,10 @@ def resolve_project_facts(
     if not non_goals and conventions.non_goals:
         non_goals, non_goals_authority = conventions.non_goals, "declared"
     current_focus = intent.current_focus if intent is not None else ()
+    current_focus_authority = "intent" if current_focus else ""
+    if not current_focus and forge is not None and forge.current_focus:
+        # Open milestones on the code host are what the maintainers are working on.
+        current_focus, current_focus_authority = forge.current_focus, "forge"
     audiences = intent.audiences if intent is not None else ()
     build_and_test = (
         {
@@ -572,6 +578,9 @@ def resolve_project_facts(
             "expected_behavior": tuple(guidance.expected_behavior),
         }
     guidance_authority = {key: ("intent" if value else "") for key, value in agent_guidance.items()}
+    if not agent_guidance.get("safe_first_tasks") and forge is not None and forge.safe_first_tasks:
+        agent_guidance["safe_first_tasks"] = forge.safe_first_tasks
+        guidance_authority["safe_first_tasks"] = "forge"
     for key, derived_items in (
         ("avoid_without_review", conventions.avoid),
         ("expected_behavior", conventions.expected_behavior),
@@ -611,6 +620,23 @@ def resolve_project_facts(
     intent_concepts = intent_concepts + declared_concepts
     project_state = _intent_project_state(intent) if intent is not None else None
     project_state_authority = "intent" if project_state else ""
+    # The code host fills each project-state group the intent manifest left empty.
+    if forge is not None:
+        filled = False
+        for group, forge_value in (
+            ("active_work", forge.active_work),
+            ("blockers", list(forge.blockers)),
+            ("pending_decisions", list(forge.pending_decisions)),
+            ("recently_completed", list(forge.recently_completed)),
+        ):
+            if forge_value and not (project_state or {}).get(group):
+                project_state = dict(project_state or {})
+                project_state[group] = forge_value
+                filled = True
+        if filled:
+            project_state_authority = "+".join(
+                tier for tier in (project_state_authority, "forge") if tier
+            )
     releases = _recent_releases(git_records)
     if releases and not (project_state or {}).get("recently_completed"):
         project_state = dict(project_state or {})
@@ -648,7 +674,7 @@ def resolve_project_facts(
         "purpose.problem": _from_intent(purpose_problem),
         "purpose.non_goals": non_goals_authority,
         "audiences": _from_intent(tuple(audiences)),
-        "current_focus": _from_intent(tuple(current_focus)),
+        "current_focus": current_focus_authority,
         "canonical_docs": docs_authority if docs else "",
         "core_concepts": concept_authority,
         "agent_guidance.read_first": (

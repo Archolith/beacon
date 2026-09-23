@@ -809,6 +809,16 @@ def build(
             "is asked by this checkout's origin (needs --repo)."
         ),
     ),
+    forge: bool = typer.Option(
+        False,
+        "--forge",
+        help=(
+            "Read project state from the code host (GitHub): open milestones, issues labelled "
+            "blocker/decision/good first issue, releases. Needs --repo with a GitHub origin; "
+            "the token comes from BEACON_FORGE_TOKEN or GITHUB_TOKEN. A failure is reported "
+            "and the build continues without it."
+        ),
+    ),
     out: str = typer.Option(
         "beacon.generated.yaml", "--out", help="Output manifest path (relative to --docs-root)."
     ),
@@ -843,6 +853,7 @@ def build(
             menhir_evidence=menhir_evidence,
             memory=memory,
             memory_project=memory_project,
+            forge=forge,
             out=out,
             snapshot_out=snapshot_out,
             docs_root=docs_root,
@@ -871,6 +882,7 @@ def _build_impl(
     menhir_evidence: str | None = None,
     memory: str | None = None,
     memory_project: str | None = None,
+    forge: bool = False,
     snapshot_out: str | None,
     docs_root: str | None,
     note: str | None,
@@ -1036,6 +1048,22 @@ def _build_impl(
         except LimitError as exc:
             raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
 
+    # The code host's view of project state (opt-in, never fatal).
+    forge_facts: Any = None
+    forge_payload: dict[str, Any] | None = None
+    if forge:
+        from beacon.sources.forge import ForgeError, collect_forge, forge_token
+
+        try:
+            forge_facts = collect_forge(git_origin, token=forge_token())
+            forge_payload = {
+                "status": "ok",
+                "repository": forge_facts.repository,
+                "fields": sorted(forge_facts.fields),
+            }
+        except ForgeError as exc:
+            forge_payload = {"status": "error", "code": exc.code, "message": str(exc)}
+
     memory_records: tuple[Any, ...] = ()
     evidence: Any = None
     if memory_evidence or memory:
@@ -1132,6 +1160,7 @@ def _build_impl(
                 git_origin=git_origin,
                 strict=False,
                 declared=declared,
+                forge=forge_facts,
             )
         except BuildError as exc:
             raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
@@ -1144,6 +1173,7 @@ def _build_impl(
             "gaps": gaps,
             "citations": dict(sorted(partial.field_citations.items())),
             "conformance": _conformance(partial),
+            "forge": forge_payload,
         }
         if intent and intent_digest is not None:
             _require_intent_unchanged(Path(intent), intent_digest, limits)
@@ -1162,6 +1192,7 @@ def _build_impl(
             repo_root=Path(repo) if repo else None,
             git_origin=git_origin,
             declared=declared,
+            forge=forge_facts,
         )
         raw = build_raw_manifest(facts)
         manifest_obj = parse_manifest(raw)
@@ -1255,6 +1286,7 @@ def _build_impl(
         "gaps": gaps_from_report(report),
         "citations": dict(sorted(facts.field_citations.items())),
         "conformance": _conformance(facts),
+        "forge": forge_payload,
     }
     if fmt == "json":
         _json("build", ok=True, result_payload=payload)
@@ -1462,6 +1494,17 @@ def _conformance(facts: Any) -> dict[str, Any]:
     }
 
 
+def _text_forge(payload: dict[str, Any]) -> None:
+    forge = payload.get("forge")
+    if not forge:
+        return
+    if forge.get("status") == "ok":
+        fields = ", ".join(forge.get("fields") or []) or "nothing"
+        typer.echo(f"  forge: {forge['repository']} supplied {fields}")
+    else:
+        typer.echo(f"  ⚠ forge skipped ({forge.get('code')}): {forge.get('message')}")
+
+
 def _text_conformance(payload: dict[str, Any]) -> None:
     conformance = payload.get("conformance") or {}
     if not conformance.get("hint"):
@@ -1484,6 +1527,7 @@ def _text_gaps(payload: dict[str, Any]) -> None:
         at = f"; from {cited}" if cited else ""
         typer.echo(f"  {mark} {row['field']}: {row['status']} (by {by}{at}; allowed {allowed})")
     _text_conformance(payload)
+    _text_forge(payload)
 
 
 def _text_build(payload: dict[str, Any]) -> None:
@@ -1504,6 +1548,7 @@ def _text_build(payload: dict[str, Any]) -> None:
     for gap in payload["gaps"]:
         typer.echo(f"  · gap {gap['code']}: {gap['field']} (from {'/'.join(gap['sources'])})")
     _text_conformance(payload)
+    _text_forge(payload)
     if payload["snapshot_path"]:
         typer.echo(f"  snapshot: {payload['snapshot_path']}")
 

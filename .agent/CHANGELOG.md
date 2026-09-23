@@ -1,5 +1,21 @@
 # Changelog — beacon
 
+## 2026-09-23 — near-zero authoring P2: project state from the code host
+
+- `src/beacon/sources/forge.py` (new): opt-in GitHub source. Open milestones -> current focus and
+  active work; issues labelled blocker/blocked and decision/needs-decision/rfc -> blockers and pending
+  decisions; `good first issue` -> safe first tasks; releases (not drafts) -> recently completed.
+  Bounded (one page per request, at most five items per field), read-only, token from
+  `BEACON_FORGE_TOKEN`/`GITHUB_TOKEN` sent only as a header, titles the secret detector flags dropped,
+  every item cites its URL. Rate limit, 401/403, 404 or an unreachable host stop it at once (no retry).
+- `src/beacon/build/policy.py`: forge fills current focus, safe first tasks and each project-state
+  group that `beacon.yaml` leaves empty; releases from the host are preferred over git tags.
+- `src/beacon/build/requirements.py` + catalogue 1.1 (unreleased, updated in place): `forge` allowed
+  for current focus, safe first tasks and project state.
+- `src/beacon/main.py`: `beacon build --forge`; the report carries `forge` (ok with the fields it
+  supplied, or the error code); a forge failure never fails the build.
+- Tests: `tests/test_forge_source.py` (new; HTTP always mocked). Docs: README.
+
 ## 2026-09-23 — near-zero authoring P1: markers, conventions, lazy loading
 
 - `src/beacon/sources/conventions.py` (new): `<!-- beacon:<kind> -->` markers in README/AGENTS/

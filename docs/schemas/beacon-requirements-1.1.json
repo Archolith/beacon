@@ -8,7 +8,7 @@
     "derived": "computed by Beacon from other fields",
     "declared": "other files the project wrote (manifests, license, CI, README, docs)",
     "inferred": "a heuristic guess from the project's files (low confidence)",
-    "forge": "the code host's API (issues, milestones, releases); planned"
+    "forge": "the code host's API (milestones, labelled issues, releases), opt-in"
   },
   "beacon_owned": [
     "beacon_version"
@@ -131,7 +131,8 @@
     {
       "field": "current_focus",
       "sources": [
-        "intent"
+        "intent",
+        "forge"
       ],
       "required": false,
       "gap_code": "current_focus_missing",
@@ -172,7 +173,8 @@
     {
       "field": "agent_guidance.safe_first_tasks",
       "sources": [
-        "intent"
+        "intent",
+        "forge"
       ],
       "required": false,
       "gap_code": "safe_first_tasks_missing",
@@ -243,7 +245,8 @@
       "field": "project_state",
       "sources": [
         "intent",
-        "git"
+        "git",
+        "forge"
       ],
       "required": false,
       "gap_code": "project_state_missing",

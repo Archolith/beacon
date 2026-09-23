@@ -268,6 +268,18 @@ read; point them at `AGENTS.md`.
   from the files or a memory provider also fills `purpose.one_sentence`; that is reported as a
   placeholder supplied by that source, never as the maintainers' words.
 
+### Project state from the code host (opt-in)
+
+`beacon build --repo . --forge` reads project state from GitHub for a checkout whose origin is
+on GitHub: open milestones become the current focus (the earliest due is the active work),
+open issues labelled `blocker`/`blocked` and `decision`/`needs-decision`/`rfc` become blockers
+and pending decisions, `good first issue` issues become safe first tasks, and releases become
+recently completed work. Each item cites its URL, capped at five per field. `beacon.yaml` wins
+wherever it states a field. The token is read from `BEACON_FORGE_TOKEN` (else `GITHUB_TOKEN`)
+and only sent as a header; public repositories work without one. A rate limit, refused access
+or an unreachable host stops the forge source at once, without retrying, and the build
+continues without it and reports why.
+
 ### Memory providers
 
 A memory provider reports what it has indexed about a project. Beacon defines the contract;

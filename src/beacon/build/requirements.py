@@ -77,7 +77,7 @@ class Requirement:
 
 
 _I, _G, _M, _D = TIER_INTENT, TIER_GIT, TIER_MEMORY, TIER_DERIVED
-_DC, _IN = TIER_DECLARED, TIER_INFERRED
+_DC, _IN, _F = TIER_DECLARED, TIER_INFERRED, TIER_FORGE
 
 CATALOGUE: tuple[Requirement, ...] = (
     Requirement(
@@ -135,7 +135,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     Requirement("audiences", (_I,), False, "audiences_missing", "Who the project is for."),
     Requirement(
         "current_focus",
-        (_I,),
+        (_I, _F),
         False,
         "current_focus_missing",
         "What the maintainers are working on now.",
@@ -163,7 +163,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "agent_guidance.safe_first_tasks",
-        (_I,),
+        (_I, _F),
         False,
         "safe_first_tasks_missing",
         "Tasks a new agent can safely start with.",
@@ -208,7 +208,7 @@ CATALOGUE: tuple[Requirement, ...] = (
     ),
     Requirement(
         "project_state",
-        (_I, _G),
+        (_I, _G, _F),
         False,
         "project_state_missing",
         "Active work, recent completions, blockers and pending decisions.",
@@ -279,7 +279,7 @@ def catalogue_payload() -> dict[str, Any]:
             TIER_DERIVED: "computed by Beacon from other fields",
             TIER_DECLARED: "other files the project wrote (manifests, license, CI, README, docs)",
             TIER_INFERRED: "a heuristic guess from the project's files (low confidence)",
-            TIER_FORGE: "the code host's API (issues, milestones, releases); planned",
+            TIER_FORGE: "the code host's API (milestones, labelled issues, releases), opt-in",
         },
         "beacon_owned": sorted(BEACON_OWNED_FIELDS),
         "requirements": [
