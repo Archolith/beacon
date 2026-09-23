@@ -540,7 +540,8 @@ no LLM or embedding, no telemetry, and no update check. The optional HTTP compat
 listens only on loopback and serves the same startup snapshot. Beacon reads only the manifest and
 the documents it lists.
 
-Beacon aims to become an open standard for how projects describe themselves to coding agents;
+Beacon aims to become an open standard: an MCP endpoint each project publishes so coding agents can
+ask it, live and with citations, what the project is and how to work on it;
 the direction, roles and track are in [`docs/beacon-open-standard.md`](docs/beacon-open-standard.md).
 Track the product path in
 [`docs/beacon-functional-product-roadmap.md`](docs/beacon-functional-product-roadmap.md). The

@@ -2,9 +2,10 @@
 
 ## 2026-09-22 — docs: Beacon as an open standard
 
-- `docs/beacon-open-standard.md` (new): the gap next to AGENTS.md, llms.txt, doc servers and generated wikis; the
-  standard's layers and schemas; roles; principles; proposed conformance and versioning; direct mode vs the
-  optional Hub; evidence needed before claiming a standard; the S0-S5 track; open decisions.
+- `docs/beacon-open-standard.md` (new): Beacon as an MCP endpoint that answers agents live with citations (static,
+  live and later LLM-synthesized answer modes); the gap next to AGENTS.md, llms.txt, doc servers and generated wikis;
+  the standard's layers and schemas; roles; principles; proposed conformance and versioning; direct mode vs the
+  optional Hub; evidence needed before claiming a standard; the S0-S7 track; open decisions.
 - `docs/beacon-strategy-handoff.md`, `docs/beacon-functional-product-roadmap.md`, `.agent/architecture.md`,
   `README.md`: Menhir is one swappable memory provider behind the backend-neutral contract, not the beacon generator.
 - `.agent/README.md`: router row for the standard doc.
