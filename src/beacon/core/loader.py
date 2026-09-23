@@ -26,10 +26,12 @@ from beacon.core.limits import (
     read_bytes_bounded,
 )
 from beacon.core.schema import (
+    FORGE_LABEL_GROUPS,
     BeaconAgentGuidance,
     BeaconBuildTest,
     BeaconConcept,
     BeaconDoc,
+    BeaconForgeConfig,
     BeaconGuardrail,
     BeaconManifest,
     BeaconProjectInfo,
@@ -246,6 +248,7 @@ def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
         project_state=_parse_project_state(
             _as_map(raw.get("project_state", _MISSING), "project_state", optional=True)
         ),
+        forge=_parse_forge(_as_map(raw.get("forge", _MISSING), "forge", optional=True)),
     )
 
 
@@ -394,6 +397,38 @@ def _bounded_state_text(value: Any, field: str, maximum: int) -> str:
     if len(text) > maximum:
         raise ManifestError(f"{field} must contain at most {maximum} characters")
     return text
+
+
+_MAX_FORGE_LABELS = 10
+_MAX_FORGE_LABEL_CHARS = 50
+
+
+def _parse_forge(data: dict[str, Any]) -> BeaconForgeConfig:
+    labels_raw = _as_map(data.get("labels", _MISSING), "forge.labels", optional=True)
+    labels: dict[str, tuple[str, ...]] = {}
+    for group, value in labels_raw.items():
+        if group not in FORGE_LABEL_GROUPS:
+            raise ManifestError(
+                f"forge.labels has an unknown group (expected one of {list(FORGE_LABEL_GROUPS)})"
+            )
+        names = _as_list(value, f"forge.labels.{group}")
+        if len(names) > _MAX_FORGE_LABELS:
+            raise ManifestError(f"forge.labels.{group} allows at most {_MAX_FORGE_LABELS} labels")
+        cleaned: list[str] = []
+        for name in names:
+            if (
+                not isinstance(name, str)
+                or not name.strip()
+                or len(name) > _MAX_FORGE_LABEL_CHARS
+                or "\n" in name
+            ):
+                raise ManifestError(
+                    f"forge.labels.{group} entries must be one-line strings of at most "
+                    f"{_MAX_FORGE_LABEL_CHARS} characters"
+                )
+            cleaned.append(name.strip())
+        labels[group] = tuple(dict.fromkeys(cleaned))
+    return BeaconForgeConfig(labels=labels)
 
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

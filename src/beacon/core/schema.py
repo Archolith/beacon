@@ -160,6 +160,21 @@ class BeaconProjectState:
     pending_decisions: tuple[BeaconStateItem, ...] = ()
 
 
+#: Project-state groups the forge source fills from labelled issues.
+FORGE_LABEL_GROUPS = ("blockers", "pending_decisions", "safe_first_tasks")
+
+
+@dataclass(frozen=True)
+class BeaconForgeConfig:
+    """Build configuration for ``beacon build --forge``; never served to agents.
+
+    ``labels`` maps a group in :data:`FORGE_LABEL_GROUPS` to the issue labels that mean
+    it. Only groups the file states are present; an empty tuple turns a group off.
+    """
+
+    labels: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class BeaconManifest:
     """The parsed, typed representation of ``beacon.yaml``."""
@@ -175,6 +190,7 @@ class BeaconManifest:
     build_and_test: BeaconBuildTest = field(default_factory=BeaconBuildTest)
     guardrails: tuple[BeaconGuardrail, ...] = ()
     project_state: BeaconProjectState = field(default_factory=BeaconProjectState)
+    forge: BeaconForgeConfig = field(default_factory=BeaconForgeConfig)
 
     def concept_by_id(self, concept_id: str) -> BeaconConcept | None:
         """Return the concept whose id matches (case-insensitive), or None."""
@@ -280,7 +296,9 @@ def served_manifest_payload(manifest: BeaconManifest) -> dict[str, Any]:
     building; the served resource contracts (snapshot 1.0, concept and
     guardrail resources 1.0) do not carry it.
     """
-    return _without_digests(asdict(manifest))
+    payload = _without_digests(asdict(manifest))
+    payload.pop("forge", None)  # build configuration, not project knowledge
+    return payload
 
 
 def _without_digests(value: Any) -> Any:
