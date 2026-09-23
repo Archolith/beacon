@@ -51,14 +51,15 @@ constraint. It does not contain a Git URL or depend on a private package index.
 
 ## Quick start
 
-The v0.2 product loop is: initialize, review, validate strictly, inspect with a
-task in mind, export a reviewable snapshot, then connect an agent.
+The product loop is: initialize, say what only you can say, build, validate strictly,
+inspect with a task in mind, export a reviewable snapshot, then connect an agent.
 
 ```text
-beacon init
-  -> review beacon.yaml
-  -> beacon validate --strict-warnings
-  -> beacon inspect --task-hint "..."
+beacon init                      # beacon.yaml: the fields only maintainers can answer, empty
+  -> fill purpose, non-goals, guardrails
+  -> beacon build --repo .       # reads the rest from your files; writes beacon.generated.yaml
+  -> beacon validate --strict-warnings beacon.generated.yaml
+  -> beacon inspect --task-hint "..." beacon.generated.yaml
   -> beacon export
   -> connect MCP client / beacon serve
   -> optional plain JSON / beacon serve-http
@@ -66,8 +67,12 @@ beacon init
 
 **1. Add a `beacon.yaml` to your repo.**
 
-The manifest is the source of truth. `init` generates a conservative starter from
-bounded repository evidence; you can also write one by hand. See
+`beacon.yaml` holds the project's judgment: purpose, non-goals, guardrails, review areas.
+`init` writes those fields empty and nothing else: name, description, license, language,
+commands, docs and releases are read from the project's own files by `beacon build` on every
+run, so they never go stale in `beacon.yaml`. Check an overlay with
+`beacon validate --intent beacon.yaml`. A complete hand-written manifest still validates and
+serves directly, as below. See
 [`beacon.yaml`](beacon.yaml) in this repo for a full example (describing [Menhir](https://github.com/Archolith/menhir)), and the
 [`examples/`](examples/README.md) index for ready-to-run manifests in three
 different project shapes.
@@ -200,10 +205,29 @@ Each project owns its own data. Beacon asks for it, merges it with what the repo
 optional memory provider can prove, and writes the result:
 
 ```bash
-beacon init                        # starter beacon.yaml + the gaps it could not fill
-# edit beacon.yaml: purpose, guardrails, commands, canonical docs
+beacon init                        # beacon.yaml with the judgment fields, empty
+# edit beacon.yaml: purpose, non-goals, guardrails, review areas
 beacon build --repo .              # writes beacon.generated.yaml and reports remaining gaps
 ```
+
+Sources, from the project's words to guesses:
+
+| Source | What it supplies |
+|---|---|
+| `intent` | `beacon.yaml`: judgment, and overrides |
+| `declared` | Files the project already wrote: package manifest name, description and license; the license text (matched to SPDX); CI workflow install and test commands; the README lead paragraph; entry docs (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`, ...) |
+| `git` | Repository origin, recent release tags |
+| `memory` | A memory provider's indexed evidence |
+| `inferred` | Guesses, labelled low confidence: the conventional command for a build marker, the directory name |
+
+For judgment (name, description, commands) `beacon.yaml` wins and the files fill what it leaves
+empty. For facts about the code the checkout wins: a license the project's files state overrides
+a different one in `beacon.yaml`, and the build reports the contradiction as drift. The build
+report names the file and line each derived value came from.
+
+Pin a citation so a stale claim is caught: `beacon digest AGENTS.md --lines 12-18` prints a
+`sha256:` digest to store as `sources[].digest`; `beacon validate` warns `source_changed` when
+the cited text later changes.
 
 - `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority. When it exists it is
   the only intent that build may use: `--intent` may name it, or supply intent for a repository
@@ -214,15 +238,15 @@ beacon build --repo .              # writes beacon.generated.yaml and reports re
   description, canonical docs) is unresolved and a real build would refuse. Inconsistent inputs
   (the indexed root differs from `--repo`, or the manifest cites a document missing on disk) are
   errors to fix first, not gaps.
-- Without a `beacon.yaml` a build succeeds only when a memory provider supplies the required
-  fields; the result is thin and lists every empty field as a gap. With neither, the build
-  refuses and points to `--gaps-only`.
-- What Beacon asks for, and which source may supply each field (`intent`, `git`, `memory`,
-  `derived`), is published in
-  [`docs/schemas/beacon-requirements-1.0.json`](docs/schemas/beacon-requirements-1.0.json).
-  Guardrails, commands, problem and non-goals come only from the project's own manifest. A memory
-  provider's description currently also fills `purpose.one_sentence`; that is reported as
-  supplied by `memory`, never as the maintainers' words.
+- Without a `beacon.yaml` a build succeeds when the project's files (or a memory provider)
+  supply a description and at least one entry document; the result is thin and lists every
+  empty field as a gap. With none of them, the build refuses and points to `--gaps-only`.
+- What Beacon asks for, and which source may supply each field (`intent`, `declared`, `git`,
+  `memory`, `inferred`, `derived`; `forge` is catalogued for a later adapter), is published in
+  [`docs/schemas/beacon-requirements-1.1.json`](docs/schemas/beacon-requirements-1.1.json).
+  Guardrails, problem and non-goals come only from the project's own manifest. A description
+  from the files or a memory provider also fills `purpose.one_sentence`; that is reported as a
+  placeholder supplied by that source, never as the maintainers' words.
 
 ### Memory providers
 
