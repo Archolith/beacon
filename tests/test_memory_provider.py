@@ -141,6 +141,42 @@ def test_provider_evidence_for_another_project_is_refused(tmp_path: Path) -> Non
     assert not (root / "beacon.generated.yaml").exists()
 
 
+def _message(payload: dict[str, Any]) -> str:
+    return str(payload["diagnostics"][0]["message"])
+
+
+def test_a_provider_refusal_shows_the_providers_reason(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+
+    def refuse(_project: str) -> str:
+        raise ValueError("project was indexed from a checkout with uncommitted changes")
+
+    with _serve(_fake_provider(refuse)) as base:
+        code, payload = _build(root, "--memory", f"{base}/mcp", "--memory-project", "fixture")
+
+    assert code == 2
+    assert _code(payload) == "memory_invalid"
+    assert "refused the evidence request" in _message(payload)
+    assert "uncommitted changes" in _message(payload)
+    assert not (root / "beacon.generated.yaml").exists()
+
+
+def test_a_refusal_sent_as_plain_text_shows_the_providers_reason(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    text = "Error: ValueError: unknown project\x1b[31m" + "x" * 1000
+
+    with _serve(_fake_provider(lambda _project: text)) as base:
+        code, payload = _build(root, "--memory", f"{base}/mcp", "--memory-project", "fixture")
+
+    assert code == 2
+    assert _code(payload) == "memory_invalid"
+    message = _message(payload)
+    assert "did not return an evidence document: Error: ValueError: unknown project" in message
+    assert "\x1b" not in message
+    assert message.endswith("...") and len(message) < 400
+    assert not (root / "beacon.generated.yaml").exists()
+
+
 # ---------------------------------------------------------------------------
 # Acceptance rows: each refuses before any write
 # ---------------------------------------------------------------------------
