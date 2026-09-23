@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from beacon.core.citation_digest import CitationUnavailable, digest_citation
 from beacon.core.paths import (
     CODE_UNSAFE_CANONICAL_PATH,
     UnsafeCanonicalPath,
@@ -33,6 +34,7 @@ from beacon.core.schema import (
     ANSWER_STATUSES,  # noqa: F401  (re-exported convenience)
     KNOWLEDGE_STATUSES,
     BeaconManifest,
+    BeaconSource,
 )
 
 # ---------------------------------------------------------------------------
@@ -58,6 +60,10 @@ CODE_PURPOSE_MISSING = "purpose_missing"
 CODE_PROJECT_STATE_TITLE_MISSING = "project_state_title_missing"
 CODE_PROJECT_STATE_SOURCES_MISSING = "project_state_sources_missing"
 CODE_LEGACY_ISSUE = "legacy_issue"
+#: A pinned citation's text changed after the claim was written.
+CODE_SOURCE_CHANGED = "source_changed"
+#: A pinned citation can no longer be read (file gone or line range out of bounds).
+CODE_SOURCE_UNAVAILABLE = "source_unavailable"
 
 #: Every code the validator can emit. Used to tell an unknown acknowledgement
 #: code (never a real finding) from a known-but-unallowlisted one.
@@ -83,6 +89,8 @@ VALIDATION_CODES = frozenset(
         CODE_PROJECT_STATE_TITLE_MISSING,
         CODE_PROJECT_STATE_SOURCES_MISSING,
         CODE_LEGACY_ISSUE,
+        CODE_SOURCE_CHANGED,
+        CODE_SOURCE_UNAVAILABLE,
     }
 )
 
@@ -148,22 +156,28 @@ def validate_beacon_manifest(
     manifest: BeaconManifest,
     *,
     docs_root: str | Path | None = None,
+    intent: bool = False,
 ) -> ValidationReport:
     """Validate *manifest*, optionally resolving doc paths against *docs_root*.
 
     When *docs_root* is provided, each canonical doc path is checked for
-    existence (a dangling canonical doc is an error). When it is ``None``, path
-    existence is skipped but every other check still runs.
+    existence (a dangling canonical doc is an error) and every pinned citation
+    digest is recomputed (a mismatch is a ``source_changed`` warning). When it is
+    ``None``, path existence and digests are skipped but every other check runs.
+
+    ``intent=True`` validates a ``beacon.yaml`` overlay rather than a publishable
+    manifest: name, description and canonical docs may be absent because
+    ``beacon build`` derives them from the repository.
     """
     issues: list[ValidationIssue] = []
     root = Path(docs_root) if docs_root is not None else None
 
     # --- identity -----------------------------------------------------------
-    if not manifest.project.name.strip():
+    if not manifest.project.name.strip() and not intent:
         issues.append(
             ValidationIssue("error", "project.name", "is required", CODE_PROJECT_NAME_MISSING)
         )
-    if not manifest.project.description.strip():
+    if not manifest.project.description.strip() and not intent:
         issues.append(
             ValidationIssue(
                 "error",
@@ -199,7 +213,7 @@ def validate_beacon_manifest(
         )
 
     # --- canonical docs -----------------------------------------------------
-    if not manifest.canonical_docs:
+    if not manifest.canonical_docs and not intent:
         issues.append(
             ValidationIssue(
                 "error", "canonical_docs", "at least one is required", CODE_CANONICAL_DOCS_MISSING
@@ -336,7 +350,7 @@ def validate_beacon_manifest(
         )
 
     # --- build/test ---------------------------------------------------------
-    if not manifest.build_and_test.test.strip():
+    if not manifest.build_and_test.test.strip() and not intent:
         issues.append(
             ValidationIssue(
                 "warning",
@@ -382,7 +396,55 @@ def validate_beacon_manifest(
             for source in item.sources:
                 _check_status(issues, f"{where}.sources[].status", source.status)
 
+    if root is not None:
+        _check_digests(issues, manifest, root)
+
     return ValidationReport(tuple(issues))
+
+
+def _pinned_sources(manifest: BeaconManifest) -> list[tuple[str, BeaconSource]]:
+    """Every citation in *manifest* that carries a digest, with where it sits."""
+    found: list[tuple[str, BeaconSource]] = []
+    for concept in manifest.core_concepts:
+        found.extend((f"core_concepts[{concept.id}].sources[]", s) for s in concept.sources)
+    for guard in manifest.guardrails:
+        found.extend((f"guardrails[{guard.id}].sources[]", s) for s in guard.sources)
+    state = manifest.project_state
+    groups = (
+        ("active_work", () if state.active_work is None else (state.active_work,)),
+        ("recently_completed", state.recently_completed),
+        ("blockers", state.blockers),
+        ("pending_decisions", state.pending_decisions),
+    )
+    for group, items in groups:
+        for index, item in enumerate(items):
+            found.extend((f"project_state.{group}[{index}].sources[]", s) for s in item.sources)
+    return [(where, source) for where, source in found if source.digest and source.path]
+
+
+def _check_digests(issues: list[ValidationIssue], manifest: BeaconManifest, root: Path) -> None:
+    for where, source in _pinned_sources(manifest):
+        try:
+            current = digest_citation(root, source.path, source.line_start, source.line_end)
+        except CitationUnavailable:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    where,
+                    f"pinned citation cannot be read: {source.path}",
+                    CODE_SOURCE_UNAVAILABLE,
+                )
+            )
+            continue
+        if current != source.digest:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    where,
+                    f"cited text changed since it was pinned: {source.path}; review the claim",
+                    CODE_SOURCE_CHANGED,
+                )
+            )
 
 
 def require_valid_manifest(

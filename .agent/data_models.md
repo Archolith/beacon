@@ -43,10 +43,10 @@ observation time. Status companion schema `1.0` does not change snapshot schema 
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `name` | `str` | Required — validator errors if empty |
+| `name` | `str` | Required in a published manifest; optional in a `beacon.yaml` overlay (`validate --intent`), where the build derives it |
 | `tagline` | `str` | One-line pitch |
-| `description` | `str` | Required — validator errors if empty |
-| `status` | `str` | Controlled knowledge status; defaults to `experimental` |
+| `description` | `str` | Required in a published manifest; optional in an overlay (derived from the package manifest or README lead) |
+| `status` | `str` | Controlled knowledge status; defaults to `unknown` (unknown is an answer) |
 | `repository` | `str` | URL or empty |
 | `primary_language` | `str` | |
 | `license` | `str` | |
@@ -97,6 +97,20 @@ Traceable reference backing a claim. Used in both manifest types and answer resp
 | `line_start` | `int \| None` | Positive, 1-based start line |
 | `line_end` | `int \| None` | Positive end line; cannot precede `line_start` |
 | `status` | `str` | Knowledge status at citation point |
+| `digest` | `str` | `sha256:<hex>` of the cited text when pinned (`beacon digest`), else `""`. Validation and build recompute it; a mismatch is `source_changed`. Authoring-only: dropped from served snapshots and resources |
+
+### DeclaredFacts (`sources/declared.py`)
+
+What the project's own files state, read by `beacon build --repo` on every run. Each field is a
+`DeclaredValue(value, tier, path, line)` or `None`; `tier` is `declared` (stated in a file) or
+`inferred` (a heuristic guess).
+
+| Field | Source |
+|-------|--------|
+| `name`, `description`, `license` | `pyproject.toml` `[project]`, `package.json`, `Cargo.toml` `[package]`; description falls back to the README lead paragraph; license falls back to the LICENSE text matched to SPDX (a filename-only guess is `inferred`) |
+| `primary_language` | The package manifest (or `go.mod`) |
+| `setup`, `test` | The first project install and test command a CI workflow runs (`.github/workflows`, test/CI workflows first); otherwise the build marker's conventional command (`inferred`) |
+| `canonical_docs` | Present entry docs in reading order: README, AGENTS, CONTRIBUTING, SECURITY, `.agent/README.md`, `docs/README.md`, `docs/index.md`, `docs/architecture.md`. Agent-vendor files are never read |
 
 ### BeaconAgentGuidance
 

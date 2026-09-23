@@ -65,6 +65,19 @@ project_state:
         path: docs/beacon-functional-product-roadmap.md
         status: current
   recently_completed:
+    - title: Near-zero authoring P0 -- declared sources
+      summary: >
+        beacon build reads the project's own files (package manifest, license text, CI commands,
+        README lead, entry docs) on every run; beacon init writes only the judgment fields; cited
+        text can be pinned with a digest so drift is reported.
+      next_step: >
+        P1 convention readers (docs navigation, frontmatter, CODEOWNERS, AGENTS.md sections as
+        guardrail documents, section markers).
+      sources:
+        - type: file
+          title: Declared source
+          path: src/beacon/sources/declared.py
+          status: current
     - title: Verified project-status HTTP companion
       summary: >
         Added a source-cited declared-state model and immutable startup evidence for Git and source

@@ -1,5 +1,33 @@
 # Changelog — beacon
 
+## 2026-09-23 — near-zero authoring P0: declared sources, overlay init, citation digests
+
+- `src/beacon/sources/declared.py` (new): the `declared` source reads the project's own files on every build --
+  package manifest name/description/license, the LICENSE text matched to SPDX, CI install and test commands with
+  file:line citations, the README lead paragraph, and entry docs (README, AGENTS, CONTRIBUTING, SECURITY, ...).
+  Guesses (a build marker's conventional command, a license named only by filename) are labelled `inferred`.
+  Agent-vendor files (`CLAUDE.md`, `.cursor/rules`) are never read.
+- `src/beacon/build/policy.py`: precedence -- intent wins for judgment and declared fills the gaps; the checkout
+  wins for the license (a contradicting intent license is drift `intent_contradicts_checkout`). Name falls back to
+  the git origin, then the directory (`inferred`). Recent git tags become `project_state.recently_completed` when
+  intent states none. An explicit intent `unknown` status yields to memory. `field_citations` records file:line.
+- `src/beacon/build/requirements.py`: catalogue 1.1 with tiers `declared`, `inferred`, `forge` (planned);
+  `docs/schemas/beacon-requirements-1.1.json` published (1.0 kept).
+- `src/beacon/core/scaffold.py`: `beacon init` writes only the judgment fields, empty; discovered values stay in
+  the init report and are never frozen into `beacon.yaml`.
+- `src/beacon/core/citation_digest.py` (new), `schema.py`, `loader.py`, `validator.py`: `sources[].digest`
+  pins cited text; validation warns `source_changed` / `source_unavailable`. `beacon digest PATH --lines A-B`
+  prints a digest. Served snapshots drop digests (`served_manifest_payload`).
+- `validator.py`, `cli_support.py`, `main.py`: `beacon validate --intent` checks a `beacon.yaml` overlay (name,
+  description, docs and test command may be absent). `BeaconProjectInfo.status` defaults to `unknown`.
+- `main.py`: `beacon build --repo` reads the declared source and reports citations in text and JSON output.
+- Tests: `tests/test_declared_sources.py` (new); build, init and git-source tests updated for the new
+  behaviour (repo-only builds now succeed from the README; refusal cases use a repo with no prose).
+- Docs: README quick start and build sections, `docs/beacon-open-standard.md` (catalogue 1.1, settled decision
+  on declared sources), `.agent/data_models.md`.
+- `scripts/release_check.py`: the installed-wheel journey now runs init -> fill judgment fields in `beacon.yaml`
+  -> `build` -> strict validate / inspect / export / serve on `beacon.generated.yaml`.
+
 ## 2026-09-22 — memory providers: find the project by repository
 
 - `beacon build --memory URL` no longer requires `--memory-project`: without it Beacon asks the provider by

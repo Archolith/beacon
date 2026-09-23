@@ -52,7 +52,7 @@ from beacon.core.limits import (
 from beacon.core.loader import load_beacon_manifest
 from beacon.core.paths import is_unsafe_path, resolve_canonical_path
 from beacon.core.policy import Acknowledgement, PolicyEvaluation, evaluate_policy
-from beacon.core.schema import BeaconDoc, BeaconManifest
+from beacon.core.schema import BeaconDoc, BeaconManifest, served_manifest_payload
 from beacon.core.security import (
     CONTEXT_EXPORT,
     SecurityFinding,
@@ -364,7 +364,7 @@ def build_snapshot(
         manifest=SnapshotManifest(
             beacon_version=manifest.beacon_version,
             source_sha256=manifest_sha,
-            data=_json_safe(asdict(manifest)),
+            data=_json_safe(served_manifest_payload(manifest)),
         ),
         documents=documents,
         validation=validation,

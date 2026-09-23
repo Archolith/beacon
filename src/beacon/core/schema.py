@@ -56,6 +56,10 @@ class BeaconSource:
     line_start: int | None = None
     line_end: int | None = None
     status: str = "current"
+    #: ``sha256:<hex>`` of the cited text when it was pinned (see
+    #: :mod:`beacon.core.citation_digest`); "" when unpinned. A mismatch means
+    #: the cited text changed after the claim was written.
+    digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,8 @@ class BeaconProjectInfo:
     name: str
     tagline: str = ""
     description: str = ""
-    status: str = "experimental"
+    #: "unknown" unless the maintainers state it: unknown is an answer.
+    status: str = "unknown"
     repository: str = ""
     primary_language: str = ""
     license: str = ""
@@ -266,3 +271,26 @@ def to_payload(obj: Any) -> dict[str, Any]:
     :func:`dataclasses.asdict`.
     """
     return asdict(obj)
+
+
+def served_manifest_payload(manifest: BeaconManifest) -> dict[str, Any]:
+    """The manifest as served data: authoring-only fields removed.
+
+    A citation's ``digest`` exists to detect drift while authoring and
+    building; the served resource contracts (snapshot 1.0, concept and
+    guardrail resources 1.0) do not carry it.
+    """
+    return _without_digests(asdict(manifest))
+
+
+def _without_digests(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_digests(item)
+            for key, item in value.items()
+            if not (key == "digest" and "line_start" in value)
+        }
+    if isinstance(value, list | tuple):
+        # asdict keeps tuples as tuples; preserve the container type.
+        return type(value)(_without_digests(item) for item in value)
+    return value

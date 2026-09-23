@@ -11,6 +11,15 @@ authority:
   What *is* true: which files and documents actually exist.
 * **History** -- memory-provider evidence. What was *decided* and what is indexed
   about the project: identity, structure, documents, decision outcomes.
+* **Declared** -- other files the project wrote (package manifests, the license
+  file, CI workflows, the README lead, entry documents), read at every build
+  (:mod:`beacon.sources.declared`). ``inferred`` marks the heuristic guesses
+  that source makes (a conventional command, a license named only by filename).
+
+Precedence: for judgment (name, purpose, description, commands to recommend)
+intent wins and declared fills what intent leaves empty. For facts about the
+code the checkout wins: a license the project's files state overrides a
+different license in intent, and the contradiction is reported as drift.
 
 Three consequences implemented here:
 
@@ -36,12 +45,14 @@ from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconManifest
 from beacon.sources.base import (
     KIND_GIT_HEAD,
+    KIND_GIT_TAG,
     KIND_MEMORY_DECISION,
     KIND_MEMORY_DOCUMENT,
     KIND_MEMORY_IDENTITY,
     KIND_MEMORY_STRUCTURE,
     NormalizedRecord,
 )
+from beacon.sources.declared import DeclaredFacts, DeclaredValue
 
 #: Stable build-failure codes (never carry content or paths).
 BUILD_IDENTITY_UNRESOLVED = "build_identity_unresolved"
@@ -55,6 +66,8 @@ _READ_FIRST_LIMIT = 3
 #: Maximum decision concepts and implementation locations per concept.
 _MAX_DECISIONS = 32
 _MAX_LOCATIONS = 8
+#: Most recent git tags published as recently completed work.
+_MAX_RECENT_RELEASES = 5
 
 
 class BuildError(ValueError):
@@ -140,6 +153,9 @@ class MergedProjectFacts:
     #: schema default, `beacon init`'s "unknown", or a description standing in
     #: for a purpose the maintainers never stated. Still reported as gaps.
     field_placeholder: frozenset[str] = frozenset()
+    #: Catalogue field -> "path" or "path:line" of the project file a declared or
+    #: inferred value was read from (reported by the build, not published).
+    field_citations: dict[str, str] = field(default_factory=dict)
 
 
 def _plain(value: Any) -> Any:
@@ -188,6 +204,7 @@ def resolve_project_facts(
     git_origin: str | None = None,
     strict: bool = True,
     menhir_records: tuple[NormalizedRecord, ...] | None = None,
+    declared: DeclaredFacts | None = None,
 ) -> MergedProjectFacts:
     """Resolve merged records into the facts the projection consumes.
 
@@ -201,10 +218,21 @@ def resolve_project_facts(
     unresolved name, description or canonical-doc set is left empty instead
     of refusing (errors such as a root mismatch or a missing intent doc still
     raise). Facts from a non-strict call must never be projected.
+    ``declared`` is what the project's own files state (see the module docstring
+    for precedence).
     """
     if menhir_records is not None:  # deprecated keyword, one release
         memory_records = menhir_records
     drift: list[DriftRecord] = []
+    citations: dict[str, str] = {}
+
+    def _take(value: DeclaredValue | None, *fields: str) -> tuple[str, str]:
+        if value is None or not value.value.strip():
+            return "", ""
+        where = value.path if value.line is None else f"{value.path}:{value.line}"
+        for field_name in fields:
+            citations[field_name] = where
+        return value.value.strip(), value.tier
 
     identity = _first_record(memory_records, KIND_MEMORY_IDENTITY)
     if repo_root is not None and identity is not None:
@@ -227,12 +255,23 @@ def resolve_project_facts(
     name_authority = ""
     if intent is not None and intent.project.name.strip():
         name, name_authority = intent.project.name.strip(), "intent"
-    elif identity is not None:
+    if not name and declared is not None:
+        name, name_authority = _take(declared.name, "project.name")
+    if not name and identity is not None:
         name, name_authority = str(identity.payload.get("name") or ""), "memory"
+    if not name and git_origin:
+        tail = git_origin.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+        if tail:
+            name, name_authority = tail, "git"
+    if not name and repo_root is not None and repo_root.name:
+        # Last resort, a guess: the checkout's directory name.
+        name, name_authority = repo_root.resolve().name, "inferred"
+        citations["project.name"] = "."
     if not name and strict:
         raise BuildError(
             BUILD_IDENTITY_UNRESOLVED,
-            "no project name from intent manifest or memory evidence; refusing to invent one",
+            "no project name from intent, the project's files, memory evidence or git; "
+            "refusing to invent one",
         )
 
     description = ""
@@ -242,13 +281,22 @@ def resolve_project_facts(
     ):
         description = intent.purpose.one_sentence.strip() or intent.project.description.strip()
         description_authority = "intent"
-    elif identity is not None and str(identity.payload.get("description") or "").strip():
+    if not description and declared is not None:
+        description, description_authority = _take(
+            declared.description, "project.description", "purpose.one_sentence"
+        )
+    if (
+        not description
+        and identity is not None
+        and str(identity.payload.get("description") or "").strip()
+    ):
         description = str(identity.payload.get("description") or "").strip()
         description_authority = "memory"
     if not description and strict:
         raise BuildError(
             BUILD_DESCRIPTION_UNRESOLVED,
-            "no project description from intent manifest or memory evidence; refusing to invent one",
+            "no project description from intent, the project's files or memory evidence; "
+            "refusing to invent one",
         )
 
     primary_language = ""
@@ -261,6 +309,10 @@ def resolve_project_facts(
     elif identity is not None and str(identity.payload.get("primary_language") or "").strip():
         primary_language = str(identity.payload.get("primary_language") or "").strip()
         primary_language_authority = "memory"
+    if not primary_language and declared is not None:
+        primary_language, primary_language_authority = _take(
+            declared.primary_language, "project.primary_language"
+        )
 
     repository = ""
     repository_authority = ""
@@ -272,13 +324,17 @@ def resolve_project_facts(
     # project.status is always published (the manifest schema defaults it),
     # so an absent source falls back to Beacon's own default -- reported as
     # authority "default", never attributed to a source that did not say it.
-    status = "experimental"
+    status = "unknown"
     status_authority = "default"
-    if intent is not None and intent.project.status.strip():
-        status, status_authority = intent.project.status.strip(), "intent"
+    intent_status = intent.project.status.strip() if intent is not None else ""
+    if intent_status and not (intent_status.lower() == "unknown" and identity is not None):
+        # An explicit "unknown" (what `beacon init` writes) yields to a source that knows.
+        status, status_authority = intent_status, "intent"
     elif identity is not None and str(identity.payload.get("status") or "").strip():
         status = str(identity.payload.get("status") or "").strip()
         status_authority = "memory"
+    if status_authority == "default" and intent_status:
+        status, status_authority = intent_status, "intent"
 
     # -- canonical docs (intent asserts; memory cites; the filesystem decides) --
     docs: list[dict[str, str]] = []
@@ -332,10 +388,29 @@ def resolve_project_facts(
                 "status": "unknown",
             }
         )
+    declared_doc_count = 0
+    for path in declared.canonical_docs if declared is not None else ():
+        if path in seen or not _doc_exists(docs_root, path):
+            continue
+        seen.add(path)
+        declared_doc_count += 1
+        docs.append(
+            {
+                "path": path,
+                "role": declared.doc_role(path) if declared is not None else "reference",
+                "title": path,
+                # Existing is not a claim that the document is current.
+                "status": "unknown",
+            }
+        )
     # Attribute the set to the sources whose documents actually survived.
     docs_authority = "+".join(
         tier
-        for tier, count in (("intent", intent_doc_count), ("memory", memory_doc_count))
+        for tier, count in (
+            ("intent", intent_doc_count),
+            ("memory", memory_doc_count),
+            ("declared", declared_doc_count),
+        )
         if count
     )
     if not docs and strict:
@@ -414,6 +489,14 @@ def resolve_project_facts(
         if intent is not None
         else {"setup": "", "test": "", "benchmark": ""}
     )
+    command_authority = {
+        key: ("intent" if build_and_test.get(key, "").strip() else "")
+        for key in ("setup", "test", "benchmark")
+    }
+    if declared is not None:
+        for key, value in (("setup", declared.setup), ("test", declared.test)):
+            if not build_and_test.get(key, "").strip():
+                build_and_test[key], command_authority[key] = _take(value, f"build_and_test.{key}")
     if intent is not None:
         guardrails = [
             {
@@ -431,6 +514,8 @@ def resolve_project_facts(
                         "line_start": source.line_start,
                         "line_end": source.line_end,
                         "status": source.status,
+                        # Kept so the built manifest's validation can report drift.
+                        "digest": source.digest,
                     }
                     for source in guard.sources
                 ],
@@ -456,7 +541,23 @@ def resolve_project_facts(
         }
 
     tagline = intent.project.tagline if intent is not None else ""
-    license_name = intent.project.license if intent is not None else ""
+    license_name = intent.project.license.strip() if intent is not None else ""
+    license_authority = "intent" if license_name else ""
+    stated = declared.license if declared is not None else None
+    if stated is not None and stated.tier == "declared":
+        # A fact about the code: the project's own files win over intent.
+        if license_name and license_name.lower() != stated.value.lower():
+            drift.append(
+                DriftRecord(
+                    code="intent_contradicts_checkout",
+                    detail="beacon.yaml states a different license than the project's files; "
+                    "the files win",
+                    citation=stated.path,
+                )
+            )
+        license_name, license_authority = _take(stated, "project.license")
+    elif not license_name and stated is not None:
+        license_name, license_authority = _take(stated, "project.license")
     stated_purpose = intent.purpose.one_sentence.strip() if intent is not None else ""
     intent_concepts = (
         tuple(cast(dict[str, Any], _plain(asdict(concept))) for concept in intent.core_concepts)
@@ -464,6 +565,14 @@ def resolve_project_facts(
         else ()
     )
     project_state = _intent_project_state(intent) if intent is not None else None
+    project_state_authority = "intent" if project_state else ""
+    releases = _recent_releases(git_records)
+    if releases and not (project_state or {}).get("recently_completed"):
+        project_state = dict(project_state or {})
+        project_state["recently_completed"] = releases
+        project_state_authority = "+".join(
+            tier for tier in (project_state_authority, "git") if tier
+        )
 
     def _from_intent(value: Any) -> str:
         filled = value.strip() if isinstance(value, str) else value
@@ -485,7 +594,7 @@ def resolve_project_facts(
         "project.repository": repository_authority if repository else "",
         "project.primary_language": primary_language_authority if primary_language else "",
         "project.status": status_authority,
-        "project.license": _from_intent(license_name),
+        "project.license": license_authority if license_name else "",
         # The projection publishes `description` here, so the supplier is the one
         # that supplied the description; `stated_purpose` says whether the
         # maintainers actually wrote a purpose (see field_placeholder).
@@ -504,11 +613,15 @@ def resolve_project_facts(
             agent_guidance.get("avoid_without_review")
         ),
         "agent_guidance.expected_behavior": _from_intent(agent_guidance.get("expected_behavior")),
-        "build_and_test.setup": _from_intent(build_and_test.get("setup")),
-        "build_and_test.test": _from_intent(build_and_test.get("test")),
-        "build_and_test.benchmark": _from_intent(build_and_test.get("benchmark")),
+        "build_and_test.setup": command_authority["setup"],
+        "build_and_test.test": command_authority["test"],
+        "build_and_test.benchmark": command_authority["benchmark"],
         "guardrails": _from_intent(tuple(guardrails)),
-        "project_state": _from_intent(any(bool(value) for value in (project_state or {}).values())),
+        "project_state": (
+            project_state_authority
+            if any(bool(value) for value in (project_state or {}).values())
+            else ""
+        ),
     }
 
     placeholders = set()
@@ -554,7 +667,31 @@ def resolve_project_facts(
         stated_purpose=stated_purpose,
         field_authority=field_authority,
         field_placeholder=frozenset(placeholders),
+        field_citations=citations,
     )
+
+
+def _recent_releases(git_records: tuple[NormalizedRecord, ...]) -> list[dict[str, Any]]:
+    """The newest git tags as recently completed work, each citing its commit."""
+    tags = [r.payload for r in git_records if r.kind == KIND_GIT_TAG]
+    tags = [tag for tag in tags if str(tag.get("name") or "") and str(tag.get("commit") or "")]
+    tags.sort(
+        key=lambda tag: (str(tag.get("date") or ""), str(tag.get("name") or "")), reverse=True
+    )
+    items: list[dict[str, Any]] = []
+    for tag in tags[:_MAX_RECENT_RELEASES]:
+        name = str(tag["name"])
+        commit = str(tag["commit"])
+        date = str(tag.get("date") or "")
+        summary = f"Tagged {date[:10]} at {commit[:12]}." if date else f"Tagged at {commit[:12]}."
+        items.append(
+            {
+                "title": f"Release {name}",
+                "summary": summary,
+                "sources": [{"type": "commit", "title": name, "status": "current"}],
+            }
+        )
+    return items
 
 
 __all__ = [

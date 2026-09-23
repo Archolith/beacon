@@ -421,8 +421,9 @@ def test_init_prefers_adapter_url_over_config_read(tmp_path: Path, repo: Path) -
     assert report.git_evidence is not None
     repository = next(f for f in report.discovered if f.manifest_path == "project.repository")
     assert [(e.kind, e.path) for e in repository.evidence] == [("git_remote", ".")]
+    # init reports the repository; it no longer writes it into beacon.yaml.
     manifest = yaml.safe_load((worktree / "beacon.yaml").read_text(encoding="utf-8"))
-    assert manifest["project"]["repository"] == "https://github.com/acme/from-adapter.git"
+    assert "repository" not in manifest["project"]
 
 
 def test_init_reports_credential_url_findings_from_the_adapter(tmp_path: Path, repo: Path) -> None:

@@ -74,11 +74,14 @@ src/beacon/
 │   ├── loader.py        load_beacon_manifest(path) → BeaconManifest (bounded PyYAML)
 │   ├── paths.py         canonical-doc containment boundary + unsafe-path diagnostic
 │   ├── validator.py     validate_beacon_manifest(), require_valid_manifest(), stable diagnostic codes
+│   ├── citation_digest.py  sha256 digests that pin cited text; drift is `source_changed`
 │   ├── policy.py        serving/publication policy + explicit acknowledgement (parse/evaluate)
 │   ├── snapshot.py      static snapshot build + in-memory metadata-only derivation
 │   ├── chunk_resources.py  versioned chunk index, stable IDs, budgets, static resources
 │   ├── knowledge_resources.py  concept/guardrail indexes and static resources
 │   └── doc_index.py     DocIndex, DocChunk — heading-chunked, keyword search
+├── build/               `beacon build`: policy.py (source precedence), requirements.py (catalogue), project.py, snapshot.py
+├── sources/             build sources: git.py, memory.py + memory_client.py, declared.py (the project's own files)
 ├── provider/
 │   ├── base.py          @runtime_checkable BeaconProvider Protocol (5 methods)
 │   └── manifest_provider.py  ManifestBeaconProvider — v0 deterministic impl

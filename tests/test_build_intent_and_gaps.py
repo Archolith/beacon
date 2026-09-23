@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -325,20 +326,50 @@ def test_memory_only_build_is_thin_and_lists_gaps(tmp_path: Path) -> None:
     assert "concepts_omitted" not in _gap_codes(payload)
 
 
+def test_repo_only_build_reads_the_projects_own_files(tmp_path: Path) -> None:
+    """No beacon.yaml and no memory: the README and the checkout still build a beacon."""
+    root = _fixture_repo(tmp_path)
+
+    code, payload = _invoke(root, evidence=False)
+
+    assert code == 0, payload
+    rows = _rows(payload)
+    assert rows["project.description"]["supplied_by"] == ["declared"]
+    assert rows["project.name"]["supplied_by"] == ["inferred"]
+    assert rows["canonical_docs"]["supplied_by"] == ["declared"]
+    assert payload["result"]["citations"]["project.description"] == "README.md:2"
+    manifest = _manifest(root)
+    assert manifest["project"]["description"] == "A fixture repository."
+    assert manifest["project"]["name"] == root.name
+
+
+def _no_prose_readme(root: Path) -> None:
+    """Give the fixture a README with a heading only: nothing states a description."""
+    (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "heading only"]):
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            check=True,
+            capture_output=True,  # nosec B603 B607
+        )
+
+
 def test_repo_only_build_refuses_and_points_at_the_gap_report(tmp_path: Path) -> None:
     root = _fixture_repo(tmp_path)
+    _no_prose_readme(root)
 
     code, payload = _invoke(root, evidence=False)
 
     assert code == 1
     diagnostic = payload["diagnostics"][0]
-    assert diagnostic["code"] == "build_identity_unresolved"
+    assert diagnostic["code"] == "build_description_unresolved"
     assert "--gaps-only" in diagnostic["message"]
     assert not (root / "beacon.generated.yaml").exists()
 
 
 def test_gaps_only_reports_unbuildable_repo_without_writing(tmp_path: Path) -> None:
     root = _fixture_repo(tmp_path)
+    _no_prose_readme(root)
     (root / "beacon.generated.yaml").write_text("# existing\n", encoding="utf-8")
 
     result = runner.invoke(
@@ -352,11 +383,13 @@ def test_gaps_only_reports_unbuildable_repo_without_writing(tmp_path: Path) -> N
     assert payload["result"]["buildable"] is False
     rows = _rows(payload)
     assert set(rows) == {item.field for item in CATALOGUE}
-    assert rows["project.name"]["status"] == "missing"
+    # The directory name is a guess, so the name is supplied but labelled inferred.
+    assert rows["project.name"]["supplied_by"] == ["inferred"]
+    assert rows["project.description"]["status"] == "missing"
     assert rows["project.status"]["status"] == "default"
     assert rows["project.repository"]["status"] in {"supplied", "missing"}
     required_gaps = {g["code"] for g in payload["result"]["gaps"] if g["required"]}
-    assert {"build_identity_unresolved", "build_description_unresolved"} <= required_gaps
+    assert required_gaps == {"build_description_unresolved"}
     assert (root / "beacon.generated.yaml").read_text(encoding="utf-8") == "# existing\n"
 
 
@@ -426,7 +459,7 @@ def test_every_supplied_value_comes_from_an_allowed_tier(tmp_path: Path, scenari
 
 def test_published_catalogue_matches_the_code() -> None:
     published = json.loads(
-        (_REPO_ROOT / "docs" / "schemas" / "beacon-requirements-1.0.json").read_text(
+        (_REPO_ROOT / "docs" / "schemas" / "beacon-requirements-1.1.json").read_text(
             encoding="utf-8"
         )
     )
@@ -439,7 +472,15 @@ def test_catalogue_is_well_formed() -> None:
     codes = [item.gap_code for item in CATALOGUE]
     assert len(codes) == len(set(codes))
     for item in CATALOGUE:
-        assert set(item.sources) <= {"intent", "git", "memory", "derived"}
+        assert set(item.sources) <= {
+            "intent",
+            "git",
+            "memory",
+            "derived",
+            "declared",
+            "inferred",
+            "forge",
+        }
         assert item.sources
         assert item.ask
 
@@ -685,7 +726,11 @@ def test_report_reads_policy_authority_rather_than_inferring(tmp_path: Path) -> 
 
 
 def test_placeholder_values_stay_gaps_but_keep_their_supplier(tmp_path: Path) -> None:
-    """`beacon init`'s starter text is published, reported, and still a gap."""
+    """A description standing in for an unstated purpose, and init's `unknown`, stay gaps.
+
+    `beacon init` writes no description; the README lead stands in for the purpose
+    and is reported as the declared placeholder it is.
+    """
     root = _fixture_repo(tmp_path)
     assert runner.invoke(app, ["init", str(root)]).exit_code == 0
 
@@ -694,7 +739,7 @@ def test_placeholder_values_stay_gaps_but_keep_their_supplier(tmp_path: Path) ->
     assert code == 0, payload
     rows = _rows(payload)
     purpose, status = rows["purpose.one_sentence"], rows["project.status"]
-    assert (purpose["status"], purpose["supplied_by"]) == ("placeholder", ["intent"])
+    assert (purpose["status"], purpose["supplied_by"]) == ("placeholder", ["declared"])
     assert (status["status"], status["supplied_by"]) == ("placeholder", ["intent"])
     assert {"purpose_missing", "project_status_unknown"} <= _gap_codes(payload)
 
@@ -714,6 +759,7 @@ def test_a_stated_purpose_is_not_a_placeholder(tmp_path: Path) -> None:
 
 def test_a_memory_description_is_reported_as_a_memory_placeholder(tmp_path: Path) -> None:
     root = _fixture_repo(tmp_path)
+    _no_prose_readme(root)  # the project's own README would otherwise win
 
     code, payload = _invoke(root)
 

@@ -589,7 +589,9 @@ def test_init_force_replaces_recognizable_manifest(tmp_path: Path) -> None:
     assert report.operation == OPERATION_REPLACE
     assert report.replaced is True
     assert report.written is True
-    assert "acme" in (root / DEFAULT_MANIFEST_NAME).read_text(encoding="utf-8")
+    written = (root / DEFAULT_MANIFEST_NAME).read_text(encoding="utf-8")
+    assert written.startswith("# beacon.yaml: what only the maintainers can say")
+    assert "original" not in written
 
 
 def test_init_force_refuses_non_manifest_file(tmp_path: Path) -> None:
@@ -707,36 +709,46 @@ def test_render_yaml_field_order(tmp_path: Path) -> None:
         "purpose",
         "audiences",
         "current_focus",
-        "core_concepts",
-        "canonical_docs",
         "agent_guidance",
-        "build_and_test",
         "guardrails",
     ]
     assert order == expected
 
 
-def test_generated_manifest_validates_zero_errors(tmp_path: Path) -> None:
+def test_generated_manifest_validates_as_intent(tmp_path: Path) -> None:
+    """init writes an intent overlay: valid as intent, not a publishable manifest."""
     root = _repo(tmp_path)
     report = init(root)
     assert report.written is True
     manifest = load_beacon_manifest(root / DEFAULT_MANIFEST_NAME)
-    validation = validate_beacon_manifest(manifest, docs_root=root)
+    validation = validate_beacon_manifest(manifest, docs_root=root, intent=True)
     assert validation.ok is True, validation.errors
     assert validation.warnings  # unknown status / purpose / guardrails expected
+    published = validate_beacon_manifest(manifest, docs_root=root)
+    assert {issue.code for issue in published.errors} == {
+        "project_name_missing",
+        "project_description_missing",
+        "canonical_docs_missing",
+    }
 
 
-def test_generated_manifest_project_fields(tmp_path: Path) -> None:
+def test_generated_manifest_writes_no_discovered_values(tmp_path: Path) -> None:
+    """Discovered facts are reported, never frozen into beacon.yaml as intent."""
     root = _repo(tmp_path, git_remote="https://github.com/acme/acme")
-    init(root)
+    report = init(root)
     manifest = load_beacon_manifest(root / DEFAULT_MANIFEST_NAME)
-    assert manifest.project.name == "acme"
+    assert manifest.project.name == ""
     assert manifest.project.status == "unknown"
-    assert manifest.project.repository == "https://github.com/acme/acme"
-    assert manifest.project.primary_language == "Python"
-    assert manifest.project.description.strip()
-    assert manifest.build_and_test.test == "python -m pytest tests/ -x --tb=short"
-    assert manifest.canonical_docs[0].path == "README.md"
+    assert manifest.project.repository == ""
+    assert manifest.project.primary_language == ""
+    assert manifest.project.license == ""
+    assert manifest.project.description == ""
+    assert manifest.build_and_test.setup == ""
+    assert manifest.build_and_test.test == ""
+    assert manifest.canonical_docs == ()
+    # The report still says what the build will find.
+    discovered = {field.manifest_path for field in report.discovered}
+    assert {"project.name", "project.repository", "canonical_docs"} <= discovered
 
 
 # ---------------------------------------------------------------------------
@@ -848,7 +860,8 @@ def test_generated_guidance_read_first_is_canonical_docs(tmp_path: Path) -> None
     root = _repo(tmp_path)
     init(root)
     manifest = load_beacon_manifest(root / DEFAULT_MANIFEST_NAME)
-    assert manifest.agent_guidance.read_first == ("README.md",)
+    # read_first is derived by the build from the canonical docs, not written by init.
+    assert manifest.agent_guidance.read_first == ()
 
 
 def test_expected_result_is_immutable(tmp_path: Path) -> None:

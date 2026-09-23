@@ -39,7 +39,7 @@ implementation of it.
 |---|---|---|
 | Endpoint | The questions an agent can ask, and the shape of every answer | the five MCP tools in the [README](../README.md#what-agents-can-ask) and the resource/index schemas in [`schemas/`](schemas/) |
 | Intent | The project's own `beacon.yaml`: purpose, guardrails, commands, canonical docs | manifest model and validator (`src/beacon/core/schema.py`, `core/validator.py`); no published JSON schema yet |
-| The ask | What a beacon needs, and which source may supply each field | [`beacon-requirements-1.0`](schemas/beacon-requirements-1.0.json) |
+| The ask | What a beacon needs, and which source may supply each field (intent, declared, git, memory, inferred, derived; forge planned) | [`beacon-requirements-1.1`](schemas/beacon-requirements-1.1.json) |
 | Provider contract | What a memory or index backend may contribute, bound to a repository and commit | [`beacon-memory-evidence-1.1`](schemas/beacon-memory-evidence-1.1.schema.json) |
 | Snapshot | The built knowledge the endpoint serves, and its fallback when live sources are down | [`beacon-snapshot-1.0`](schemas/beacon-snapshot-1.0.schema.json) |
 
@@ -138,12 +138,20 @@ A format becomes a standard through use, not through a spec. Before calling Beac
 | S6 Adoption | Two external repositories; `AGENTS.md` interop documented; the task evaluation from section 8 | S2, S4 |
 | S7 Governance | Consider a neutral home (for example, proposing it to the Agentic AI Foundation) | S6 |
 
-## 10. Open decisions
+## 10. Settled decisions
+
+- **Declared sources (2026-09-23).** A beacon reads `AGENTS.md`, `CONTRIBUTING.md` and
+  `SECURITY.md` as `declared` sources, alongside package manifests, the license file, CI
+  workflows and the README. It never reads agent-vendor files (`CLAUDE.md`, `.cursor/rules` and
+  similar); those should only point to `AGENTS.md`. `beacon init` writes only the fields a
+  maintainer must answer; everything a project's files state is read at build time, never
+  copied into `beacon.yaml`.
+
+## 11. Open decisions
 
 - The published name: "Beacon" is shared by unrelated projects (for example the Ethereum Beacon
   Chain), which matters for search and discovery of a standard.
 - Whether the spec lives in this repository or a separate `beacon-spec` repository.
-- Whether a beacon should read an existing `AGENTS.md` as an intent source.
 - Whether the file transport is required of every provider or only recommended.
 - How an agent discovers a project's endpoint without the Hub (for example, a pointer in
   `AGENTS.md` or a well-known path).
