@@ -311,6 +311,8 @@ class DocSection:
     status: str
     chunk_id: str
     truncated: bool = False
+    offset: int = 0
+    next_offset: int | None = None
     next_chunk_id: str = ""
     sources: tuple[BeaconSource, ...] = ()
 

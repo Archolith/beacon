@@ -21,6 +21,7 @@ import pytest
 import yaml
 
 from beacon.core.chunk_resources import build_chunk_catalog
+from beacon.core.limits import LIMIT_INVALID_VALUE, LimitError
 from beacon.core.loader import ManifestError, load_beacon_manifest
 from beacon.core.schema import BeaconDoc
 from beacon.core.serving_policy import (
@@ -257,6 +258,37 @@ def test_read_caps_the_text_it_returns(tmp_path: Path) -> None:
     section = _provider(root).read(path="docs/guide.md", max_chars=500)
     assert section.truncated and len(section.text) == 500
     assert len(_provider(root).read(path="docs/guide.md", max_chars=10**6).text) == 8000
+
+
+def test_a_truncated_section_can_be_read_to_its_end(tmp_path: Path) -> None:
+    # Regression: next_chunk_id used to be the only continuation, so the rest of a
+    # section longer than the cap could never be read.
+    root = _repo(tmp_path)
+    body = "".join(f"w{i} " for i in range(4000))
+    (root / "docs" / "guide.md").write_text(
+        "# Long\n\n" + body + "\n\n## After\n\nTail.\n", encoding="utf-8"
+    )
+    provider = _provider(root)
+    first = provider.read(path="docs/guide.md", max_chars=5000)
+    full = provider.read(chunk_id=first.chunk_id, max_chars=8000)
+    pages, section = [first.text], first
+    while section.truncated:
+        assert section.next_offset == section.offset + len(section.text)
+        section = provider.read(chunk_id=first.chunk_id, offset=section.next_offset, max_chars=5000)
+        assert section.chunk_id == first.chunk_id
+        pages.append(section.text)
+    assert len(pages) > 2 and section.next_offset is None
+    assert body.strip() in "".join(pages) and len("".join(pages)) > len(full.text)
+    assert provider.read(chunk_id=section.next_chunk_id).heading == "Long > After"
+
+
+@pytest.mark.parametrize("offset", [-1, True, "5", 10**7])
+def test_read_refuses_an_offset_outside_the_section(tmp_path: Path, offset: Any) -> None:
+    provider = _provider(_repo(tmp_path))
+    chunk_id = provider.read(path="docs/guide.md").chunk_id
+    with pytest.raises(LimitError) as caught:
+        provider.read(chunk_id=chunk_id, offset=offset)
+    assert caught.value.code == LIMIT_INVALID_VALUE
 
 
 def test_withheld_and_unknown_reads_look_the_same(tmp_path: Path) -> None:

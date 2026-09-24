@@ -410,6 +410,7 @@ class ManifestBeaconProvider:
         heading: str = "",
         line: int = 0,
         max_chars: int = 4000,
+        offset: int = 0,
     ) -> DocSection:
         self._require_traversal()
         chunks = self.doc_index.chunks
@@ -438,7 +439,20 @@ class ManifestBeaconProvider:
             # One code for unknown and withheld, so a reader cannot probe for hidden documents.
             raise ServingRequestError(READ_NOT_FOUND, "no served section matches that request")
         cap = max(READ_MIN_CHARS, min(int(max_chars or READ_MAX_CHARS), READ_MAX_CHARS))
-        text = target.text if len(target.text) <= cap else target.text[:cap]
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or (offset and offset >= len(target.text))
+        ):
+            raise LimitError(
+                LIMIT_INVALID_VALUE,
+                "invalid offset: expected a non-negative integer inside the section",
+                limit="offset",
+            )
+        text = target.text[offset : offset + cap]
+        end = offset + len(text)
+        truncated = end < len(target.text)
         in_doc = [c for c in chunks if c.path == target.path]
         position = in_doc.index(target)
         following = in_doc[position + 1] if position + 1 < len(in_doc) else None
@@ -450,7 +464,12 @@ class ManifestBeaconProvider:
             line_end=target.end_line,
             status=target.status,
             chunk_id=_chunk_id(target),
-            truncated=len(target.text) > cap,
+            truncated=truncated,
+            offset=offset,
+            # The rest of this section: read the same chunk_id again from here. next_chunk_id
+            # stays the following section, so a client that ignores next_offset skips text
+            # (visible via truncated) rather than rereading one page forever.
+            next_offset=end if truncated else None,
             next_chunk_id=_chunk_id(following) if following is not None else "",
             sources=(target.to_source(),),
         )
