@@ -61,6 +61,8 @@ from beacon.core.security import (
     detect_sensitive_text,
     resolve_security_overrides,
 )
+from beacon.core.serving_policy import CONTEXT_EXPORT as SERVING_EXPORT
+from beacon.core.serving_policy import manifest_for_context
 from beacon.core.validator import validate_beacon_manifest
 
 #: Canonical snapshot schema version (independent of product/manifest versions).
@@ -282,6 +284,8 @@ def build_snapshot(
 
     root = Path(docs_root) if docs_root is not None else manifest_path.resolve().parent
     _refuse_unsafe_manifest_paths(manifest)
+    # Owner exclusions and local-only documents never leave the machine.
+    manifest, _withheld = manifest_for_context(manifest, context=SERVING_EXPORT)
 
     # -- policy gate: errors and unresolved publication warnings block ------
     report = validate_beacon_manifest(manifest, docs_root=root)

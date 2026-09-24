@@ -97,6 +97,8 @@ socket.socket.connect_ex = _guard_connect_ex
         "beacon_search",
         "beacon_explain_concept",
         "beacon_guardrails",
+        "beacon_catalog",
+        "beacon_read",
     }
     calls = {
         "beacon_project_overview": {},
@@ -104,11 +106,13 @@ socket.socket.connect_ex = _guard_connect_ex
         "beacon_search": {"query": "manifest"},
         "beacon_explain_concept": {"concept": "beacon_manifest"},
         "beacon_guardrails": {"task_hint": "review tests"},
+        "beacon_catalog": {},
+        "beacon_read": {"path": "README.md"},
     }
 
     async with Client(transport, timeout=20) as client:
         names = {tool.name for tool in await client.list_tools()}
-        # The v0.2 public surface is exactly the five Beacon tools — no gateway
+        # The public surface is exactly the seven Beacon tools — no gateway
         # meta-tools (call_tool / search_tools) and no transforms.
         assert names == expected
 

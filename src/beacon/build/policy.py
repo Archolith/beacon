@@ -43,6 +43,8 @@ from typing import Any, cast
 
 from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconManifest
+from beacon.core.security import classify_path
+from beacon.core.serving_policy import is_excluded
 from beacon.sources.base import (
     KIND_GIT_HEAD,
     KIND_GIT_TAG,
@@ -148,6 +150,10 @@ class MergedProjectFacts:
     project_state: dict[str, Any] | None = None
     #: ``purpose.one_sentence`` exactly as the maintainers wrote it ("" if unstated).
     stated_purpose: str = ""
+    #: ``serving.exclude`` from the intent manifest, carried into the published manifest.
+    serving_exclude: tuple[str, ...] = ()
+    #: ``serving.traversal`` from the intent manifest (default on).
+    serving_traversal: bool = True
     #: Catalogue field -> the authority label that supplied it ("" = nothing did).
     #: Labels: intent, git, memory, derived, default; "+"-joined when several did.
     field_authority: dict[str, str] = field(default_factory=dict)
@@ -354,10 +360,29 @@ def resolve_project_facts(
     # -- canonical docs (intent asserts; memory cites; the filesystem decides) --
     docs: list[dict[str, str]] = []
     seen: set[str] = set()
+    serving_exclude = intent.serving.exclude if intent is not None else ()
+
+    def withheld(path: str) -> bool:
+        """Owner exclusions and sensitive files never reach the published manifest."""
+        if is_excluded(path, serving_exclude):
+            return True
+        if classify_path(path) is not None:
+            drift.append(
+                DriftRecord(
+                    code="doc_sensitive_file_omitted",
+                    detail="a sensitive file was listed as a canonical document; omitted",
+                    citation=path,
+                )
+            )
+            return True
+        return False
+
     intent_doc_count = 0
     memory_doc_count = 0
     if intent is not None:
         for doc in intent.canonical_docs:
+            if doc.path in seen or withheld(doc.path):
+                continue
             if not _doc_exists(docs_root, doc.path):
                 raise BuildError(
                     BUILD_INTENT_DOC_MISSING,
@@ -375,6 +400,7 @@ def resolve_project_facts(
                         # listed without a status takes its own frontmatter, else current.
                         "status": doc.status
                         or _frontmatter(docs_root, doc.path).get("status", "current"),
+                        "visibility": doc.visibility,
                     }
                 )
     memory_docs = sorted(
@@ -383,7 +409,7 @@ def resolve_project_facts(
     )
     for record in memory_docs:
         path = str(record.payload.get("path") or "")
-        if not path or path in seen:
+        if not path or path in seen or withheld(path):
             continue
         if not _doc_exists(docs_root, path):
             drift.append(
@@ -407,7 +433,7 @@ def resolve_project_facts(
         )
     declared_doc_count = 0
     for path in declared.canonical_docs if declared is not None else ():
-        if path in seen or not _doc_exists(docs_root, path):
+        if path in seen or withheld(path) or not _doc_exists(docs_root, path):
             continue
         seen.add(path)
         declared_doc_count += 1
@@ -737,6 +763,8 @@ def resolve_project_facts(
         agent_guidance=agent_guidance,
         project_state=project_state,
         stated_purpose=stated_purpose,
+        serving_exclude=tuple(serving_exclude),
+        serving_traversal=intent.serving.traversal if intent is not None else True,
         field_authority=field_authority,
         field_placeholder=frozenset(placeholders),
         field_citations=citations,

@@ -18,6 +18,8 @@ from typing import Protocol, runtime_checkable
 from beacon.core.schema import (
     AgentOnboarding,
     ConceptExplanation,
+    DocCatalog,
+    DocSection,
     GuardrailResponse,
     ProjectOverview,
     SearchResult,
@@ -56,4 +58,22 @@ class BeaconProvider(Protocol):
 
     def guardrails(self, *, task_hint: str = "") -> GuardrailResponse:
         """Tell an agent how not to break the project for a given task."""
+        ...
+
+    def catalog(
+        self, *, role: str = "", status: str = "", offset: int = 0, limit: int = 50
+    ) -> DocCatalog:
+        """List the served documents and their readable sections, one page at a time."""
+        ...
+
+    def read(
+        self,
+        *,
+        chunk_id: str = "",
+        path: str = "",
+        heading: str = "",
+        line: int = 0,
+        max_chars: int = 4000,
+    ) -> DocSection:
+        """Read one served section by chunk id, or by path plus heading or line."""
         ...

@@ -169,6 +169,12 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
                 "role": doc["role"],
                 "status": doc.get("status", "current"),
                 "title": doc["title"],
+                # Only non-default visibility is written, so existing manifests are unchanged.
+                **(
+                    {"visibility": doc["visibility"]}
+                    if doc.get("visibility", "public") != "public"
+                    else {}
+                ),
             }
             for doc in facts.canonical_docs
         ],
@@ -183,6 +189,14 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     }
     if facts.project_state is not None:
         raw["project_state"] = facts.project_state
+    serving: dict[str, Any] = {}
+    if facts.serving_exclude:
+        # Enforced again at serve time; never part of what a reader is served.
+        serving["exclude"] = list(facts.serving_exclude)
+    if not facts.serving_traversal:
+        serving["traversal"] = False
+    if serving:
+        raw["serving"] = serving
     return raw
 
 

@@ -17,6 +17,7 @@ from typing import Any
 
 from beacon.build.snapshot import Snapshot, SnapshotReadError
 from beacon.config.settings import BeaconSettings
+from beacon.core.chunk_resources import chunk_id_for
 from beacon.core.doc_index import DocChunk, DocIndex
 from beacon.core.limits import (
     LIMIT_INVALID_VALUE,
@@ -31,13 +32,30 @@ from beacon.core.schema import (
     BeaconConcept,
     BeaconManifest,
     BeaconSource,
+    CatalogDoc,
+    CatalogSection,
     ConceptExplanation,
+    DocCatalog,
+    DocSection,
     GuardrailResponse,
     ProjectOverview,
     SearchHit,
     SearchResult,
 )
+from beacon.core.serving_policy import (
+    CONTEXT_LOCAL,
+    READ_NOT_FOUND,
+    READ_TARGET_REQUIRED,
+    TRAVERSAL_DISABLED,
+    ServingRequestError,
+    WithheldDoc,
+    manifest_for_context,
+)
 from beacon.core.validator import require_valid_manifest
+
+#: ``beacon_read`` returns at most this many characters of a section (and at least the floor).
+READ_MAX_CHARS = 8000
+READ_MIN_CHARS = 200
 
 
 @dataclass
@@ -48,6 +66,8 @@ class ManifestBeaconProvider:
     doc_index: DocIndex
     docs_root: Path
     limits: ResourceLimits = field(default_factory=ResourceLimits)
+    #: Listed documents this provider will not serve (path and code only).
+    withheld: tuple[WithheldDoc, ...] = ()
 
     # -- construction --------------------------------------------------------
 
@@ -66,8 +86,14 @@ class ManifestBeaconProvider:
         root = Path(docs_root)
         if validate:
             require_valid_manifest(manifest, docs_root=root)
+        # Serve only what the serving policy allows; the index never holds a withheld doc.
+        manifest, withheld = manifest_for_context(
+            manifest, context=CONTEXT_LOCAL, docs_root=root, limits=active
+        )
         doc_index = DocIndex.from_docs(manifest.canonical_docs, docs_root=root, limits=active)
-        return cls(manifest=manifest, doc_index=doc_index, docs_root=root, limits=active)
+        return cls(
+            manifest=manifest, doc_index=doc_index, docs_root=root, limits=active, withheld=withheld
+        )
 
     @classmethod
     def from_settings(cls, settings: BeaconSettings) -> ManifestBeaconProvider:
@@ -102,8 +128,17 @@ class ManifestBeaconProvider:
         active = limits if limits is not None else ResourceLimits()
         manifest = parse_manifest(_strip_none_values(snapshot.manifest.data))
         require_valid_manifest(manifest, docs_root=None)
-        doc_index = DocIndex.from_snapshot_documents(snapshot.documents, limits=active)
-        return cls(manifest=manifest, doc_index=doc_index, docs_root=Path("."), limits=active)
+        manifest, withheld = manifest_for_context(manifest, context=CONTEXT_LOCAL)
+        served = {doc.path for doc in manifest.canonical_docs}
+        documents = tuple(doc for doc in snapshot.documents if doc.path in served)
+        doc_index = DocIndex.from_snapshot_documents(documents, limits=active)
+        return cls(
+            manifest=manifest,
+            doc_index=doc_index,
+            docs_root=Path("."),
+            limits=active,
+            withheld=withheld,
+        )
 
     # -- capabilities --------------------------------------------------------
 
@@ -206,6 +241,7 @@ class ManifestBeaconProvider:
                         status=chunk.status,
                         confidence="medium",
                         why_relevant="keyword overlap with doc section",
+                        chunk_id=_chunk_id(chunk) if m.serving.traversal else "",
                     )
                 )
                 statuses.append(chunk.status)
@@ -317,6 +353,114 @@ class ManifestBeaconProvider:
                 limit_value=self.limits.query_bytes,
             )
 
+    def catalog(
+        self, *, role: str = "", status: str = "", offset: int = 0, limit: int = 50
+    ) -> DocCatalog:
+        self._require_traversal()
+        self._check_result_limit(limit)
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise LimitError(
+                LIMIT_INVALID_VALUE,
+                "invalid offset: expected a non-negative integer",
+                limit="offset",
+            )
+        sections: dict[str, list[CatalogSection]] = {}
+        for chunk in self.doc_index.chunks:
+            sections.setdefault(chunk.path, []).append(
+                CatalogSection(
+                    chunk_id=_chunk_id(chunk),
+                    heading=_heading(chunk),
+                    line_start=chunk.start_line,
+                    line_end=chunk.end_line,
+                )
+            )
+        docs = [
+            doc
+            for doc in self.manifest.canonical_docs
+            if (not role or doc.role == role) and (not status or doc.status == status)
+        ]
+        page = docs[offset : offset + limit] if limit else []
+        entries = tuple(
+            CatalogDoc(
+                path=doc.path,
+                role=doc.role,
+                title=doc.title or _first_heading(sections.get(doc.path, ())) or doc.path,
+                status=doc.status,
+                sections=tuple(sections.get(doc.path, ())),
+            )
+            for doc in page
+        )
+        end = offset + len(entries)
+        return DocCatalog(
+            answer=f"{len(docs)} document(s); showing {len(entries)} from {offset}.",
+            docs=entries,
+            total=len(docs),
+            offset=offset,
+            next_offset=end if end < len(docs) else None,
+            next_actions=("beacon_read a section's chunk_id to read it",) if entries else (),
+            status=_aggregate_status([doc.status for doc in entries]) if entries else "uncertain",
+            sources=(_project_source(self.manifest),),
+        )
+
+    def read(
+        self,
+        *,
+        chunk_id: str = "",
+        path: str = "",
+        heading: str = "",
+        line: int = 0,
+        max_chars: int = 4000,
+    ) -> DocSection:
+        self._require_traversal()
+        chunks = self.doc_index.chunks
+        target = None
+        if chunk_id:
+            target = next((c for c in chunks if _chunk_id(c) == chunk_id), None)
+        elif path:
+            in_doc = [c for c in chunks if c.path == path]
+            if heading:
+                needle = heading.strip().lower()
+                target = next(
+                    (c for c in in_doc if c.heading_path and c.heading_path[-1].lower() == needle),
+                    None,
+                )
+                target = target or next((c for c in in_doc if needle in _heading(c).lower()), None)
+            elif line:
+                target = next((c for c in in_doc if c.start_line <= line <= c.end_line), None)
+                target = target or next((c for c in in_doc if c.start_line >= line), None)
+            else:
+                target = in_doc[0] if in_doc else None
+        else:
+            raise ServingRequestError(
+                READ_TARGET_REQUIRED, "pass a chunk_id, or a path with a heading or line"
+            )
+        if target is None:
+            # One code for unknown and withheld, so a reader cannot probe for hidden documents.
+            raise ServingRequestError(READ_NOT_FOUND, "no served section matches that request")
+        cap = max(READ_MIN_CHARS, min(int(max_chars or READ_MAX_CHARS), READ_MAX_CHARS))
+        text = target.text if len(target.text) <= cap else target.text[:cap]
+        in_doc = [c for c in chunks if c.path == target.path]
+        position = in_doc.index(target)
+        following = in_doc[position + 1] if position + 1 < len(in_doc) else None
+        return DocSection(
+            path=target.path,
+            heading=_heading(target),
+            text=text,
+            line_start=target.start_line,
+            line_end=target.end_line,
+            status=target.status,
+            chunk_id=_chunk_id(target),
+            truncated=len(target.text) > cap,
+            next_chunk_id=_chunk_id(following) if following is not None else "",
+            sources=(target.to_source(),),
+        )
+
+    def _require_traversal(self) -> None:
+        if not self.manifest.serving.traversal:
+            raise ServingRequestError(
+                TRAVERSAL_DISABLED, "document traversal is switched off for this project"
+            )
+
     def _check_result_limit(self, limit: int) -> None:
         """Refuse a requested result limit above the non-overridable ceiling."""
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
@@ -364,6 +508,26 @@ def _guardrails_matching(manifest: BeaconManifest, query: str):
         if needle in haystack or any(tok in haystack for tok in needle.split()):
             out.append(guard)
     return out
+
+
+def _chunk_id(chunk: DocChunk) -> str:
+    return chunk_id_for(
+        document_path=chunk.path,
+        heading_path=chunk.heading_path,
+        line_start=chunk.start_line,
+        line_end=chunk.end_line,
+    )
+
+
+def _heading(chunk: DocChunk) -> str:
+    return " > ".join(chunk.heading_path) if chunk.heading_path else "(preamble)"
+
+
+def _first_heading(sections: Any) -> str:
+    for section in sections:
+        if section.heading != "(preamble)":
+            return str(section.heading).split(" > ")[0]
+    return ""
 
 
 def _project_source(manifest: BeaconManifest) -> BeaconSource:

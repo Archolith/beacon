@@ -37,6 +37,7 @@ from beacon.core.schema import (
     BeaconProjectInfo,
     BeaconProjectState,
     BeaconPurpose,
+    BeaconServingConfig,
     BeaconSource,
     BeaconStateItem,
 )
@@ -249,6 +250,7 @@ def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
             _as_map(raw.get("project_state", _MISSING), "project_state", optional=True)
         ),
         forge=_parse_forge(_as_map(raw.get("forge", _MISSING), "forge", optional=True)),
+        serving=_parse_serving(_as_map(raw.get("serving", _MISSING), "serving", optional=True)),
     )
 
 
@@ -308,7 +310,18 @@ def _parse_doc(item: Any) -> BeaconDoc:
         role=_opt_str(data.get("role", _MISSING), "canonical_docs[].role"),
         status=_opt_str(data.get("status", _MISSING), "canonical_docs[].status", "current"),
         title=_opt_str(data.get("title", _MISSING), "canonical_docs[].title"),
+        visibility=_parse_visibility(data.get("visibility", _MISSING)),
     )
+
+
+_DOC_VISIBILITIES = ("public", "local")
+
+
+def _parse_visibility(value: Any) -> str:
+    text = _opt_str(value, "canonical_docs[].visibility", "public")
+    if text not in _DOC_VISIBILITIES:
+        raise ManifestError(f"canonical_docs[].visibility must be one of {list(_DOC_VISIBILITIES)}")
+    return text
 
 
 def _parse_guardrail(item: Any) -> BeaconGuardrail:
@@ -429,6 +442,36 @@ def _parse_forge(data: dict[str, Any]) -> BeaconForgeConfig:
             cleaned.append(name.strip())
         labels[group] = tuple(dict.fromkeys(cleaned))
     return BeaconForgeConfig(labels=labels)
+
+
+_MAX_SERVING_EXCLUDES = 100
+_MAX_SERVING_EXCLUDE_CHARS = 256
+
+
+def _parse_serving(data: dict[str, Any]) -> BeaconServingConfig:
+    patterns = _as_list(data.get("exclude", _MISSING), "serving.exclude")
+    if len(patterns) > _MAX_SERVING_EXCLUDES:
+        raise ManifestError(f"serving.exclude allows at most {_MAX_SERVING_EXCLUDES} patterns")
+    cleaned: list[str] = []
+    for pattern in patterns:
+        if (
+            not isinstance(pattern, str)
+            or not pattern.strip()
+            or len(pattern) > _MAX_SERVING_EXCLUDE_CHARS
+            or "\n" in pattern
+        ):
+            raise ManifestError(
+                "serving.exclude entries must be one-line path globs of at most "
+                f"{_MAX_SERVING_EXCLUDE_CHARS} characters"
+            )
+        text = pattern.strip().replace("\\", "/")
+        if text.startswith("/") or (len(text) > 1 and text[1] == ":"):
+            raise ManifestError("serving.exclude entries must be repository-relative")
+        cleaned.append(text)
+    traversal = data.get("traversal", True)
+    if not isinstance(traversal, bool):
+        raise ManifestError("serving.traversal must be true or false")
+    return BeaconServingConfig(exclude=tuple(dict.fromkeys(cleaned)), traversal=traversal)
 
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

@@ -84,6 +84,9 @@ class BeaconDoc:
     role: str = ""  # entrypoint | architecture | research | implementation_plan | ...
     status: str = "current"
     title: str = ""
+    #: ``public`` (default) or ``local``: local documents reach local MCP clients only and
+    #: are never exported (snapshot, HTTP, Hub). See :mod:`beacon.core.serving_policy`.
+    visibility: str = "public"
 
 
 @dataclass(frozen=True)
@@ -176,6 +179,19 @@ class BeaconForgeConfig:
 
 
 @dataclass(frozen=True)
+class BeaconServingConfig:
+    """Which listed documents Beacon may serve; build configuration, never served.
+
+    ``exclude`` holds path globs that no surface serves, even when the intent file,
+    memory evidence or a convention lists the document. ``traversal`` switches the
+    ``beacon_catalog`` and ``beacon_read`` tools on (default) or off; search is unaffected.
+    """
+
+    exclude: tuple[str, ...] = ()
+    traversal: bool = True
+
+
+@dataclass(frozen=True)
 class BeaconManifest:
     """The parsed, typed representation of ``beacon.yaml``."""
 
@@ -191,6 +207,7 @@ class BeaconManifest:
     guardrails: tuple[BeaconGuardrail, ...] = ()
     project_state: BeaconProjectState = field(default_factory=BeaconProjectState)
     forge: BeaconForgeConfig = field(default_factory=BeaconForgeConfig)
+    serving: BeaconServingConfig = field(default_factory=BeaconServingConfig)
 
     def concept_by_id(self, concept_id: str) -> BeaconConcept | None:
         """Return the concept whose id matches (case-insensitive), or None."""
@@ -243,6 +260,59 @@ class SearchHit:
     status: str = "current"
     confidence: str = "medium"
     why_relevant: str = ""
+    #: For doc hits: pass to ``beacon_read`` to read the whole section.
+    chunk_id: str = ""
+
+
+@dataclass(frozen=True)
+class CatalogSection:
+    """One readable section of a catalogued document."""
+
+    chunk_id: str
+    heading: str
+    line_start: int
+    line_end: int
+
+
+@dataclass(frozen=True)
+class CatalogDoc:
+    """A document an agent may browse and read through ``beacon_read``."""
+
+    path: str
+    role: str
+    title: str
+    status: str
+    sections: tuple[CatalogSection, ...] = ()
+
+
+@dataclass(frozen=True)
+class DocCatalog:
+    """``beacon_catalog``: the served documents, in reading order, one page at a time."""
+
+    answer: str
+    docs: tuple[CatalogDoc, ...] = ()
+    total: int = 0
+    offset: int = 0
+    next_offset: int | None = None
+    next_actions: tuple[str, ...] = ()
+    status: str = "current"
+    sources: tuple[BeaconSource, ...] = ()
+
+
+@dataclass(frozen=True)
+class DocSection:
+    """``beacon_read``: one section's text with its citation."""
+
+    path: str
+    heading: str
+    text: str
+    line_start: int
+    line_end: int
+    status: str
+    chunk_id: str
+    truncated: bool = False
+    next_chunk_id: str = ""
+    sources: tuple[BeaconSource, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -298,6 +368,7 @@ def served_manifest_payload(manifest: BeaconManifest) -> dict[str, Any]:
     """
     payload = _without_digests(asdict(manifest))
     payload.pop("forge", None)  # build configuration, not project knowledge
+    payload.pop("serving", None)  # build configuration; never tell a reader what is hidden
     return payload
 
 

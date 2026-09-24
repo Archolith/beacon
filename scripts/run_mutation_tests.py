@@ -68,8 +68,8 @@ MUTANTS = (
         relative_path="mcp/server.py",
         needle="register_all_tools(mcp)",
         replacement="# mutation: omit Beacon tool registration",
-        test="tests/test_mcp_contracts.py::test_public_tool_surface_is_exactly_the_five_beacon_tools",
-        invariant="the public MCP catalog contains exactly five Beacon tools",
+        test="tests/test_mcp_contracts.py::test_public_tool_surface_is_exactly_the_seven_beacon_tools",
+        invariant="the public MCP catalog contains exactly seven Beacon tools",
     ),
 )
 

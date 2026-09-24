@@ -7,7 +7,7 @@ Subcommands
   beacon serve-http         Serve one immutable canonical snapshot over loopback HTTP.
   beacon init ROOT          Initialize a starter beacon.yaml.
   beacon validate [PATH]    Validate a beacon.yaml and exit 0 on success, 1 on errors.
-  beacon inspect [PATH]     Inspect all five tool outputs for a beacon.yaml.
+  beacon inspect [PATH]     Inspect every tool's output for a beacon.yaml.
   beacon export [PATH]      Write the canonical static snapshot.
 
 Exit classes (addendum §5): 0 success, 1 validation/policy/security refusal,
@@ -51,6 +51,7 @@ from beacon.core.paths import UnsafeCanonicalPath, resolve_canonical_path
 from beacon.core.scaffold import OPERATION_REFUSED, InitReport
 from beacon.core.schema import to_payload as schema_payload
 from beacon.core.security import SecurityOverrideError, parse_security_overrides
+from beacon.core.serving_policy import ServingRequestError
 from beacon.core.status import StatusObservation, observe_project_status
 from beacon.sources.git import GitSourceAdapter, GitSourceError, GitSourceUnavailable
 
@@ -2069,7 +2070,7 @@ def inspect(
     max_chunks: int | None = typer.Option(None, "--max-chunks"),
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
-    """Inspect all five tool outputs for a beacon.yaml (exit 1 on validation errors)."""
+    """Inspect every tool's output for a beacon.yaml (exit 1 on validation errors)."""
     _require_format(format)
     _safe(
         "inspect",
@@ -2126,6 +2127,23 @@ def _inspect_impl(
     first = context.manifest.core_concepts[0].id if context.manifest.core_concepts else "overview"
     ce = provider.explain_concept(concept=first)
     gr = provider.guardrails(task_hint=task_hint)
+    # Traversal: the catalog's first page and its first readable section (off when the
+    # project sets serving.traversal: false).
+    ca: Any = None
+    rd: Any = None
+    try:
+        ca = provider.catalog(limit=10)
+        first_chunk = next((sec.chunk_id for doc in ca.docs for sec in doc.sections), "")
+        rd = provider.read(chunk_id=first_chunk) if first_chunk else None
+        traversal: dict[str, Any] = {
+            "beacon_catalog": schema_payload(ca),
+            "beacon_read": schema_payload(rd)
+            if rd is not None
+            else {"note": "no readable section"},
+        }
+    except ServingRequestError as exc:
+        ca = rd = None
+        traversal = {"beacon_catalog": {"error": exc.code}, "beacon_read": {"error": exc.code}}
 
     if fmt == "json":
         payload = {
@@ -2134,10 +2152,11 @@ def _inspect_impl(
             "beacon_search": schema_payload(sr),
             "beacon_explain_concept": schema_payload(ce),
             "beacon_guardrails": schema_payload(gr),
+            **traversal,
         }
         _json("inspect", ok=True, result_payload=payload, diagnostics=diagnostics)
     else:
-        _text_inspect(context, provider, task_hint, ov, ob, sr, ce, gr)
+        _text_inspect(context, provider, task_hint, ov, ob, sr, ce, gr, ca, rd)
     return EXIT_OK
 
 
@@ -2150,6 +2169,8 @@ def _text_inspect(
     sr: Any,
     ce: Any,
     gr: Any,
+    ca: Any = None,
+    rd: Any = None,
 ) -> None:
     p = context.manifest.project
     typer.echo(f"Project:   {p.name} ({p.status})")
@@ -2192,12 +2213,28 @@ def _text_inspect(
     _section("beacon_guardrails")
     _field("rules", f"{len(gr.rules)} total")
     _field("status", f"{gr.status}  confidence: {gr.confidence}")
+
+    _hr()
+    _section("beacon_catalog")
+    if ca is None:
+        _field("traversal", "switched off (serving.traversal: false)")
+    else:
+        _field("documents", f"{ca.total} total")
+        _field("sections", str(sum(len(doc.sections) for doc in ca.docs)))
+    _hr()
+    _section("beacon_read")
+    if rd is None:
+        _field("section", "none read")
+    else:
+        _field("section", f"{rd.path} :: {_trunc(rd.heading, 60)}")
+        _field("lines", f"{rd.line_start}-{rd.line_end}  status: {rd.status}")
     _hr()
 
     for diag in cli_support.report_to_diagnostics(context.report, context.acknowledgements):
         if diag.severity == "warning":
             typer.echo(f"  ⚠ {diag.code}: {diag.message}")
-    typer.echo("\n✓  Inspect complete. 5 tools responded.")
+    answered = 7 if ca is not None else 5
+    typer.echo(f"\n✓  Inspect complete. {answered} tools responded.")
 
 
 # ---------------------------------------------------------------------------

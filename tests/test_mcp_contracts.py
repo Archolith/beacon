@@ -42,8 +42,8 @@ async def test_limit_error_preserves_stable_public_diagnostic() -> None:
     }
 
 
-async def test_public_tool_surface_is_exactly_the_five_beacon_tools() -> None:
-    """The plain FastMCP server exposes exactly the five v0 tools.
+async def test_public_tool_surface_is_exactly_the_seven_beacon_tools() -> None:
+    """The plain FastMCP server exposes exactly the seven Beacon tools.
 
     Guards against the Archolith gateway adding ``call_tool``/``search_tools``
     meta-tools or any transform-based tool appearing on the public surface.
@@ -58,4 +58,6 @@ async def test_public_tool_surface_is_exactly_the_five_beacon_tools() -> None:
         "beacon_search",
         "beacon_explain_concept",
         "beacon_guardrails",
+        "beacon_catalog",
+        "beacon_read",
     }
