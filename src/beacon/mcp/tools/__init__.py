@@ -6,9 +6,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from beacon.mcp.contracts import BeaconBaseTool
 from beacon.mcp.tools.agent_onboarding import AgentOnboardingTool
+from beacon.mcp.tools.catalog import CatalogTool
 from beacon.mcp.tools.explain_concept import ExplainConceptTool
 from beacon.mcp.tools.guardrails import GuardrailsTool
 from beacon.mcp.tools.project_overview import ProjectOverviewTool
+from beacon.mcp.tools.read import ReadTool
 from beacon.mcp.tools.search import SearchTool
 
 if TYPE_CHECKING:
@@ -27,6 +29,8 @@ ALL_TOOLS: list[_ToolFactory] = [
     SearchTool,
     ExplainConceptTool,
     GuardrailsTool,
+    CatalogTool,
+    ReadTool,
 ]
 
 

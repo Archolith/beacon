@@ -293,6 +293,38 @@ forge:
 
 This block configures the build and is never served to agents.
 
+### What Beacon serves
+
+Beacon serves only the documents listed in `canonical_docs` (and those found by convention or a
+memory provider), and only within these rules:
+
+- **Owner exclusions win.** `serving.exclude` lists path globs no surface serves, even when a
+  convention or memory provider lists the document. `*` crosses directories; a trailing `/`
+  excludes a whole directory.
+- **Sensitive files are never served**: `.env` files, private keys, credential files and similar,
+  even when listed. The build omits them and reports it.
+- **Text documents only** (Markdown and plain text) reach MCP clients.
+- **A document with a high-confidence secret** (a private key, a credential in a URL, a known
+  token format) is withheld from MCP clients. Snapshot export keeps its blocking security gate
+  with reviewed `CODE=REASON` overrides.
+- **`visibility: local`** on a `canonical_docs` entry serves it to local MCP clients only; it is
+  never exported to a snapshot, the HTTP API or the Hub.
+- **`serving.traversal`** switches `beacon_catalog` and `beacon_read` on (the default) or off.
+
+```yaml
+canonical_docs:
+  - path: docs/operations.md
+    role: workflow
+    visibility: local        # this machine's agents only; never published
+serving:
+  exclude: [deploy/, "*.secret.md"]
+  traversal: true
+```
+
+A withheld document is never listed, searched, read or named; asking for it returns the same
+`read_not_found` as a path that does not exist. The `serving` block configures Beacon and is
+never served to agents.
+
 ### Memory providers
 
 A memory provider reports what it has indexed about a project. Beacon defines the contract;
@@ -332,7 +364,7 @@ beacon build --repo . --memory-evidence evidence.json
 
 ## What agents can ask
 
-Beacon registers five read-only MCP tools when the server starts.
+Beacon registers seven read-only MCP tools when the server starts. Search finds a section; `beacon_catalog` and `beacon_read` let an agent browse and read only the sections it needs.
 
 ### `beacon_project_overview`
 
@@ -363,7 +395,7 @@ Inputs:
 
 > *"What does this project know about temporal memory?"*
 
-Keyword search across docs, concepts, and guardrails. Every result carries a status (`current`, `experimental`, `superseded`) and a `why_relevant` field.
+Keyword search across docs, concepts, and guardrails. Every result carries a status (`current`, `experimental`, `superseded`) and a `why_relevant` field; document hits also carry a `chunk_id` for `beacon_read`.
 
 ```
 Inputs:
@@ -394,6 +426,36 @@ Returns the full guardrail set, filtered to a task if a hint is provided. Includ
 Inputs:
   task_hint: description of planned work (optional)
 ```
+
+### `beacon_catalog`
+
+> *"Which documents can I read, and what sections do they have?"*
+
+Lists the served documents in reading order, with role, title, status and each section's
+heading, lines and `chunk_id`. Withheld documents are never listed.
+
+```
+Inputs:
+  role, status:  filters (optional)
+  offset, limit: paging (default limit: 50)
+```
+
+### `beacon_read`
+
+> *"Show me that section."*
+
+Returns one section's text with its citation (path, lines, status) and `next_chunk_id` to keep
+reading. At most 4,000 characters by default and 8,000 at most; longer sections are marked
+`truncated`. The `chunk_id` is the same one the HTTP API serves at `/v1/chunks/{id}`.
+
+```
+Inputs:
+  chunk_id:  from beacon_catalog or beacon_search
+  path:      with heading (a section title) or line (a line number), or alone for the first section
+  max_chars: 200-8000 (default: 4000)
+```
+
+Both tools return `traversal_disabled` when the project sets `serving.traversal: false`.
 
 ---
 
@@ -542,12 +604,12 @@ The six `BEACON_MAX_*` values use the same precedence as their CLI equivalents:
 Beacon v0 is deterministic. At startup it:
 
 1. Loads and validates `beacon.yaml` into a typed `BeaconManifest`.
-2. Reads every `canonical_docs` entry and chunks them at Markdown headings into an in-memory `DocIndex`.
+2. Applies the serving rules (see [What Beacon serves](#what-beacon-serves)), then reads each served `canonical_docs` entry and chunks it at Markdown headings into an in-memory `DocIndex`.
 3. Stores the resulting `ManifestBeaconProvider` in a module-level slot.
 
 On each tool call, the provider reads from the in-memory index and returns a frozen answer dataclass. It does not call an LLM, access the network, or query a database.
 
-`BeaconProvider` is a typed protocol, so another provider can supply the same five tools without changing their answer contracts. A future Menhir-backed provider could add temporal memory, structure graphs, and Git history behind that interface.
+`BeaconProvider` is a typed protocol, so another provider can supply the same tools without changing their answer contracts. A future Menhir-backed provider could add temporal memory, structure graphs, and Git history behind that interface.
 
 ---
 
@@ -633,7 +695,7 @@ Useful contributions at this stage include:
 - Adding `docs/demo-transcript.md` showing a real agent session.
 - Writing golden-output tests for each MCP tool.
 
-Please hold off on adding tools or expanding the manifest schema. The current five tools need clearer documentation and easier client setup before the interface grows.
+Please hold off on adding tools or expanding the manifest schema. The seven tools (the five v0 tools plus `beacon_catalog` and `beacon_read`, added so agents can read sections without file access) need clearer documentation and easier client setup before the interface grows further.
 
 Development setup:
 

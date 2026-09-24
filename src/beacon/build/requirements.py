@@ -55,8 +55,9 @@ STATUS_PLACEHOLDER = "placeholder"
 #: Manifest fields Beacon itself fixes; never asked for, never a gap.
 BEACON_OWNED_FIELDS = frozenset({"beacon_version"})
 #: beacon.yaml keys that configure the build rather than describe the project:
-#: never asked for, never a gap, never served (``forge`` holds the label names).
-BUILD_CONFIG_FIELDS = frozenset({"forge"})
+#: never asked for, never a gap, never served (``forge`` holds the label names;
+#: ``serving`` holds the paths no surface may serve).
+BUILD_CONFIG_FIELDS = frozenset({"forge", "serving"})
 
 #: Policy authority labels -> catalogue tiers.
 _AUTHORITY_TIER = {

@@ -24,10 +24,10 @@ the infrastructure reviewable without building.
 
 The journey exercises: version/help; ``init`` of a fresh minimal repository;
 the init JSON report; a deterministic explicit review edit into a clean
-manifest; strict JSON validation; task-aware JSON inspect covering all five
+manifest; strict JSON validation; task-aware JSON inspect covering all seven
 tools; two embedded exports with identical bytes/SHA256; a metadata-only export
 without chunk text; a real loopback HTTP process proving discovery/health/snapshot/alias/ETag and
-error behavior; an explicit ``serve``/stdio MCP connection enumerating and calling exactly five
+error behavior; an explicit ``serve``/stdio MCP connection enumerating and calling exactly seven
 tools; and a socket-deny guard proving no runtime step attempts outbound network. It uses temporary
 directories and leaves the checkout clean.
 """
@@ -51,13 +51,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-#: The exact five MCP tools Beacon registers.
-FIVE_TOOLS = (
+#: The exact seven MCP tools Beacon registers.
+BEACON_TOOLS = (
     "beacon_project_overview",
     "beacon_agent_onboarding",
     "beacon_search",
     "beacon_explain_concept",
     "beacon_guardrails",
+    "beacon_catalog",
+    "beacon_read",
 )
 
 #: Default task hint used for task-aware inspect.
@@ -269,7 +271,7 @@ def build_plan(
             ),
             Step(
                 name="inspect",
-                description="task-aware JSON inspect covering all five tools",
+                description="task-aware JSON inspect covering all seven tools",
                 argv=beacon_cmd
                 + ("inspect", "--task-hint", inspect_task_hint, "--format", "json", str(manifest)),
                 cwd=repo,
@@ -328,7 +330,7 @@ def build_plan(
             ),
             Step(
                 name="serve_or_stdio",
-                description="explicit serve / real stdio MCP enumerating and calling exactly five tools",
+                description="explicit serve / real stdio MCP enumerating and calling exactly seven tools",
                 func=lambda: serve_or_stdio(
                     serve_cmd or beacon_cmd,
                     manifest=manifest,
@@ -866,7 +868,7 @@ def serve_or_stdio(
     env: dict[str, str],
     run_stdio_mcp: bool,
 ) -> None:
-    """Start the explicit serve / stdio server and verify exactly five tools.
+    """Start the explicit serve / stdio server and verify exactly seven tools.
 
     The default installed-wheel journey *requires* the real FastMCP client:
     ``archolith-mcp-framework`` supplies it, so an unavailable MCP stack is a
@@ -925,7 +927,7 @@ def _python_module_shape(cmd: tuple[str, ...]) -> tuple[str, list[str]] | None:
 
 
 def _stdio_mcp_check(cmd: tuple[str, ...], env: dict[str, str]) -> None:
-    """Connect over real stdio and enumerate/call exactly the five tools.
+    """Connect over real stdio and enumerate/call exactly the seven tools.
 
     This is the required installed-artifact check: it runs the *installed*
     interpreter named by *cmd* (a fresh venv Python in wheel mode), never the
@@ -964,7 +966,7 @@ def _run_stdio_client_normalized(interpreter: str, args: list[str], env: dict[st
 
 
 def _run_stdio_client(interpreter: str, args: list[str], env: dict[str, str]) -> None:
-    """Connect and enumerate/call the five tools over real stdio."""
+    """Connect and enumerate/call the seven tools over real stdio."""
     import asyncio
 
     import fastmcp
@@ -975,14 +977,16 @@ def _run_stdio_client(interpreter: str, args: list[str], env: dict[str, str]) ->
     async def _run() -> None:
         async with fastmcp.Client(transport, timeout=20) as client:
             names = sorted(tool.name for tool in await client.list_tools())
-            if tuple(names) != tuple(sorted(FIVE_TOOLS)):
-                raise JourneyError(f"expected exactly the five tools, got: {', '.join(names)}")
+            if tuple(names) != tuple(sorted(BEACON_TOOLS)):
+                raise JourneyError(f"expected exactly the seven tools, got: {', '.join(names)}")
             calls = {
                 "beacon_project_overview": {},
                 "beacon_agent_onboarding": {"task_hint": DEFAULT_TASK_HINT},
                 "beacon_search": {"query": "manifest"},
                 "beacon_explain_concept": {"concept": "beacon_manifest"},
                 "beacon_guardrails": {"task_hint": DEFAULT_TASK_HINT},
+                "beacon_catalog": {},
+                "beacon_read": {"path": "README.md"},
             }
             for name, arguments in calls.items():
                 result = await client.call_tool(name, arguments)
@@ -1040,7 +1044,7 @@ def _check_inspect(completed: Any) -> None:
     result = envelope["result"]
     if not isinstance(result, dict):
         raise JourneyError("inspect result is not an object")
-    missing = [name for name in FIVE_TOOLS if name not in result]
+    missing = [name for name in BEACON_TOOLS if name not in result]
     if missing:
         raise JourneyError(f"inspect result is missing tool payloads: {', '.join(missing)}")
 

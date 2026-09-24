@@ -140,6 +140,22 @@ def build_chunk_catalog(snapshot: Snapshot, *, snapshot_sha256: str) -> StaticCh
     )
 
 
+def chunk_id_for(
+    *,
+    document_path: str,
+    heading_path: tuple[str, ...],
+    line_start: int,
+    line_end: int,
+) -> str:
+    """The stable id of a heading chunk; the same id HTTP serves at ``/v1/chunks/{id}``."""
+    return _chunk_id(
+        document_path=document_path,
+        heading_path=heading_path,
+        line_start=line_start,
+        line_end=line_end,
+    )
+
+
 def _chunk_id(
     *,
     document_path: str,

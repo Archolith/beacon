@@ -5,7 +5,7 @@ a local Beacon instance. It is written to be copy-pasted, and it assumes nothing
 about the machine beyond Python 3.12, 3.13, or 3.14.
 
 Beacon is a **local, static, no-outbound-network** knowledge server. It reads a `beacon.yaml` and
-the Markdown documents it lists, and it answers the five read-only Beacon tools
+the Markdown documents it lists, and it answers the seven read-only Beacon tools
 from that in-memory index. It can also serve the canonical snapshot as plain JSON on loopback.
 There is no database, outbound network call, runtime LLM, telemetry, or update check. Everything
 runs on your machine.
@@ -248,13 +248,15 @@ Any MCP client that accepts a stdio server:
 
 ## 5. What the agent can ask
 
-Once connected, the agent sees five read-only tools:
+Once connected, the agent sees seven read-only tools:
 
 - `beacon_project_overview` — identify the project and what to read next.
 - `beacon_agent_onboarding` — task-scoped start pack and do-not-touch list.
 - `beacon_search` — keyword search over docs, concepts, and guardrails.
 - `beacon_explain_concept` — what a project-specific term means and where it lives.
 - `beacon_guardrails` — what not to change and which checks are required.
+- `beacon_catalog` — the documents it may read and their sections.
+- `beacon_read` — one section's text with its citation.
 
 Every answer carries `status`, `confidence`, `sources`, and `next_actions`, so
 an agent can tell current knowledge from experimental or uncertain.

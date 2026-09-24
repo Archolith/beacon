@@ -1,5 +1,30 @@
 # Changelog — beacon
 
+## 2026-09-23 — traversable docs over MCP, with serving guards
+
+Plan: workspace `.agent/plans/beacon-doc-traversal-and-guards-plan-2026-09-23.md` (owner-approved,
+plus the owner's `serving.traversal` toggle). Found by the P3 agent-task evaluation: with Beacon's
+tools alone an agent could find snippets but not read a section, and saw only four documents.
+
+- `src/beacon/core/serving_policy.py` (new): one decision about what each surface serves. Owner
+  `serving.exclude` globs win everywhere; sensitive files, non-text files and documents with
+  high-confidence secrets are never served to MCP clients; `visibility: local` documents are never
+  exported. Withheld documents are reported by path and code only.
+- `src/beacon/core/schema.py`, `loader.py`: `canonical_docs[].visibility` (`public` | `local`),
+  a `serving` block (`exclude`, `traversal`) that is build configuration and never served, search
+  hits' `chunk_id`, and the catalog and read answer types.
+- `src/beacon/build/policy.py`, `project.py`, `requirements.py`: excluded and sensitive documents
+  are dropped from every source at build; `visibility` and `serving` reach the generated manifest;
+  `serving` is catalogued as build configuration.
+- `src/beacon/provider/*`, `src/beacon/mcp/*`: `beacon_catalog` and `beacon_read` (5 -> 7 tools),
+  refusals rendered as stable error codes (`traversal_disabled`, `read_not_found`,
+  `read_target_required`), connect instructions point to catalog and read.
+- `src/beacon/core/snapshot.py`, `chunk_resources.py`: export drops excluded and local documents;
+  MCP chunk ids are the ids HTTP serves at `/v1/chunks/{id}`.
+- `src/beacon/main.py` (`inspect`), `scripts/release_check.py`, `scripts/run_mutation_tests.py`,
+  README, `docs/client-setup.md`: seven tools.
+- `tests/test_serving_and_traversal.py` (new, 20 tests); the surface tests now expect seven tools.
+
 ## 2026-09-23 — near-zero authoring P2: project state from the code host
 
 - `src/beacon/sources/forge.py` (new): opt-in GitHub source. Open milestones -> current focus and

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from beacon.core.limits import LimitError
 from beacon.core.schema import to_payload
+from beacon.core.serving_policy import ServingRequestError
 from beacon.mcp.lifecycle import get_provider
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ class BeaconBaseTool:
     async def execute(self, *args: Any, **kwargs: Any) -> str:
         try:
             return await self.endpoint(*args, **kwargs)
-        except LimitError as exc:
+        except (LimitError, ServingRequestError) as exc:
             logger.info("beacon tool %r refused request: %s", self.name, exc.code)
             return _error_payload(self.name, exc.code, str(exc))
         except Exception:
