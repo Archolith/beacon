@@ -74,6 +74,11 @@ class BeaconProvider(Protocol):
         heading: str = "",
         line: int = 0,
         max_chars: int = 4000,
+        offset: int = 0,
     ) -> DocSection:
-        """Read one served section by chunk id, or by path plus heading or line."""
+        """Read one served section by chunk id, or by path plus heading or line.
+
+        *offset* is a character position inside the section; a truncated result's
+        ``next_offset`` is where the rest starts.
+        """
         ...

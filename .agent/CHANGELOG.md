@@ -1,5 +1,21 @@
 # Changelog — beacon
 
+## 2026-09-24 — beacon_read can finish a long section
+
+Found in review of #21: sections are cut by heading with no size bound, and the only
+continuation was `next_chunk_id` (the following section), so text past the 8,000-character cap
+could never be read.
+
+- `src/beacon/provider/*`, `src/beacon/mcp/tools/read.py`: `beacon_read` takes `offset`, a
+  character position inside the section; an offset outside the section is refused with
+  `limit_invalid_value`.
+- `src/beacon/core/schema.py`: `DocSection` gains `offset` and `next_offset` (set only when the
+  result is truncated). `next_chunk_id` keeps its meaning, the following section, so a client that
+  ignores `next_offset` cannot loop on one page.
+- `README.md`: the tool reference documents both.
+- Tests: paging a long section reassembles it and ends at the following section; bad offsets are
+  refused.
+
 ## 2026-09-23 — traversable docs over MCP, with serving guards
 
 Plan: workspace `.agent/plans/beacon-doc-traversal-and-guards-plan-2026-09-23.md` (owner-approved,

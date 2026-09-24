@@ -444,15 +444,17 @@ Inputs:
 
 > *"Show me that section."*
 
-Returns one section's text with its citation (path, lines, status) and `next_chunk_id` to keep
-reading. At most 4,000 characters by default and 8,000 at most; longer sections are marked
-`truncated`. The `chunk_id` is the same one the HTTP API serves at `/v1/chunks/{id}`.
+Returns one section's text with its citation (path, lines, status) and `next_chunk_id`, the
+following section. At most 4,000 characters by default and 8,000 at most; a longer section is
+marked `truncated` and carries `next_offset`: read the same `chunk_id` with that `offset` for the
+rest of it. The `chunk_id` is the same one the HTTP API serves at `/v1/chunks/{id}`.
 
 ```
 Inputs:
   chunk_id:  from beacon_catalog or beacon_search
   path:      with heading (a section title) or line (a line number), or alone for the first section
   max_chars: 200-8000 (default: 4000)
+  offset:    character position inside the section (default: 0; from next_offset)
 ```
 
 Both tools return `traversal_disabled` when the project sets `serving.traversal: false`.
