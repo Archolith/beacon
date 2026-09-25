@@ -179,14 +179,22 @@ def manifest_for_context(
     never names a document it will not serve.
     """
     served, withheld = served_docs(manifest, context=context, docs_root=docs_root, limits=limits)
+    # A decision quotes its ADR verbatim, so it is served only while that file is.
+    served_paths = {doc.path for doc in served}
+    decisions = tuple(d for d in manifest.decisions if d.path in served_paths)
     if not withheld:
-        return manifest, ()
+        if len(decisions) == len(manifest.decisions):
+            return manifest, ()
+        return replace(manifest, decisions=decisions), ()
     hidden = {item.path for item in withheld}
     guidance = replace(
         manifest.agent_guidance,
         read_first=tuple(path for path in manifest.agent_guidance.read_first if path not in hidden),
     )
-    return replace(manifest, canonical_docs=served, agent_guidance=guidance), withheld
+    return (
+        replace(manifest, canonical_docs=served, agent_guidance=guidance, decisions=decisions),
+        withheld,
+    )
 
 
 __all__ = [

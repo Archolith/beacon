@@ -12,6 +12,9 @@ class ExplainConceptTool(BeaconBaseTool):
         "related concepts, and where it is implemented. "
         "The response includes a status label so you know whether the concept is current, "
         "experimental, planned, or superseded. "
+        "Also explains an architecture decision record by id (e.g. adr-0005) or title: "
+        "the decision verbatim, the alternatives it considered with their reasons, and "
+        "where to read its context. "
         "depth=simple|technical|implementation controls detail level."
     )
 

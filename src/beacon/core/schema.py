@@ -192,6 +192,48 @@ class BeaconServingConfig:
 
 
 @dataclass(frozen=True)
+class BeaconAlternative:
+    """An option an ADR considered, with the reason it gives (verbatim, may be empty)."""
+
+    alternative: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class BeaconSectionSpan:
+    """Where an ADR section sits in its file (1-based, inclusive), for ``beacon_read``."""
+
+    line_start: int
+    line_end: int
+
+
+@dataclass(frozen=True)
+class BeaconDecision:
+    """One architecture decision record from the project's own files (declared authority).
+
+    ``decision`` is the ADR's Decision section verbatim, capped (``truncated``); the other
+    sections are cited by span in ``sections``. ``status`` is a knowledge status mapped
+    from the first word of ``status_text``, which is kept as written. ``implemented`` is
+    ``False`` when an accepted decision says it is not in effect yet, else ``None``.
+    """
+
+    id: str
+    title: str
+    path: str
+    decision: str
+    status: str = "current"
+    status_text: str = ""
+    date: str = ""
+    truncated: bool = False
+    implemented: bool | None = None
+    alternatives: tuple[BeaconAlternative, ...] = ()
+    sections: dict[str, BeaconSectionSpan] = field(default_factory=dict)
+    supersedes: tuple[str, ...] = ()
+    superseded_by: tuple[str, ...] = ()
+    sources: tuple[BeaconSource, ...] = ()
+
+
+@dataclass(frozen=True)
 class BeaconManifest:
     """The parsed, typed representation of ``beacon.yaml``."""
 
@@ -208,6 +250,18 @@ class BeaconManifest:
     project_state: BeaconProjectState = field(default_factory=BeaconProjectState)
     forge: BeaconForgeConfig = field(default_factory=BeaconForgeConfig)
     serving: BeaconServingConfig = field(default_factory=BeaconServingConfig)
+    #: Decisions read from the project's ADR files at build time.
+    decisions: tuple[BeaconDecision, ...] = ()
+    #: Extra ADR directories to read (build configuration, never served).
+    adr_dir: tuple[str, ...] = ()
+
+    def decision_by_id(self, decision_id: str) -> BeaconDecision | None:
+        """The decision whose id or title matches (case-insensitive), or None."""
+        needle = decision_id.strip().lower()
+        for decision in self.decisions:
+            if needle in (decision.id.lower(), decision.title.lower()):
+                return decision
+        return None
 
     def concept_by_id(self, concept_id: str) -> BeaconConcept | None:
         """Return the concept whose id matches (case-insensitive), or None."""
@@ -371,6 +425,9 @@ def served_manifest_payload(manifest: BeaconManifest) -> dict[str, Any]:
     payload = _without_digests(asdict(manifest))
     payload.pop("forge", None)  # build configuration, not project knowledge
     payload.pop("serving", None)  # build configuration; never tell a reader what is hidden
+    payload.pop("adr_dir", None)  # build configuration
+    if not payload.get("decisions"):
+        payload.pop("decisions", None)  # absent, not empty, for projects without ADRs
     return payload
 
 

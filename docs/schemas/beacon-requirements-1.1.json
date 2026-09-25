@@ -251,6 +251,15 @@
       "required": false,
       "gap_code": "project_state_missing",
       "ask": "Active work, recent completions, blockers and pending decisions."
+    },
+    {
+      "field": "decisions",
+      "sources": [
+        "declared"
+      ],
+      "required": false,
+      "gap_code": "decisions_missing",
+      "ask": "Architecture decision records (ADRs) in the repository."
     }
   ]
 }

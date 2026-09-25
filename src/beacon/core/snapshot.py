@@ -612,6 +612,9 @@ def _refuse_unsafe_manifest_paths(manifest: BeaconManifest) -> None:
     for item in state_items:
         candidates.extend(("project_state.sources[].path", s.path) for s in item.sources)
         candidates.extend(("project_state.sources[].url", s.url) for s in item.sources)
+    for decision in manifest.decisions:
+        candidates.append(("decisions[].path", decision.path))
+        candidates.extend(("decisions[].sources[].path", s.path) for s in decision.sources)
     candidates.extend(
         ("agent_guidance.read_first", value) for value in manifest.agent_guidance.read_first
     )

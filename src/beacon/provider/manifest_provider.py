@@ -11,6 +11,7 @@ so an agent can tell current knowledge from experimental or uncertain.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from beacon.core.loader import load_beacon_manifest, parse_manifest
 from beacon.core.schema import (
     AgentOnboarding,
     BeaconConcept,
+    BeaconDecision,
     BeaconManifest,
     BeaconSource,
     CatalogDoc,
@@ -229,6 +231,28 @@ class ManifestBeaconProvider:
                 statuses.append(concept.status)
                 sources.extend(concept.sources)
 
+        if not wanted or "decisions" in wanted or "decision" in wanted:
+            # Unfiltered search keeps a few ADRs so they do not crowd out docs.
+            ranked = _decisions_matching(m, query)
+            for decision in ranked if wanted else ranked[:_UNFILTERED_DECISIONS]:
+                hits.append(
+                    SearchHit(
+                        title=f"{decision.id}: {decision.title}",
+                        source_type="decision",
+                        path=decision.path,
+                        snippet=_decision_snippet(decision),
+                        status=decision.status,
+                        confidence="high",
+                        why_relevant=(
+                            f"architecture decision record ({decision.status_text or decision.status}); "
+                            f"beacon_explain_concept '{decision.id}' for its reasons and rejected alternatives"
+                        ),
+                        chunk_id=self._decision_chunk_id(decision) if m.serving.traversal else "",
+                    )
+                )
+                statuses.append(decision.status)
+                sources.extend(decision.sources)
+
         if not wanted or "docs" in wanted or "doc" in wanted:
             for chunk, _score in self.doc_index.search(query, limit=limit):
                 source = chunk.to_source()
@@ -280,10 +304,16 @@ class ManifestBeaconProvider:
         m = self.manifest
         self._check_query(concept, "concept")
         found = m.concept_by_id(concept)
-        if found is None:
+        decision = m.decision_by_id(concept) if found is None else None
+        if found is None and decision is None:
             # Fall back to fuzzy match then doc search.
             matches = _concepts_matching(m, concept)
             found = matches[0] if matches else None
+            if found is None:
+                ranked = _decisions_matching(m, concept)
+                decision = ranked[0] if ranked else None
+        if decision is not None:
+            return self._explain_decision(decision)
         if found is not None:
             return ConceptExplanation(
                 concept=found.name,
@@ -314,6 +344,53 @@ class ManifestBeaconProvider:
             sources=sources,
             next_actions=("not a registered concept; try beacon_search",),
         )
+
+    def _explain_decision(self, decision: BeaconDecision) -> ConceptExplanation:
+        """An ADR as an explanation: the decision verbatim, its rejected alternatives with
+        their reasons, and where to read the context and consequences."""
+        rejected = "; ".join(
+            f"{alt.alternative}: {alt.reason}" if alt.reason else alt.alternative
+            for alt in decision.alternatives
+        )
+        why = f"Alternatives considered: {rejected}" if rejected else ""
+        notes: list[str] = []
+        if decision.implemented is False:
+            notes.append(f"accepted but not in effect yet: {decision.status_text}")
+        if decision.superseded_by:
+            notes.append("superseded by " + ", ".join(decision.superseded_by))
+        elif decision.status == "superseded":
+            notes.append(f"superseded: {decision.status_text}")
+        if decision.truncated:
+            notes.append(f"decision text truncated; beacon_read path={decision.path} for the rest")
+        for role in ("context", "consequences"):
+            span = decision.sections.get(role)
+            if span is not None:
+                notes.append(
+                    f"{role}: beacon_read path={decision.path} line={span.line_start} "
+                    f"(lines {span.line_start}-{span.line_end})"
+                )
+        return ConceptExplanation(
+            concept=f"{decision.id}: {decision.title}",
+            definition=decision.decision,
+            why_it_exists=why,
+            related_concepts=decision.supersedes + decision.superseded_by,
+            status=_aggregate_status([decision.status]),
+            confidence="high",
+            sources=decision.sources or (_project_source(self.manifest),),
+            next_actions=tuple(notes),
+        )
+
+    def _decision_chunk_id(self, decision: BeaconDecision) -> str:
+        """The served chunk holding the ADR's Decision section, for ``beacon_read``."""
+        source = decision.sources[0] if decision.sources else None
+        for chunk in self.doc_index.chunks:
+            if chunk.path != decision.path:
+                continue
+            if source is None or source.line_start is None:
+                return _chunk_id(chunk)
+            if chunk.start_line <= source.line_start <= chunk.end_line:
+                return _chunk_id(chunk)
+        return ""
 
     def guardrails(self, *, task_hint: str = "") -> GuardrailResponse:
         m = self.manifest
@@ -515,6 +592,41 @@ def _concepts_matching(manifest: BeaconManifest, query: str) -> list[BeaconConce
         if needle in haystack or any(tok in haystack for tok in needle.split()):
             out.append(concept)
     return out
+
+
+_UNFILTERED_DECISIONS = 3
+_SNIPPET_CHARS = 400
+
+
+def _decisions_matching(manifest: BeaconManifest, query: str) -> list[BeaconDecision]:
+    """ADRs whose id, title, status, decision or alternatives mention the query, best first
+    (whole-query match, then the share of query words found; ties keep file order)."""
+    needle = query.lower().strip()
+    if not needle:
+        return []
+    tokens = [tok for tok in re.findall(r"[a-z0-9]+", needle) if len(tok) > 2] or [needle]
+    scored: list[tuple[float, int, BeaconDecision]] = []
+    for index, decision in enumerate(manifest.decisions):
+        haystack = " ".join(
+            [
+                decision.id,
+                decision.title,
+                decision.status_text,
+                decision.decision,
+                *(f"{a.alternative} {a.reason}" for a in decision.alternatives),
+            ]
+        ).lower()
+        share = sum(tok in haystack for tok in tokens) / len(tokens)
+        title_hit = any(tok in decision.title.lower() for tok in tokens)
+        if needle in haystack or share > 0:
+            score = (2.0 if needle in haystack else 0.0) + share + (0.5 if title_hit else 0.0)
+            scored.append((-score, index, decision))
+    return [decision for _, _, decision in sorted(scored, key=lambda item: item[:2])]
+
+
+def _decision_snippet(decision: BeaconDecision) -> str:
+    text = " ".join(decision.decision.split())
+    return text if len(text) <= _SNIPPET_CHARS else text[: _SNIPPET_CHARS - 3] + "..."
 
 
 def _guardrails_matching(manifest: BeaconManifest, query: str):

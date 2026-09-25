@@ -56,8 +56,8 @@ STATUS_PLACEHOLDER = "placeholder"
 BEACON_OWNED_FIELDS = frozenset({"beacon_version"})
 #: beacon.yaml keys that configure the build rather than describe the project:
 #: never asked for, never a gap, never served (``forge`` holds the label names;
-#: ``serving`` holds the paths no surface may serve).
-BUILD_CONFIG_FIELDS = frozenset({"forge", "serving"})
+#: ``serving`` holds the paths no surface may serve; ``adr_dir`` names extra ADR folders).
+BUILD_CONFIG_FIELDS = frozenset({"forge", "serving", "adr_dir"})
 
 #: Policy authority labels -> catalogue tiers.
 _AUTHORITY_TIER = {
@@ -216,6 +216,13 @@ CATALOGUE: tuple[Requirement, ...] = (
         False,
         "project_state_missing",
         "Active work, recent completions, blockers and pending decisions.",
+    ),
+    Requirement(
+        "decisions",
+        (_DC,),
+        False,
+        "decisions_missing",
+        "Architecture decision records (ADRs) in the repository.",
     ),
 )
 

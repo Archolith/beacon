@@ -33,7 +33,8 @@ mcp = FastMCP(
         "beacon_project_overview, then call beacon_agent_onboarding or beacon_guardrails "
         "with a task_hint for what you are about to change. When a question comes up, use "
         "beacon_search or beacon_catalog, then beacon_read only the sections you need; "
-        "beacon_explain_concept defines project terms."
+        "beacon_explain_concept defines project terms. For why something is built the way "
+        "it is, search source_types=['decisions'] (the project's ADRs)."
     ),
     lifespan=beacon_lifespan,
 )

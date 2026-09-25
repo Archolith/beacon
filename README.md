@@ -249,6 +249,20 @@ docs give better results. Excerpts are capped at 300 characters: agents get poin
 full text only when they need it. Agent-vendor files (`CLAUDE.md`, `.cursor/rules`) are never
 read; point them at `AGENTS.md`.
 
+**Architecture decision records.** The build reads ADRs from `docs/adr/`, `doc/adr/`,
+`docs/decisions/`, `adr/` and `.agent/adr/`, plus any folder named by `adr_dir` in
+`beacon.yaml` (one path or a list). An ADR is a decision the maintainers approved by committing
+it, so it is published verbatim: each becomes a `decision` document and a `decisions[]` entry
+holding its Decision section (capped at 4,000 characters), the alternatives it considered with
+their reasons, its status and date, supersession links, and line spans for the other sections.
+Nygard (`- **Status:**` bullets or a `## Status` section) and MADR (frontmatter, `Decision
+Outcome`, `Considered Options`) are understood. The status keeps its own words (`status_text`);
+its first word sets the served status (accepted -> `current`, proposed -> `planned`,
+superseded/deprecated/rejected -> `superseded`), and an accepted decision that says it is a
+target or not yet in effect is marked `implemented: false`. A file without a Decision section,
+or with sensitive content, is reported and not published. A decision is served only where its
+ADR file is: `serving.exclude` and `visibility: local` apply to both.
+
 - `beacon build --repo R` reads `R/beacon.yaml` as the **intent** authority. When it exists it is
   the only intent that build may use: `--intent` may name it, or supply intent for a repository
   that has none, but never replace it (`intent_manifest_conflict`). A malformed or symlinked
@@ -395,24 +409,24 @@ Inputs:
 
 > *"What does this project know about temporal memory?"*
 
-Keyword search across docs, concepts, and guardrails. Every result carries a status (`current`, `experimental`, `superseded`) and a `why_relevant` field; document hits also carry a `chunk_id` for `beacon_read`.
+Keyword search across docs, concepts, decisions (ADRs), and guardrails. Every result carries a status (`current`, `experimental`, `superseded`) and a `why_relevant` field; document and decision hits also carry a `chunk_id` for `beacon_read`. An unfiltered search returns at most three decisions; filter on `decisions` for more.
 
 ```
 Inputs:
   query:        search string
-  source_types: list of "docs" | "concepts" | "guardrails" (default: all)
+  source_types: list of "docs" | "concepts" | "decisions" | "guardrails" (default: all)
   limit:        max results (default: 8)
 ```
 
 ### `beacon_explain_concept`
 
-> *"What is blast_radius and where is it implemented?"*
+> *"What is blast_radius and where is it implemented?"* / *"Why adr-0005?"*
 
-Looks up a project-specific term by id or name. Returns the definition, motivation, related concepts, and implementation locations.
+Looks up a project-specific term by id or name. Returns the definition, motivation, related concepts, and implementation locations. Given an ADR id (`adr-0005`) or title, it returns the decision verbatim, the alternatives considered with their reasons, and where to `beacon_read` the context and consequences.
 
 ```
 Inputs:
-  concept: concept id or display name
+  concept: concept id or display name, or an ADR id or title
   depth:   "simple" | "technical" | "implementation" (default: "technical")
 ```
 
