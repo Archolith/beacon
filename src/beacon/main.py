@@ -1126,6 +1126,20 @@ def _build_impl(
 
     intent_payload = {"path": intent, "source": intent_source}
 
+    # The project's ADRs (default directories plus any adr_dir the intent names).
+    adrs: Any = None
+    if repo:
+        from beacon.sources.declared import collect_declared_adrs
+
+        try:
+            adrs = collect_declared_adrs(
+                repo,
+                adr_dirs=intent_manifest.adr_dir if intent_manifest is not None else (),
+                limits=limits,
+            )
+        except LimitError as exc:
+            raise cli_support.CliFailure(EXIT_INPUT, exc.code, "resource limit exceeded") from exc
+
     # Memory evidence describes one commit of one repository. A publishing build
     # checks that against this checkout now and again right before output;
     # --gaps-only only reports, so it may read unbound or stale evidence.
@@ -1167,6 +1181,7 @@ def _build_impl(
                 strict=False,
                 declared=declared,
                 forge=forge_facts,
+                adrs=adrs,
             )
         except BuildError as exc:
             raise cli_support.CliFailure(EXIT_VALIDATION, exc.code, str(exc)) from exc
@@ -1199,6 +1214,7 @@ def _build_impl(
             git_origin=git_origin,
             declared=declared,
             forge=forge_facts,
+            adrs=adrs,
         )
         raw = build_raw_manifest(facts)
         manifest_obj = parse_manifest(raw)

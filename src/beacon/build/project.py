@@ -189,6 +189,11 @@ def build_raw_manifest(facts: MergedProjectFacts) -> dict[str, Any]:
     }
     if facts.project_state is not None:
         raw["project_state"] = facts.project_state
+    if facts.adr_decisions:
+        raw["decisions"] = [
+            {key: value for key, value in record.items() if value not in ("", [], {}, None)}
+            for record in facts.adr_decisions
+        ]
     serving: dict[str, Any] = {}
     if facts.serving_exclude:
         # Enforced again at serve time; never part of what a reader is served.

@@ -60,6 +60,9 @@ CODE_PURPOSE_MISSING = "purpose_missing"
 CODE_PROJECT_STATE_TITLE_MISSING = "project_state_title_missing"
 CODE_PROJECT_STATE_SOURCES_MISSING = "project_state_sources_missing"
 CODE_LEGACY_ISSUE = "legacy_issue"
+CODE_DECISION_ID_DUPLICATE = "decision_id_duplicate"
+#: A decision's ADR file must be a canonical doc, so the serving policy governs both.
+CODE_DECISION_DOC_UNLISTED = "decision_doc_unlisted"
 #: A pinned citation's text changed after the claim was written.
 CODE_SOURCE_CHANGED = "source_changed"
 #: A pinned citation can no longer be read (file gone or line range out of bounds).
@@ -300,6 +303,33 @@ def validate_beacon_manifest(
         _check_status(issues, f"core_concepts[{concept.id}].status", concept.status)
         for source in concept.sources:
             _check_status(issues, f"core_concepts[{concept.id}].sources[].status", source.status)
+    # --- decisions (ADRs) ----------------------------------------------------
+    decision_ids: set[str] = set()
+    listed_docs = {doc.path for doc in manifest.canonical_docs}
+    for decision in manifest.decisions:
+        where = f"decisions[{decision.id}]"
+        if decision.id.lower() in decision_ids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "decisions",
+                    f"duplicate decision id: {decision.id}",
+                    CODE_DECISION_ID_DUPLICATE,
+                )
+            )
+        decision_ids.add(decision.id.lower())
+        if decision.path not in listed_docs:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    where,
+                    "its ADR file is not a canonical document",
+                    CODE_DECISION_DOC_UNLISTED,
+                )
+            )
+        _check_status(issues, f"{where}.status", decision.status)
+        for source in decision.sources:
+            _check_status(issues, f"{where}.sources[].status", source.status)
     # related-id references resolve against known concept ids
     for concept in manifest.core_concepts:
         for related in concept.related_concepts:
@@ -409,6 +439,8 @@ def _pinned_sources(manifest: BeaconManifest) -> list[tuple[str, BeaconSource]]:
         found.extend((f"core_concepts[{concept.id}].sources[]", s) for s in concept.sources)
     for guard in manifest.guardrails:
         found.extend((f"guardrails[{guard.id}].sources[]", s) for s in guard.sources)
+    for decision in manifest.decisions:
+        found.extend((f"decisions[{decision.id}].sources[]", s) for s in decision.sources)
     state = manifest.project_state
     groups = (
         ("active_work", () if state.active_work is None else (state.active_work,)),

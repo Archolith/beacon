@@ -13,7 +13,8 @@ class SearchTool(BeaconBaseTool):
         "(current|experimental|planned|superseded|uncertain) so you know whether to trust "
         "the answer. "
         "source_types filters results: pass any subset of "
-        "'docs', 'concepts', 'guardrails'. "
+        "'docs', 'concepts', 'decisions' (the project's architecture decision records: "
+        "why things are built the way they are), 'guardrails'. "
         "limit controls the max number of hits returned (default 8)."
     )
 

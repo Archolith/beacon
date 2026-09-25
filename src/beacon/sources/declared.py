@@ -31,6 +31,7 @@ import yaml
 from beacon.core import discovery as _discovery
 from beacon.core.limits import ResourceLimits
 from beacon.core.security import classify_path
+from beacon.sources.adrs import AdrFacts, collect_adrs
 from beacon.sources.conventions import ConventionFacts, collect_conventions
 
 TIER_DECLARED = "declared"
@@ -163,6 +164,21 @@ def collect_declared(root: str | Path, *, limits: ResourceLimits | None = None) 
         test=marked.get("test") or test or guess_test,
         canonical_docs=(docs + nav)[: active.documents],
         conventions=conventions,
+    )
+
+
+def collect_declared_adrs(
+    root: str | Path, *, adr_dirs: tuple[str, ...] = (), limits: ResourceLimits | None = None
+) -> AdrFacts:
+    """The project's ADRs (see :mod:`beacon.sources.adrs`), read with the same bounded,
+    in-root, no-symlink rules as every other declared file."""
+    active = limits if limits is not None else ResourceLimits()
+    root_path = Path(root).resolve()
+    return collect_adrs(
+        root_path,
+        lambda base, rel: _read_text(base, rel, active),
+        adr_dirs=adr_dirs,
+        limits=active,
     )
 
 

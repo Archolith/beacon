@@ -24,8 +24,31 @@ Top-level container. One per loaded manifest.
 | `build_and_test` | `BeaconBuildTest` | Setup/test/benchmark commands |
 | `guardrails` | `tuple[BeaconGuardrail, ...]` | How not to break the project |
 | `project_state` | `BeaconProjectState` | Optional source-cited current-work state |
+| `decisions` | `tuple[BeaconDecision, ...]` | ADRs read at build time; omitted from the served payload when empty |
+| `adr_dir` | `tuple[str, ...]` | Extra ADR folders (`beacon.yaml`, one path or a list); build configuration, never served |
 
-Convenience method: `manifest.concept_by_id(id)` — case-insensitive lookup by id or name.
+Convenience methods: `manifest.concept_by_id(id)` and `manifest.decision_by_id(id_or_title)` —
+case-insensitive lookups.
+
+### BeaconDecision (`sources/adrs.py` reads, build publishes)
+
+One architecture decision record, published verbatim from the project's ADR file (declared tier).
+The ADR file is also a canonical doc with role `decision`; `manifest_for_context` drops a decision
+whenever its file is withheld, and the validator refuses a decision whose file is not listed
+(`decision_doc_unlisted`).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id`, `title`, `path` | `str` | `adr-NNNN` from the H1 or file name; a repeated number gets `-2`, `-3` |
+| `decision` | `str` | The Decision (or MADR Decision Outcome) section, capped at 4,000 characters; `truncated` says so |
+| `status` | `str` | Knowledge status from the status's first word; unrecognised is `unknown` |
+| `status_text` | `str` | The status as written (capped at 300) |
+| `date` | `str` | As written |
+| `implemented` | `bool \| None` | `False` when an accepted decision says it is a target or not yet in effect |
+| `alternatives` | `tuple[BeaconAlternative, ...]` | `alternative` and `reason` per `###` heading, or per list item (reason empty) |
+| `sections` | `dict[str, BeaconSectionSpan]` | 1-based line spans of `decision`, `context`, `consequences`, `alternatives` |
+| `supersedes`, `superseded_by` | `tuple[str, ...]` | ADR ids from the status line, metadata bullets or frontmatter only |
+| `sources` | `tuple[BeaconSource, ...]` | The Decision section, digest-pinned |
 
 ### BeaconProjectState and BeaconStateItem
 

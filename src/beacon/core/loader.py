@@ -28,8 +28,10 @@ from beacon.core.limits import (
 from beacon.core.schema import (
     FORGE_LABEL_GROUPS,
     BeaconAgentGuidance,
+    BeaconAlternative,
     BeaconBuildTest,
     BeaconConcept,
+    BeaconDecision,
     BeaconDoc,
     BeaconForgeConfig,
     BeaconGuardrail,
@@ -37,6 +39,7 @@ from beacon.core.schema import (
     BeaconProjectInfo,
     BeaconProjectState,
     BeaconPurpose,
+    BeaconSectionSpan,
     BeaconServingConfig,
     BeaconSource,
     BeaconStateItem,
@@ -251,6 +254,8 @@ def parse_manifest(raw: dict[str, Any]) -> BeaconManifest:
         ),
         forge=_parse_forge(_as_map(raw.get("forge", _MISSING), "forge", optional=True)),
         serving=_parse_serving(_as_map(raw.get("serving", _MISSING), "serving", optional=True)),
+        decisions=_parse_decisions(raw.get("decisions", _MISSING)),
+        adr_dir=_parse_adr_dir(raw.get("adr_dir", _MISSING)),
     )
 
 
@@ -475,6 +480,87 @@ def _parse_serving(data: dict[str, Any]) -> BeaconServingConfig:
 
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+_MAX_ADR_DIRS = 8
+_MAX_DECISIONS = 64
+_MAX_DECISION_CHARS = 4000
+
+
+def _parse_adr_dir(value: Any) -> tuple[str, ...]:
+    """``adr_dir``: one repository-relative directory or a list of them."""
+    if value is _MISSING:
+        return ()
+    items = [value] if isinstance(value, str) else _as_list(value, "adr_dir")
+    if len(items) > _MAX_ADR_DIRS:
+        raise ManifestError(f"adr_dir allows at most {_MAX_ADR_DIRS} directories")
+    dirs: list[str] = []
+    for item in items:
+        if not isinstance(item, str) or not item.strip() or "\n" in item or len(item) > 256:
+            raise ManifestError("adr_dir entries must be one-line paths of at most 256 characters")
+        clean = item.strip().replace("\\", "/")
+        if clean.startswith("/") or re.match(r"^[A-Za-z]:", clean) or ".." in clean.split("/"):
+            raise ManifestError("adr_dir entries must be repository-relative")
+        dirs.append(clean.strip("/"))
+    return tuple(dirs)
+
+
+def _parse_decisions(value: Any) -> tuple[BeaconDecision, ...]:
+    items = _as_list(value, "decisions")
+    if len(items) > _MAX_DECISIONS:
+        raise ManifestError(f"decisions allows at most {_MAX_DECISIONS} entries")
+    return tuple(_parse_decision(item) for item in items)
+
+
+def _parse_decision(item: Any) -> BeaconDecision:
+    data = _as_map(item, "decisions[]")
+    for key in ("id", "title", "path", "decision"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ManifestError(f"each decisions entry needs a non-empty '{key}'")
+    if len(data["decision"]) > _MAX_DECISION_CHARS:
+        raise ManifestError(f"decisions[].decision allows at most {_MAX_DECISION_CHARS} characters")
+    implemented = data.get("implemented", None)
+    if implemented is not None and not isinstance(implemented, bool):
+        raise ManifestError("decisions[].implemented must be true, false or absent")
+    alternatives = []
+    for alt in _as_list(data.get("alternatives", _MISSING), "decisions[].alternatives"):
+        alt_map = _as_map(alt, "decisions[].alternatives[]")
+        alternatives.append(
+            BeaconAlternative(
+                alternative=_opt_str(
+                    alt_map.get("alternative", _MISSING), "decisions[].alternatives[].alternative"
+                ),
+                reason=_opt_str(
+                    alt_map.get("reason", _MISSING), "decisions[].alternatives[].reason"
+                ),
+            )
+        )
+    sections: dict[str, BeaconSectionSpan] = {}
+    for role, span in _as_map(
+        data.get("sections", _MISSING), "decisions[].sections", optional=True
+    ).items():
+        span_map = _as_map(span, "decisions[].sections.*")
+        start = _opt_line(span_map.get("line_start", _MISSING), "decisions[].sections.line_start")
+        end = _opt_line(span_map.get("line_end", _MISSING), "decisions[].sections.line_end")
+        if start is None or end is None or end < start:
+            raise ManifestError("decisions[].sections spans need line_start <= line_end")
+        sections[str(role)] = BeaconSectionSpan(line_start=start, line_end=end)
+    return BeaconDecision(
+        id=data["id"].strip(),
+        title=data["title"].strip(),
+        path=data["path"].strip(),
+        decision=data["decision"],
+        status=_opt_str(data.get("status", _MISSING), "decisions[].status", "current"),
+        status_text=_opt_str(data.get("status_text", _MISSING), "decisions[].status_text"),
+        date=_opt_str(data.get("date", _MISSING), "decisions[].date"),
+        truncated=bool(data.get("truncated", False)),
+        implemented=implemented,
+        alternatives=tuple(alternatives),
+        sections=sections,
+        supersedes=_str_tuple(data.get("supersedes", _MISSING)),
+        superseded_by=_str_tuple(data.get("superseded_by", _MISSING)),
+        sources=_parse_sources(data.get("sources", _MISSING)),
+    )
 
 
 def _parse_digest(value: Any) -> str:

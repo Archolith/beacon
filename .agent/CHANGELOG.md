@@ -1,5 +1,32 @@
 # Changelog — beacon
 
+## 2026-09-24 — architecture decision records become served decisions
+
+Plan: workspace `.agent/plans/beacon-why-decisions-design-2026-09-24.md` (owner-approved, Phase 1).
+The P3 "why" evaluation found Beacon served no reasons; ADRs are the project's own reviewed ones.
+
+- `src/beacon/sources/adrs.py` (new): reads ADRs from `docs/adr`, `doc/adr`, `docs/decisions`,
+  `adr`, `.agent/adr` and `adr_dir`; Nygard and MADR; Decision text verbatim (capped), alternatives
+  with reasons, status mapped from its first word with `status_text` kept, `implemented: false`
+  for accepted targets, supersession from metadata only, section spans, digest-pinned source.
+  Missing Decision sections, unrecognised statuses and sensitive content are reported gaps.
+- `src/beacon/sources/declared.py`, `main.py`: `collect_declared_adrs`, run after the intent is
+  loaded so `adr_dir` applies.
+- `src/beacon/build/policy.py`, `project.py`, `requirements.py`: ADR files join the canonical
+  docs (role `decision`, same exclude/sensitive rules) and publish `decisions[]`; `decisions` is
+  catalogued (declared) and `adr_dir` is build configuration. `beacon-requirements-1.1.json`
+  regenerated (additive).
+- `src/beacon/core/schema.py`, `loader.py`, `validator.py`: `BeaconDecision`, `BeaconAlternative`,
+  `BeaconSectionSpan`, `decisions` and `adr_dir`; bounded parsing; `decision_id_duplicate`,
+  `decision_doc_unlisted`; decision citations join digest drift checks. `beacon_version` stays
+  `0.1` (snapshot 1.0 pins it); the section is additive and absent when empty.
+- `src/beacon/core/serving_policy.py`, `snapshot.py`: a decision is served only while its ADR file
+  is (local and export); decision paths join the unsafe-path check.
+- `src/beacon/provider/manifest_provider.py`, `mcp/`: `beacon_search` searches decisions (at most
+  three in an unfiltered search, all with `source_types=["decisions"]`); `beacon_explain_concept`
+  explains an ADR by id or title with its alternatives and where to read its context.
+- Tests: `tests/test_adr_decisions.py` (18).
+
 ## 2026-09-24 — beacon_read can finish a long section
 
 Found in review of #21: sections are cut by heading with no size bound, and the only

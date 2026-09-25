@@ -41,10 +41,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from beacon.core.limits import ResourceLimits
 from beacon.core.paths import resolve_canonical_path
 from beacon.core.schema import BeaconManifest
 from beacon.core.security import classify_path
 from beacon.core.serving_policy import is_excluded
+from beacon.sources.adrs import AdrFacts
 from beacon.sources.base import (
     KIND_GIT_HEAD,
     KIND_GIT_TAG,
@@ -168,6 +170,8 @@ class MergedProjectFacts:
     marked_fields: frozenset[str] = frozenset()
     #: ... and by conventions (headings, CODEOWNERS, glossary, nav): usable, less exact.
     convention_fields: frozenset[str] = frozenset()
+    #: Decision records read from the project's ADR files (declared), published verbatim.
+    adr_decisions: tuple[dict[str, Any], ...] = ()
 
 
 def _plain(value: Any) -> Any:
@@ -218,6 +222,7 @@ def resolve_project_facts(
     menhir_records: tuple[NormalizedRecord, ...] | None = None,
     declared: DeclaredFacts | None = None,
     forge: ForgeFacts | None = None,
+    adrs: AdrFacts | None = None,
 ) -> MergedProjectFacts:
     """Resolve merged records into the facts the projection consumes.
 
@@ -446,6 +451,38 @@ def resolve_project_facts(
                 "status": "unknown",
             }
         )
+    # ADR files are served documents in their own right (role "decision"), so the serving
+    # policy that governs the file also governs the decision quoted from it.
+    adr_decisions: list[dict[str, Any]] = []
+    for adr_record in adrs.decisions if adrs is not None else ():
+        path = str(adr_record["path"])
+        if path in seen:  # already listed (by intent, say): the decision rides on that doc
+            adr_decisions.append(adr_record)
+            continue
+        if withheld(path) or not _doc_exists(docs_root, path):
+            continue
+        if len(docs) >= ResourceLimits().documents:
+            drift.append(
+                DriftRecord(
+                    code="adr_doc_limit",
+                    detail="the document limit was reached; this ADR is not published",
+                    citation=path,
+                )
+            )
+            continue
+        seen.add(path)
+        declared_doc_count += 1
+        docs.append(
+            {
+                "path": path,
+                "role": "decision",
+                "title": str(adr_record["title"]),
+                "status": str(adr_record["status"]),
+            }
+        )
+        adr_decisions.append(adr_record)
+    for gap in adrs.gaps if adrs is not None else ():
+        drift.append(DriftRecord(code=gap.code, detail=gap.detail, citation=gap.path))
     # Frontmatter is the project's own statement of a document's status and role; it
     # refines memory and declared docs, never a status the intent manifest stated.
     for index, entry in enumerate(docs):
@@ -713,6 +750,7 @@ def resolve_project_facts(
         "build_and_test.test": command_authority["test"],
         "build_and_test.benchmark": command_authority["benchmark"],
         "guardrails": guardrails_authority,
+        "decisions": "declared" if adr_decisions else "",
         "project_state": (
             project_state_authority
             if any(bool(value) for value in (project_state or {}).values())
@@ -747,6 +785,7 @@ def resolve_project_facts(
         structure_fingerprint=structure_fingerprint,
         git_head=git_head,
         decisions=tuple(decisions),
+        adr_decisions=tuple(adr_decisions),
         guardrails=tuple(guardrails),
         purpose_problem=purpose_problem,
         non_goals=tuple(non_goals),
