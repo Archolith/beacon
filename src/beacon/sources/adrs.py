@@ -268,11 +268,8 @@ def _metadata(lines: list[str], start: int) -> dict[str, str]:
     for line in lines[start:]:
         if line.startswith("## "):
             break
-        bullet = _META.match(line)
-        plain = _PLAIN_META.match(line)
-        if bullet or plain:
-            match = bullet or plain
-            assert match is not None
+        match = _META.match(line) or _PLAIN_META.match(line)
+        if match is not None:
             key = match.group(1).strip().lower()
             meta.setdefault(key, match.group(2).strip())
         elif key and line.startswith("  ") and line.strip():
