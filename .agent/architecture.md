@@ -65,7 +65,8 @@ src/beacon/
 ├── __init__.py          single-source package version
 ├── __main__.py          python -m beacon entry
 ├── main.py              typer CLI: init / validate / inspect / export / serve / serve-http
-├── http_api.py          immutable discovery, identity, orientation, full snapshot, and health routes
+├── http_api.py          immutable discovery/identity/orientation/snapshot/health routes,
+│                        served-decision index and records, and MCP-parity query routes
 ├── config/
 │   └── settings.py      BeaconSettings (frozen dataclass, from_env)
 ├── core/
@@ -133,14 +134,29 @@ direct, unverified serving until the trust plan's broker and signing phases land
 log, and wraps the app in `beacon.loopback_guard.LoopbackGuard`, which refuses a
 non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
 
+Exposure beyond the machine is configuration, not code: `docs/deployment.md` with
+`deploy/nginx/beacon.conf`, `deploy/caddy/Caddyfile`, and `deploy/systemd/*.service`
+put an explicitly configured TLS reverse proxy in front of the two loopback servers.
+The proxy must rewrite the upstream Host to `127.0.0.1:8766` for `/mcp` (the guard
+refuses any other Host), must not buffer MCP responses (Streamable HTTP can stream
+Server-Sent Events), and must log paths without query strings; Beacon itself ships
+no auth, CORS, TLS, rate limiting, or in-process access logs.
+
 ### Loopback HTTP data flow
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
 embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value.
 Before binding, the CLI separately captures bounded Git and source-digest evidence for the immutable
-status companion. Discovery descriptor 1.5 advertises `/v1/snapshot/identity`, `/v1/status`,
-`/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
+status companion. Discovery descriptor 1.7 is the LLM entry point: it advertises
+`/v1/snapshot/identity`, `/v1/status`, `/v1/snapshot/orientation`, and `/v1/snapshot` with
+independent SHA-256 digests and exact byte sizes, gives every resource family and dynamic route a
+one-line `use_when`, orders a `recommended_flow` of routes for agents, labels the access
+`trust: direct_unverified` (no signing or trust broker yet), and carries a `freshness` block built
+only from data that already exists — the snapshot digest, the snapshot generator version, the
+startup `StatusObservation` repository evidence, `observed_at`, and a pointer to `/v1/status`;
+unobserved facts stay `null` or `unavailable`, and the same freshness facts ride on
+`/v1/snapshot/identity` response headers while its body stays byte-identical.
 All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
 and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
 orientation adds manifest knowledge, citations, document hashes, and chunk inventory without chunk
@@ -151,10 +167,27 @@ The versioned `/v1/chunks` companion index adds stable location-derived IDs, par
 exact text/response byte costs, resource hashes, and individual `/v1/chunks/{id}` retrieval without
 changing snapshot 1.0. Index and resource bytes are bounded, precomputed, independently cacheable,
 and tied to the full snapshot digest. The listener is restricted to `127.0.0.1`, has no CORS or
-access logs, and exposes no free-text query capability. Companion `/v1/concepts` and
+access logs. Companion `/v1/concepts` and
 `/v1/guardrails` indexes map manifest logical IDs to opaque stable resource IDs, exact byte costs,
 and independent digests; their item routes return one complete source-cited record without changing
-snapshot 1.0 or rereading source files.
+snapshot 1.0 or rereading source files. The `/v1/decisions` index and `/v1/decisions/{id}` records
+address served decisions by decision id and carry the verbatim decision text, alternatives with
+reasons, status, supersession, section spans, and citations.
+
+Dynamic query routes share the MCP answers: `create_http_app` builds one
+`ManifestBeaconProvider.from_snapshot(snapshot, limits=...)` (the same construction and CLI limits
+the MCP-over-HTTP lifespan uses) and `/v1/search`, `/v1/read`, and `/v1/explain` call the same tool
+classes (`beacon_search`, `beacon_read`, `beacon_explain_concept`) through `BeaconBaseTool.execute`,
+so success bodies equal the MCP tool payloads rendered in the surface's canonical JSON, refusals
+keep the `{"ok": false, "tool": ..., "error": {...}}` envelope (not-found codes → 404, other
+refusals → 400, unexpected failures → the MCP `internal_error` payload with 500, logged without the
+query), and the provider's query-byte cap and result-limit ceiling apply unchanged. Dynamic answers
+are deterministic per (snapshot, query), carry a body-derived ETag with `If-None-Match` support,
+perform no file reads at request time, and never echo the query string in a body, header, or log
+line. A snapshot whose embedded manifest is not servable (synthetic snapshots only; every
+`build_snapshot` product validates) keeps its static representations byte-identical, fails the query
+routes closed with the ordinary 404 body, and its discovery document keeps `query: false` and omits
+the decisions family, the dynamic listing, and the dynamic flow steps from `recommended_flow`.
 
 ## Config / Environment Variables
 

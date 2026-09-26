@@ -1,5 +1,181 @@
 # Changelog — beacon
 
+## 2026-09-26 — Review fixes for PR #28 (astra review)
+
+- `serve-http` turns off Starlette's trailing-slash redirect. `/v1/search/?q=...` used to answer
+  307 with the query copied into `Location`; it is now a plain 404 with no echo.
+- `types` is parsed tolerantly: spaces and empty items are ignored, so `docs, decisions` no longer
+  drops decisions.
+- Provider search: `source_types=decisions` returns only decisions. A Beacon v0 leftover also
+  added guardrails; `guardrail` is now accepted as a singular alias.
+- The deploy systemd units drop `StateDirectory=`, which made the served content writable despite
+  `ProtectSystem=strict`. Both use `ReadOnlyPaths=/var/lib/beacon`, and the guide shows how to
+  provision the directory as the deployment user.
+- nginx: `limit_req_log_level warn` plus `error_log ... error` keeps rate-limit refusals, which
+  log the request line and so the query, out of the error log.
+- README: 304 applies to successful answers only; refusals keep their status.
+- Tests:
+  - trailing-slash 404 with no echo, `types` whitespace, decisions-only filter;
+  - read-only content dir and error-log level in the deploy configs;
+  - e2e: withheld-content probes assert status and payload, and MCP/HTTP parity now also covers
+    read and two refusals.
+
+## 2026-09-26 — End-to-end test for no-clone access (issue #26)
+
+`tests/test_e2e_no_clone_access.py` runs the whole path in real processes:
+- `beacon build` on a repository with two ADRs, one of them excluded;
+- `beacon export`;
+- `serve-http` and `serve --transport http` on loopback sockets.
+
+What it checks:
+- A fetch-only walk from discovery reaches the served decision: search `types=decisions`,
+  then the decision record, read and explain.
+- MCP over HTTP returns the same payloads as the JSON routes.
+- The excluded ADR is absent from every surface and probes like a bogus id.
+- Queries are never echoed in bodies, headers or server logs.
+- A forged Host on `/mcp` gets 421.
+
+Mutation-checked: restoring the query echo fails 2 tests, and removing `LoopbackGuard`
+fails 1.
+
+## 2026-09-26 — Answers never echo the query (issue #26)
+
+`search` answers say `"N result(s)."` or `"No indexed knowledge matched the query."`
+without repeating the query, and `explain_concept` for an unknown concept returns
+`concept: ""` instead of the input. This applies to MCP and HTTP alike (one provider).
+Test: `test_successful_answers_never_echo_the_query`. `agent_onboarding` still echoes
+`task_hint` (MCP only; not an HTTP route).
+
+## 2026-09-26 — Deployment guide and reverse-proxy configs (issue #26, phase 4)
+
+Documentation and config only: how to serve Beacon beyond this machine through an
+explicitly configured TLS reverse proxy while the servers stay loopback-only. No
+source changes, no hosting, no new server behavior.
+
+- `docs/deployment.md` (new): what to expose (JSON API, MCP, or both) and the
+  `direct_unverified` trust label; building the snapshot with `beacon export` and
+  re-exporting plus restarting after changes; systemd service-manager setup; the
+  reverse-proxy contract (TLS, the required upstream Host rewrite to
+  `127.0.0.1:8766` for `/mcp`, no buffering and long read timeouts for Streamable
+  HTTP, `Mcp-Session-Id` passthrough, 64k request-body cap, GET/HEAD on the JSON
+  API and GET/POST/DELETE on `/mcp`, per-IP `limit_req` zones with stricter zones
+  for `/v1/search` and `/mcp`, and a `log_format` that logs `$uri` so query
+  strings never reach access logs); no CORS; a five-step curl verification
+  checklist (discovery through the proxy, forged Host at the loopback MCP port
+  gets 421, a probe query absent from the access log, plain HTTP redirects to
+  HTTPS, loopback-only binds); and what is not provided yet — auth, signing, and
+  the trust broker, pointing at the trust plan. States plainly that the configs
+  were not validated in this environment and gives the exact validate commands
+  (`nginx -t`, `caddy validate`, `systemd-analyze verify`).
+- `deploy/nginx/beacon.conf` (new): the primary, complete example — redirect
+  server on 80, TLS server on 443 with certificate placeholders, `location /mcp`
+  to 127.0.0.1:8766 with the Host rewrite, `proxy_buffering off`,
+  `proxy_http_version 1.1`, 3600s read/send timeouts and its own `limit_req`
+  zone, `location /` to 127.0.0.1:8765, an exact-match stricter zone on
+  `/v1/search`, `client_max_body_size 64k`, `limit_except` method gates, and the
+  query-free `log_format`.
+- `deploy/caddy/Caddyfile` (new): shorter equivalent with automatic TLS and
+  `header_up Host {upstream_hostport}` plus `flush_interval -1` for `/mcp`.
+  Comments state that Caddy has no built-in rate limiting (plugin or upstream
+  limiter needed) and that access-log query redaction syntax is not guessed but
+  must be verified against the operator's Caddy version.
+- `deploy/systemd/beacon-http.service` and `deploy/systemd/beacon-mcp.service`
+  (new): one unprivileged unit per server, loopback `--host 127.0.0.1` on the
+  default ports, `Restart=on-failure`, the standard hardening set
+  (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, plus
+  kernel/capability/syscall restrictions), and read-only manifest/snapshot paths
+  under `StateDirectory`.
+- `tests/test_deploy_configs.py` (new): static checks that the shipped configs
+  keep the safety-critical settings (MCP Host rewrite and unbuffered streaming,
+  loopback-only upstreams, no query-log tokens anywhere active, `limit_req` on
+  `/v1/search` and `/mcp` in distinct zones, `client_max_body_size`, no CORS
+  header, systemd loopback/default ports, Caddy Host rewrite), plus one
+  behavioral test proving the Host value the nginx config sends upstream passes
+  `LoopbackGuard` while `Host: beacon.example.org` gets 421.
+- `README.md`: the Streamable HTTP and serve-http sections each gain one sentence
+  linking to `docs/deployment.md` (replacing the "a later phase" forward
+  reference).
+- `.agent/architecture.md`: a short deployment-shape paragraph — exposure is
+  configuration, not code, and the proxy obligations the servers rely on.
+- `beacon.yaml`: `project_state` records phase 4 as recently completed; stale
+  phase 2/3 next-steps pointing at phase 4 are removed.
+
+## 2026-09-26 — Discovery as an LLM entry point (issue #26, phase 3)
+
+Discovery descriptor 1.7 turns `/.well-known/archolith-beacon` from a listing into a
+guide: usage lines and a recommended flow for agents, freshness facts from data the
+server already has, and an explicit trust label. No new routes, no snapshot changes,
+and no request-time I/O.
+
+- `src/beacon/http_api.py`: discovery moves to descriptor 1.7 (was 1.6). Every resource
+  family and dynamic route carries a static one-line `use_when`; `recommended_flow` is an
+  ordered list of short steps (identity; why-question search with `types=decisions` then
+  `/v1/decisions/{id}`; otherwise search then read with `offset`, or explain; guardrails
+  before changes) that mentions dynamic and decision routes only when the manifest is
+  servable. A `freshness` block is built once per process from the snapshot digest, the
+  snapshot generator version, and the `StatusObservation` handed to `create_http_app`
+  (repository state/commit/branch/dirty as `/v1/status` reports it, `observed_at`, and a
+  `status_url` pointer); unavailable facts stay `null` or `unavailable`. Discovery states
+  `trust: "direct_unverified"` with a one-line note (no signing or trust broker yet).
+  `/v1/snapshot/identity` repeats the freshness facts in response headers
+  (`x-beacon-observed-at`, `x-beacon-repository-state/-commit/-branch/-dirty`,
+  `x-beacon-generator-version`, `x-beacon-full-snapshot-sha256`) while its body stays
+  byte-identical.
+- `tests/test_http_discovery_guide.py` (new): use_when coverage, flow URLs answer 200
+  (templates filled with real ids, dynamic routes given real required parameters), the
+  unservable flow names no dynamic or decision routes, freshness equals a populated
+  observation and `StatusObservation.unavailable()`, identity body byte-identity plus new
+  headers, deterministic discovery bytes across app instances, and no filesystem paths,
+  hostnames, or query strings anywhere in discovery. The two existing discovery shape
+  tests take the forced descriptor-1.7/`use_when` assertion updates.
+- `README.md`: serve-http section documents discovery as the LLM entry point (new "for
+  LLM clients" paragraph) and descriptor 1.7.
+- `.agent/architecture.md`: loopback HTTP data flow describes the 1.7 guidance, flow,
+  freshness, and trust contract.
+- `beacon.yaml`: `project_state` records phase 3 as recently completed.
+
+## 2026-09-25 — HTTP JSON routes with MCP-parity answers (issue #26, phase 2)
+
+`serve-http` gains `/v1/decisions`, `/v1/decisions/{id}`, `/v1/search`, `/v1/read` and
+`/v1/explain`; the dynamic routes answer with exactly the payloads the matching MCP tools
+return, over one provider built from the served snapshot.
+
+- `src/beacon/http_api.py`: `create_http_app` builds one
+  `ManifestBeaconProvider.from_snapshot(snapshot, limits=...)` (new keyword-only `limits`
+  parameter) and binds the MCP tool classes to it — no second search/read/explain
+  implementation. `/v1/search?q=&types=&limit=`, `/v1/read?chunk_id=|path=&heading=|line=
+  &max_chars=&offset=` and `/v1/explain?concept=&depth=` (GET and HEAD) return the tool's
+  exact payload in the surface's canonical JSON: successes with 200, refusals in the MCP
+  `{"ok": false, "tool", "error"}` envelope with not-found codes mapped to 404 and other
+  refusals to 400, unexpected failures as the MCP `internal_error` payload with 500 (logged
+  without the query). Bad parameter types give a deterministic versioned 400
+  (`missing_parameter`/`invalid_parameter`, value never echoed). Every dynamic answer carries
+  a body-derived ETag and honours `If-None-Match`; answers are deterministic per
+  (snapshot, query) and no request reads a file. `/v1/decisions` and `/v1/decisions/{id}` are
+  precomputed from the provider manifest (already export-filtered by the snapshot, so no
+  second serving policy): the index is a selector listing, a record is the served
+  `BeaconDecision` verbatim (id, title, path, decision text, status, status_text, date,
+  truncated, implemented, alternatives, section spans, supersession, citations), and an
+  unknown or withheld id gives the ordinary 404 error body. A snapshot whose embedded
+  manifest is not servable (synthetic only — every `build_snapshot` product validates) keeps
+  its static bytes and fails the query routes closed with 404. Discovery descriptor 1.6
+  (was 1.5) advertises the decisions family, a dynamic route listing (names and parameters
+  only; usage guidance is phase 3), and flips `query` to true only when the query routes are
+  served.
+- `src/beacon/main.py`: `serve-http` threads its CLI limits into
+  `_serve_http_snapshot`/`create_http_app`.
+- `README.md`: serve-http section documents the decisions family and the dynamic query
+  routes (new step 7); descriptor 1.6.
+- `.agent/architecture.md`: loopback HTTP data flow covers the provider-backed query routes,
+  the refusal mapping, and the fail-closed unservable-snapshot path.
+- Tests: `tests/test_http_api_dynamic.py` (new) — byte parity with direct MCP tool
+  `execute` output for search/read/explain success and refusal (over-cap query, over-ceiling
+  limit, bad offset, unknown chunk), decision record equals the shared manifest data,
+  withheld decision/doc probes match bogus ids, deterministic 400s, GET/HEAD/405 surface,
+  ETag/304, CLI-limit threading, discovery 1.6, and the unservable-snapshot fail-closed
+  path. `tests/test_http_api.py` keeps every assertion except the mandated descriptor
+  version bump (1.5 → 1.6 in `test_discovery_fields`).
+
 ## 2026-09-25 — Streamable HTTP as a second MCP transport (issue #26, phase 1)
 
 `beacon serve --snapshot S --transport http` serves the same seven tools over

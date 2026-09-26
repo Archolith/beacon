@@ -1,0 +1,53 @@
+# systemd unit: Beacon JSON API (beacon serve-http), loopback-only.
+#
+# Placeholders to replace before use:
+#   /opt/beacon/.venv/bin/beacon       the beacon executable (venv/pipx path)
+#   /var/lib/beacon/beacon.yaml        the manifest to serve
+#
+# This unit ships unvalidated; check it with:
+#   systemd-analyze verify beacon-http.service
+#
+# The JSON API binds 127.0.0.1:8765 (both defaults). TLS termination and
+# public exposure happen in the reverse proxy (see docs/deployment.md).
+
+[Unit]
+Description=Beacon JSON API (loopback 127.0.0.1:8765)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=beacon
+Group=beacon
+ExecStart=/opt/beacon/.venv/bin/beacon serve-http --host 127.0.0.1 --manifest /var/lib/beacon/beacon.yaml
+WorkingDirectory=/var/lib/beacon
+# No StateDirectory=: systemd would make that directory writable (and chown it
+# to the service user) despite ProtectSystem=strict. Provision /var/lib/beacon
+# yourself, owned by the deployment user (not `beacon`), readable by `beacon`.
+
+# Restart on failure only; a clean exit stays down.
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: unprivileged, no writable filesystem, no privileges. The API
+# builds its snapshot in memory at startup and writes nothing at runtime;
+# ProtectSystem=strict leaves nothing writable, so no ReadWritePaths are
+# carved out, and ReadOnlyPaths pins the served content read-only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ReadOnlyPaths=/var/lib/beacon
+
+[Install]
+WantedBy=multi-user.target

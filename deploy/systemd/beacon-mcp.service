@@ -1,0 +1,60 @@
+# systemd unit: Beacon MCP over Streamable HTTP (beacon serve), loopback-only.
+#
+# Placeholders to replace before use:
+#   /opt/beacon/.venv/bin/beacon                          the beacon executable
+#   /var/lib/beacon/snapshots/beacon.snapshot.json        the exported snapshot
+#
+# The snapshot must exist before start and be rebuilt after content changes:
+#   beacon export --output /var/lib/beacon/snapshots/beacon.snapshot.json
+# then restart this unit — the snapshot is immutable for the process lifetime.
+#
+# This unit ships unvalidated; check it with:
+#   systemd-analyze verify beacon-mcp.service
+#
+# The MCP server binds 127.0.0.1:8766 (both defaults) and answers 421 to any
+# request whose Host is not loopback: a reverse proxy MUST set the upstream
+# Host to 127.0.0.1:8766 (see docs/deployment.md).
+
+[Unit]
+Description=Beacon MCP over Streamable HTTP (loopback 127.0.0.1:8766)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=beacon
+Group=beacon
+ExecStart=/opt/beacon/.venv/bin/beacon serve --host 127.0.0.1 --snapshot /var/lib/beacon/snapshots/beacon.snapshot.json --transport http
+WorkingDirectory=/var/lib/beacon
+# No StateDirectory=: systemd would make that directory writable (and chown it
+# to the service user) despite ProtectSystem=strict, and a writable child mount
+# would escape ReadOnlyPaths below. Provision /var/lib/beacon/snapshots yourself,
+# owned by the deployment user (not `beacon`), readable by `beacon`.
+
+# Restart on failure only; a clean exit stays down.
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: unprivileged, no writable filesystem, no privileges. The server
+# reads the pre-exported snapshot and writes nothing at runtime;
+# ProtectSystem=strict leaves nothing writable, and ReadOnlyPaths makes the
+# snapshot tree read-only explicitly. The snapshot is never written by this
+# service — re-export it as the deployment user, then restart the unit.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ReadOnlyPaths=/var/lib/beacon
+
+[Install]
+WantedBy=multi-user.target

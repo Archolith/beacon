@@ -271,7 +271,7 @@ class ManifestBeaconProvider:
                 statuses.append(chunk.status)
                 sources.append(source)
 
-        if not wanted or "guardrails" in wanted or "decisions" in wanted:
+        if not wanted or "guardrails" in wanted or "guardrail" in wanted:
             for guard in _guardrails_matching(m, query):
                 hits.append(
                     SearchHit(
@@ -286,11 +286,8 @@ class ManifestBeaconProvider:
                 statuses.append("current")
 
         hits = hits[:limit]
-        answer = (
-            f"{len(hits)} result(s) for '{query}'."
-            if hits
-            else f"No indexed knowledge matched '{query}'."
-        )
+        # The query is never echoed: answers are served over HTTP, cached and logged.
+        answer = f"{len(hits)} result(s)." if hits else "No indexed knowledge matched the query."
         return SearchResult(
             answer=answer,
             results=tuple(hits),
@@ -336,7 +333,7 @@ class ManifestBeaconProvider:
         sources = tuple(hit.to_source() for hit, _ in hits)
         definition = hits[0][0].snippet() if hits else ""
         return ConceptExplanation(
-            concept=concept,
+            concept="",  # the unmatched input is never echoed back
             definition=definition,
             why_it_exists="",
             status="uncertain",

@@ -1,0 +1,75 @@
+# Caddy reverse proxy for Beacon — a shorter equivalent of
+# deploy/nginx/beacon.conf. beacon.example.org is a placeholder host name.
+#
+# This file ships unvalidated; check it before deploying:
+#   caddy validate --config Caddyfile
+# and see docs/deployment.md for the full verification checklist.
+#
+# Caddy notes:
+#
+# - TLS is automatic: for a public DNS name Caddy obtains and renews the
+#   certificate itself, and it creates the HTTP-to-HTTPS redirect for this
+#   site address automatically. None of that is configured by hand here.
+# - Rate limiting: Caddy has NO built-in rate limiting. Build Caddy with a
+#   rate-limit plugin (via xcaddy) or enforce limits with an upstream
+#   limiter. This file deliberately contains no rate-limit directives —
+#   the nginx example's per-IP zones for the API, /v1/search and /mcp are
+#   the reference for the intended strictness.
+# - Access-log privacy: /v1/search?q=... carries user queries, and Caddy's
+#   access logs record the full request URI (path plus query string) by
+#   default. The query must be dropped before anything reaches disk. Caddy
+#   can filter log fields, but the exact syntax for rewriting the query
+#   component out of the URI varies by Caddy version, so this file does not
+#   guess it — verify the `log` / encoder-filter syntax against your Caddy
+#   version's documentation, or ship the access log to a collector that
+#   strips query strings. An access log that has not solved this must stay
+#   disabled.
+
+beacon.example.org {
+	# GET/HEAD-only JSON API plus small JSON-RPC envelopes: 64KB is
+	# generous; there is no legitimate large upload.
+	request_body {
+		max_size 64KB
+	}
+
+	# MCP over Streamable HTTP -> 127.0.0.1:8766
+	handle /mcp* {
+		# Streamable HTTP methods: POST (messages), GET (SSE stream),
+		# DELETE (session end).
+		@bad_mcp_method not method GET POST DELETE
+		error @bad_mcp_method 405
+
+		reverse_proxy 127.0.0.1:8766 {
+			# REQUIRED: the MCP server answers 421 to any request whose Host
+			# is not 127.0.0.1/localhost (anti-DNS-rebinding guard). Caddy
+			# forwards the client's Host header by default, so this rewrite
+			# is what makes proxied MCP work at all.
+			header_up Host {upstream_hostport}
+
+			# Streamable HTTP can stream Server-Sent Events; flush every
+			# write immediately instead of buffering the response.
+			flush_interval -1
+
+			# Caddy's HTTP transport applies no read deadline to the
+			# response body by default, so long-lived event streams are not
+			# cut off. Do not add response timeouts here without checking
+			# your Caddy version's transport options.
+		}
+	}
+
+	# JSON API (includes /.well-known/archolith-beacon and /v1/search)
+	# -> 127.0.0.1:8765
+	handle {
+		# The JSON API serves GET and HEAD only.
+		@bad_api_method not method GET HEAD
+		error @bad_api_method 405
+
+		reverse_proxy 127.0.0.1:8765 {
+			# The JSON API has no Host check today; pin the upstream Host
+			# anyway so the pattern matches /mcp.
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	# No CORS headers on purpose: browser clients are out of scope.
+}

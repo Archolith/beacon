@@ -542,6 +542,7 @@ def _serve_http_impl(
         host=host,
         port=port,
         status_observation=status_observation,
+        limits=context.limits,
     )
     return EXIT_OK
 
@@ -552,6 +553,7 @@ def _serve_http_snapshot(
     host: str,
     port: int,
     status_observation: StatusObservation,
+    limits: ResourceLimits,
 ) -> None:
     """Bind one loopback socket and run the immutable ASGI snapshot application."""
     import uvicorn
@@ -559,7 +561,7 @@ def _serve_http_snapshot(
     from beacon import __version__
     from beacon.http_api import create_http_app
 
-    app_http = create_http_app(snap, status_observation=status_observation)
+    app_http = create_http_app(snap, status_observation=status_observation, limits=limits)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         listener.bind((host, port))
