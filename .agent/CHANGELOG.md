@@ -2,14 +2,17 @@
 
 ## 2026-09-26 — Lower-severity review fixes (astra review of PR #28)
 
-- **B4.** `serve-http` runs search, read and explain on worker threads (`anyio.to_thread`, at
-  most 4 at once) instead of on the event loop. One slow query no longer stalls `/healthz`
-  and the static routes. `anyio` was already installed with Starlette; no dependency change.
-  MCP over HTTP (fastmcp) still runs tools on its own loop.
+- **B4.** `serve-http` runs search, read and explain on worker threads (`anyio.to_thread`)
+  instead of on the event loop. One slow query no longer stalls `/healthz` and the static
+  routes. At most 4 run at once. The slot is a `threading.BoundedSemaphore` held by the worker
+  thread itself, so a cancelled request cannot free it while its work still runs (an anyio
+  limiter token would be released on cancel). `anyio` was already installed with Starlette;
+  no dependency change. MCP over HTTP (fastmcp) still runs tools on its own loop.
 - **B5.** `/v1/decisions/{id}` uses a `path` converter, so a decision id containing `/`
   (an ADR in a nested directory) is reachable. Before, it was listed but 404'd.
-- **B8.** An unexpected tool exception is logged as its type and stack, without its message,
-  which can quote the caller's query. This covers MCP and HTTP.
+- **B8.** An unexpected tool exception is logged without its message, which can quote the
+  caller's query: every exception in its `__cause__`/`__context__` chain as type and stack,
+  cycle-safe and at most 8 links. This covers MCP and HTTP.
 - **B12.** The MCP-over-HTTP test fixtures (`test_mcp_http`, the e2e test) wait for the server's
   own ready line and retry a start that failed with `http_bind_failed`. `serve --transport http`
   refuses port 0, so a picked port can be taken before the bind.

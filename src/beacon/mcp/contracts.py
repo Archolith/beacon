@@ -41,6 +41,23 @@ def render_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True, default=_json_default)
 
 
+#: Links of a __cause__/__context__ chain logged before giving up (cycles are skipped).
+_MAX_CHAIN = 8
+
+
+def _redacted_chain(exc: BaseException) -> str:
+    """Every exception in the cause/context chain as its type and stack, never its message."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen and len(parts) < _MAX_CHAIN:
+        seen.add(id(current))
+        stack = "".join(traceback.format_tb(current.__traceback__)).rstrip()
+        parts.append(f"{type(current).__name__}\n{stack}" if stack else type(current).__name__)
+        current = current.__cause__ or current.__context__
+    return "\ncaused by ".join(parts)
+
+
 def _error_payload(tool: str, code: str, message: str) -> str:
     return render_json({"ok": False, "tool": tool, "error": {"code": code, "message": message}})
 
@@ -74,13 +91,8 @@ class BeaconBaseTool:
             logger.info("beacon tool %r refused request: %s", self.name, exc.code)
             return _error_payload(self.name, exc.code, str(exc))
         except Exception as exc:
-            # Type and stack only: an exception message can quote the caller's query.
-            logger.error(
-                "beacon tool %r raised %s\n%s",
-                self.name,
-                type(exc).__name__,
-                "".join(traceback.format_tb(exc.__traceback__)).rstrip(),
-            )
+            # Types and stacks only: an exception message can quote the caller's query.
+            logger.error("beacon tool %r raised %s", self.name, _redacted_chain(exc))
             return _error_payload(
                 self.name,
                 "internal_error",

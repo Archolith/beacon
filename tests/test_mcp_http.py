@@ -229,21 +229,35 @@ def _start_http_server(snapshot_path: Path, log_path: Path) -> tuple[Any, int]:
                 stdout=subprocess.DEVNULL,
                 stderr=log_file,
             )
-        deadline = time.monotonic() + 20.0
-        while time.monotonic() < deadline:
-            text = log_path.read_text(encoding="utf-8", errors="replace")
-            if "MCP http listening" in text and proc.poll() is None:
-                return proc, port
-            if proc.poll() is not None:
-                break
-            time.sleep(0.1)
-        if proc.poll() is None:
-            proc.terminate()
-            proc.wait(timeout=10)
+        try:
+            deadline = time.monotonic() + 20.0
+            while time.monotonic() < deadline:
+                text = log_path.read_text(encoding="utf-8", errors="replace")
+                if "MCP http listening" in text and proc.poll() is None:
+                    return proc, port
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.1)
+        except BaseException:
+            _stop_process(proc)
+            raise
+        _stop_process(proc)
         text = log_path.read_text(encoding="utf-8", errors="replace")
         if "http_bind_failed" not in text:
             raise AssertionError("http server not ready: " + text[-2000:])
     raise AssertionError("http server could not bind a free port in 3 attempts")
+
+
+def _stop_process(proc: Any) -> None:
+    """terminate -> bounded wait -> kill -> wait; a stalled server never escapes cleanup."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
 
 
 async def test_http_transport_matches_stdio_on_all_seven_tools(tmp_path: Path) -> None:
@@ -308,8 +322,7 @@ async def test_http_transport_matches_stdio_on_all_seven_tools(tmp_path: Path) -
             403,
         )
     finally:
-        http_proc.terminate()
-        http_proc.wait(timeout=10)
+        _stop_process(http_proc)
 
 
 def test_http_transport_cli_refusals(tmp_path: Path) -> None:
