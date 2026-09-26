@@ -207,7 +207,6 @@ def test_status_payload_separates_declared_observed_and_trust() -> None:
     assert payload["observed"]["repository"] == {
         "state": "observed",
         "commit": "a" * 40,
-        "branch": "main",
         "dirty": True,
     }
     assert payload["trust"]["assertion"] == "self_reported"
@@ -236,7 +235,7 @@ def test_status_payload_has_deterministic_unavailable_fallback() -> None:
 def test_status_payload_validates_against_published_schema() -> None:
     payload = build_status_payload(_snapshot("0" * 64, "1" * 64), snapshot_sha256="2" * 64)
     schema_path = (
-        Path(__file__).resolve().parents[1] / "docs" / "schemas" / "beacon-status-1.0.schema.json"
+        Path(__file__).resolve().parents[1] / "docs" / "schemas" / "beacon-status-1.1.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 

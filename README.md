@@ -204,8 +204,9 @@ The surface is loopback-only; to publish it beyond this machine, put the TLS rev
 
 Start with `/v1/snapshot/identity` for the project, purpose, audiences, and current focus, then read
 `/v1/status` to see one explicit active-work item, recent completions, blockers, pending decisions,
-and startup evidence. The status resource separates maintainer-declared claims from the branch,
-commit, dirty flag, and source-digest comparisons observed when the server started. It also labels
+and startup evidence. The status resource separates maintainer-declared claims from the commit,
+dirty flag, and source-digest comparisons observed when the server started (branch names are never
+published: they are free text from the checkout, outside the export filter). It also labels
 that unsigned evidence as self-reported; it is not a live watcher or a remote trust proof. Move to
 `/v1/snapshot/orientation` for concepts, guardrails, citations, document hashes, and chunk inventory
 without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full published corpus;
@@ -249,7 +250,7 @@ read, and explain — excluded, local-only, or withheld ADRs probe exactly like 
 dynamic route carries a one-line `use_when`, and `recommended_flow` lists the routes to walk in
 order (identify, search decisions or keywords, read or explain, guardrails before changes). The
 `freshness` block states how old the answers are — the snapshot SHA-256, the generator version,
-and the repository commit/branch/dirty state observed once at startup, with `observed_at` and a
+and the repository commit/dirty state observed once at startup, with `observed_at` and a
 pointer to `/v1/status` for the full evidence; the same facts ride on `/v1/snapshot/identity`
 response headers (`x-beacon-observed-at`, `x-beacon-repository-commit`, and siblings). An
 unobserved fact is `null` or `unavailable`, never invented at request time, and `trust` reads

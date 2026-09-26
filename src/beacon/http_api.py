@@ -89,7 +89,7 @@ from beacon.mcp.tools.search import SearchTool
 from beacon.provider.manifest_provider import ManifestBeaconProvider
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.7"
+_DESCRIPTOR_VERSION = "1.8"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -917,12 +917,9 @@ def _freshness_block(
     """
     repository: dict[str, Any] = {"state": observed.repository.state}
     if observed.repository.state == "observed":
+        # No branch name: see status 1.1 (free text from the checkout, never published).
         repository.update(
-            {
-                "commit": observed.repository.commit,
-                "branch": observed.repository.branch,
-                "dirty": observed.repository.dirty,
-            }
+            {"commit": observed.repository.commit, "dirty": observed.repository.dirty}
         )
     return {
         "snapshot_sha256": snapshot_sha256,
@@ -944,7 +941,7 @@ def _freshness_headers(
     """Mirror the freshness facts on identity response headers, not its body.
 
     A fact the observation did not capture is omitted from the headers rather
-    than emptied; branch names that cannot cross a header are omitted too.
+    than emptied. The branch name is never sent.
     """
     headers: dict[str, str] = {
         "x-beacon-repository-state": observed.repository.state,
@@ -956,8 +953,6 @@ def _freshness_headers(
         headers["x-beacon-observed-at"] = observed.observed_at
     if observed.repository.state == "observed":
         headers["x-beacon-repository-commit"] = observed.repository.commit
-        if observed.repository.branch and observed.repository.branch.isascii():
-            headers["x-beacon-repository-branch"] = observed.repository.branch
         if observed.repository.dirty is not None:
             headers["x-beacon-repository-dirty"] = "true" if observed.repository.dirty else "false"
     return headers

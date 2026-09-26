@@ -1,5 +1,24 @@
 # Changelog — beacon
 
+## 2026-09-26 — Branch names are no longer published (status 1.1, descriptor 1.8)
+
+The repository branch name was read from the live checkout at startup and published as is, in
+`/v1/status`, in discovery `freshness` and in the `x-beacon-repository-branch` identity header.
+It bypassed the export filter and secret scan that everything else passes, and branch names can
+name tickets, customers or internal hosts. It is now dropped from all three. Commit, dirty state
+and `observed_at` remain, which is all a remote reader needs to judge freshness.
+(Review finding 7 on PR #28; owner-approved.)
+
+- Contract bumps:
+  - status payload `beacon_status_version` 1.1, with new `docs/schemas/beacon-status-1.1.schema.json`
+    (`branch` removed; 1.0 is kept for reference);
+  - discovery descriptor 1.8 (freshness shape).
+- `scripts/release_check.py` pins status 1.1, the 1.1 schema and descriptor 1.8.
+- Existing tests updated only where they pinned the old contract (versions; branch in the expected
+  freshness, status and identity headers).
+- New test: `tests/test_no_branch_publication.py` checks that a marker in the branch name appears
+  in no served body or header. It fails if status publishes the branch again.
+
 ## 2026-09-26 — Lower-severity review fixes (astra review of PR #28)
 
 - **B4.** `serve-http` runs search, read and explain on worker threads (`anyio.to_thread`)

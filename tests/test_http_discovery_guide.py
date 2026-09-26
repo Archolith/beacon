@@ -284,7 +284,6 @@ def test_freshness_matches_a_populated_observation(
         "repository": {
             "state": "observed",
             "commit": "b" * 40,
-            "branch": "feat/guide",
             "dirty": True,
         },
         "observed_at": "2026-09-26T12:00:00Z",
@@ -295,7 +294,8 @@ def test_freshness_matches_a_populated_observation(
     assert identity.headers["x-beacon-observed-at"] == "2026-09-26T12:00:00Z"
     assert identity.headers["x-beacon-repository-state"] == "observed"
     assert identity.headers["x-beacon-repository-commit"] == "b" * 40
-    assert identity.headers["x-beacon-repository-branch"] == "feat/guide"
+    # Branch names are never published (status 1.1 / descriptor 1.8).
+    assert "x-beacon-repository-branch" not in identity.headers
     assert identity.headers["x-beacon-repository-dirty"] == "true"
     assert identity.headers["x-beacon-generator-version"] == __version__
     assert identity.headers["x-beacon-full-snapshot-sha256"] == sha256

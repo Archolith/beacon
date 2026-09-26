@@ -29,7 +29,7 @@ from beacon.core.limits import (
 from beacon.core.paths import UnsafeCanonicalPath, resolve_canonical_path
 from beacon.core.snapshot import Snapshot
 
-STATUS_VERSION = "1.0"
+STATUS_VERSION = "1.1"
 
 
 @dataclass(frozen=True)
@@ -301,15 +301,11 @@ def _safe_manifest_name(manifest: Path, root: Path) -> str:
 
 
 def _repository_payload(evidence: RepositoryEvidence) -> dict[str, Any]:
+    # The branch name is not published: it is free text read from the live checkout, outside
+    # the export filter and secret scan, and can name tickets, customers or hosts (status 1.1).
     payload: dict[str, Any] = {"state": evidence.state}
     if evidence.state == "observed":
-        payload.update(
-            {
-                "commit": evidence.commit,
-                "branch": evidence.branch,
-                "dirty": evidence.dirty,
-            }
-        )
+        payload.update({"commit": evidence.commit, "dirty": evidence.dirty})
     return payload
 
 
