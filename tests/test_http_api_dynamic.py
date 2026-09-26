@@ -610,3 +610,22 @@ def test_discovery_lists_the_dynamic_surface(client: TestClient) -> None:
             "use_when": "explain one concept in depth",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# No query echo on successful answers either
+# ---------------------------------------------------------------------------
+
+
+def test_successful_answers_never_echo_the_query(client: TestClient) -> None:
+    hit = client.get("/v1/search", params={"q": f"namespace isolation {QUERY_MARKER}"})
+    assert hit.status_code == 200
+    assert hit.json()["results"], "the probe must exercise the with-results answer"
+    miss = client.get("/v1/search", params={"q": QUERY_MARKER})
+    assert miss.status_code == 200
+    assert not miss.json()["results"]
+    unknown = client.get("/v1/explain", params={"concept": QUERY_MARKER})
+    assert unknown.status_code == 200
+    for response in (hit, miss, unknown):
+        assert QUERY_MARKER.lower() not in response.text.lower()
+        assert QUERY_MARKER.lower() not in str(response.headers).lower()

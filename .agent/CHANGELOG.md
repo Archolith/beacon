@@ -1,5 +1,13 @@
 # Changelog — beacon
 
+## 2026-09-26 — Answers never echo the query (issue #26)
+
+`search` answers say `"N result(s)."` or `"No indexed knowledge matched the query."`
+without repeating the query, and `explain_concept` for an unknown concept returns
+`concept: ""` instead of the input. This applies to MCP and HTTP alike (one provider).
+Test: `test_successful_answers_never_echo_the_query`. `agent_onboarding` still echoes
+`task_hint` (MCP only; not an HTTP route).
+
 ## 2026-09-26 — Deployment guide and reverse-proxy configs (issue #26, phase 4)
 
 Documentation and config only: how to serve Beacon beyond this machine through an
