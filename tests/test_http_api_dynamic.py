@@ -576,7 +576,7 @@ def test_decision_index_headers_support_head_and_etag(client: TestClient) -> Non
 
 def test_discovery_lists_the_dynamic_surface(client: TestClient) -> None:
     body = client.get("/.well-known/archolith-beacon").json()
-    assert body["descriptor_version"] == "1.7"
+    assert body["descriptor_version"] == "1.8"
     assert body["capabilities"]["query"] is True
     assert body["capabilities"]["decisions"] is True
 

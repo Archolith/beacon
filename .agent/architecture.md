@@ -318,7 +318,8 @@ Top-level sections:
 
 The loopback HTTP companion `/v1/status` keeps this declared state separate from startup-observed
 evidence. At process start Beacon compares the approved manifest and canonical-document digests,
-records Git commit/branch/dirty state when Git is available, and timestamps that observation. The
+records Git commit/dirty state when Git is available, and timestamps that observation (status 1.1
+publishes no branch name: it is free text from the checkout, outside the export filter). The
 payload is immutable until restart and explicitly remains self-reported and unsigned; remote trust
 and signed attestation are later protocol layers.
 

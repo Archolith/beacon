@@ -470,12 +470,12 @@ def probe_http_snapshot(
             "snapshot": True,
         }:
             raise JourneyError(
-                "HTTP discovery capabilities differ from the descriptor 1.7 contract"
+                "HTTP discovery capabilities differ from the descriptor 1.8 contract"
             )
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.7":
-            raise JourneyError("HTTP discovery descriptor version is not 1.7")
+        if descriptor.get("descriptor_version") != "1.8":
+            raise JourneyError("HTTP discovery descriptor version is not 1.8")
         if descriptor.get("trust") != "direct_unverified":
             raise JourneyError("HTTP discovery does not label itself direct and unverified")
         representations = descriptor.get("representations", {})
@@ -507,10 +507,10 @@ def probe_http_snapshot(
         status_body, status_headers = _http_request(base_url + "/v1/status")
         status_sha = hashlib.sha256(status_body).hexdigest()
         status = json.loads(status_body)
-        _validate_http_schema(status, schema_name="beacon-status-1.0.schema.json")
+        _validate_http_schema(status, schema_name="beacon-status-1.1.schema.json")
         if _guided(descriptor.get("resources", {}).get("status")) != {
             "url": "/v1/status",
-            "version": "1.0",
+            "version": "1.1",
             "sha256": status_sha,
             "bytes": len(status_body),
         }:

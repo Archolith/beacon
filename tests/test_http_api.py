@@ -307,7 +307,7 @@ def test_status_separates_declared_state_from_observed_evidence(snapshot: Snapsh
 
     assert response.status_code == 200
     body = response.json()
-    assert body["beacon_status_version"] == "1.0"
+    assert body["beacon_status_version"] == "1.1"
     assert body["snapshot"]["sha256"] == response.headers["x-beacon-snapshot-sha256"]
     assert body["declared"] == {
         "active_work": None,
@@ -518,7 +518,7 @@ def test_discovery_fields(
         "representations",
         "resources",
     }
-    assert body["descriptor_version"] == "1.7"
+    assert body["descriptor_version"] == "1.8"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"
@@ -568,7 +568,7 @@ def test_discovery_fields(
     assert body["resources"] == {
         "status": {
             "url": "/v1/status",
-            "version": "1.0",
+            "version": "1.1",
             "sha256": hashlib.sha256(status.content).hexdigest(),
             "bytes": len(status.content),
             "use_when": "check how fresh the snapshot and repository evidence are",
