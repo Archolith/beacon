@@ -3,7 +3,8 @@
 Subcommands
 -----------
   beacon                    Start the MCP stdio server (default when no subcommand).
-  beacon serve              Start the stdio server with explicit manifest/docs-root/limits.
+  beacon serve              Start the MCP server: stdio (default, manifest or snapshot)
+                            or --transport http (Streamable HTTP from a snapshot).
   beacon serve-http         Serve one immutable canonical snapshot over loopback HTTP.
   beacon init ROOT          Initialize a starter beacon.yaml.
   beacon validate [PATH]    Validate a beacon.yaml and exit 0 on success, 1 on errors.
@@ -15,8 +16,8 @@ Exit classes (addendum §5): 0 success, 1 validation/policy/security refusal,
 In JSON mode, expected outcomes emit exactly one ``beacon.cli-result`` v1.0
 envelope plus a single newline and no human prose. Diagnostics before an
 envelope are written only to stderr. The default (no-argument) invocation and
-the explicit ``serve`` command run the MCP stdio server, so they never put an
-envelope or prose on stdout.
+the explicit ``serve`` command run the MCP server (stdio by default), so they
+never put an envelope or prose on stdout.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import socket
 import sys
 import tempfile
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -125,10 +127,14 @@ def _prepare_runtime() -> None:
     _configure_logging(include_console=False)
 
 
-def _run_mcp_server() -> None:
-    from archolith_mcp_framework import run_server
-
+def _run_mcp_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8766) -> None:
     from beacon.mcp.server import mcp
+
+    if transport == "http":
+        _run_mcp_http(mcp, host=host, port=port)
+        return
+
+    from archolith_mcp_framework import run_server
 
     print(
         f"[beacon] MCP stdio starting (pid={os.getpid()})",
@@ -136,6 +142,46 @@ def _run_mcp_server() -> None:
         flush=True,
     )
     run_server(mcp)
+
+
+def _run_mcp_http(mcp: Any, *, host: str, port: int) -> None:
+    """Serve *mcp* over Streamable HTTP at /mcp on one pre-bound loopback socket.
+
+    Mirrors ``_serve_http_snapshot``: bind first (``http_bind_failed`` on error), no
+    access log or server header, and a Host/Origin guard against DNS rebinding.
+    """
+    import uvicorn
+
+    from beacon.loopback_guard import LoopbackGuard
+
+    app_http = LoopbackGuard(mcp.http_app(path="/mcp", transport="http"))
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind((host, port))
+        listener.listen(2048)
+    except OSError as exc:
+        listener.close()
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "http_bind_failed", "could not bind loopback HTTP server"
+        ) from exc
+    print(
+        f"[beacon] MCP http listening on http://{host}:{port}/mcp (pid={os.getpid()})",
+        file=sys.stderr,
+        flush=True,
+    )
+    config = uvicorn.Config(
+        app_http,
+        host=host,
+        port=port,
+        access_log=False,
+        server_header=False,
+        date_header=False,
+        log_level="warning",
+    )
+    try:
+        uvicorn.Server(config).run(sockets=[listener])
+    finally:
+        listener.close()
 
 
 def _set_serve_env(context: cli_support.CommandContext) -> None:
@@ -159,8 +205,11 @@ def _serve_with_env(
     *,
     snapshot_path: str | None = None,
     limits: ResourceLimits | None = None,
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8766,
 ) -> None:
-    """Run the stdio server with *context* env overrides, restoring prior values.
+    """Run the MCP server with *context* env overrides, restoring prior values.
 
     The manifest/docs-root/limit (and privacy) overrides are scoped to the
     server run so embedding callers and CliRunner never retain them afterward.
@@ -168,7 +217,9 @@ def _serve_with_env(
     When *snapshot_path* is given the server runs snapshot-only: the manifest
     and document chunks come from the canonical snapshot and no source file
     is read at startup, and *limits* (the CLI ceilings) are exported so the
-    server enforces the same limits the preflight used.
+    server enforces the same limits the preflight used. *transport*, *host*
+    and *port* select the MCP transport (stdio by default; http serves
+    Streamable HTTP on host:port from the same server object).
     """
     saved = {var: os.environ.get(var) for var in _SERVE_MUTATED_ENV}
     try:
@@ -187,7 +238,11 @@ def _serve_with_env(
                 for field, var in FIELD_ENV_VARS.items():
                     os.environ[var] = str(limits.ceiling(field))
         _prepare_runtime()
-        _run_mcp_server()
+        if transport == "http":
+            _run_mcp_server(transport="http", host=host, port=port)
+        else:
+            # Stdio keeps the exact legacy call: host/port mean nothing there.
+            _run_mcp_server()
     finally:
         for var, prior in saved.items():
             if prior is None:
@@ -224,6 +279,34 @@ def _default(
 # ---------------------------------------------------------------------------
 
 
+class ServeTransport(StrEnum):
+    """MCP transports ``beacon serve`` can run; stdio stays the default."""
+
+    stdio = "stdio"
+    http = "http"
+
+
+def _require_loopback(host: str, port: int, *, allow_port_zero: bool) -> None:
+    """Refuse non-loopback hosts and out-of-range ports with stable CLI codes.
+
+    Shared by ``serve-http`` (port 0 selects an available port) and
+    ``serve --transport http`` (the port must be explicit, 1-65535).
+    """
+    if host != "127.0.0.1":
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_host_not_loopback",
+            "HTTP server host must be 127.0.0.1",
+        )
+    lowest = 0 if allow_port_zero else 1
+    if port < lowest or port > 65535:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_port_invalid",
+            f"HTTP server port must be between {lowest} and 65535",
+        )
+
+
 @app.command("serve")
 def serve(
     manifest: str | None = typer.Option(
@@ -233,6 +316,15 @@ def serve(
     snapshot: str | None = typer.Option(
         None, "--snapshot", help="Serve from a canonical snapshot instead of a manifest."
     ),
+    transport: ServeTransport = typer.Option(
+        ServeTransport.stdio,
+        "--transport",
+        help="MCP transport: stdio (default) or http (Streamable HTTP; requires --snapshot).",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Bind host for --transport http (loopback only)."
+    ),
+    port: int = typer.Option(8766, "--port", help="Bind port for --transport http."),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
     max_documents: int | None = typer.Option(None, "--max-documents"),
     max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
@@ -240,7 +332,7 @@ def serve(
     max_chunks: int | None = typer.Option(None, "--max-chunks"),
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
-    """Validate servability, then run the same stdio server with the given inputs."""
+    """Validate servability, then run the same MCP server with the given inputs."""
     cli_limits = _cli_limit_mapping(
         max_manifest_bytes,
         max_documents,
@@ -249,6 +341,21 @@ def serve(
         max_chunks,
         max_snapshot_bytes,
     )
+
+    if transport is ServeTransport.http:
+        # HTTP serving reads only a canonical snapshot; the manifest mode
+        # stays stdio-only. Both refusals fire before anything is loaded.
+        if snapshot is None:
+            typer.echo(
+                "✗ serve_http_requires_snapshot: --transport http requires --snapshot",
+                err=True,
+            )
+            raise typer.Exit(EXIT_INPUT)
+        try:
+            _require_loopback(host, port, allow_port_zero=False)
+        except cli_support.CliFailure as exc:
+            typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
+            raise typer.Exit(exc.exit_code) from exc
 
     if snapshot is not None:
         # Snapshot-only serving: load and verify, then let the lifespan build
@@ -279,7 +386,14 @@ def serve(
             typer.echo(f"✗ {fail.code}: {fail.message}", err=True)
             raise typer.Exit(fail.exit_code) from exc
         try:
-            _serve_with_env(None, snapshot_path=snapshot, limits=limits)
+            _serve_with_env(
+                None,
+                snapshot_path=snapshot,
+                limits=limits,
+                transport=transport.value,
+                host=host,
+                port=port,
+            )
         except cli_support.CliFailure as exc:
             typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
             raise typer.Exit(exc.exit_code) from exc
@@ -319,7 +433,7 @@ def serve(
     # env overrides restored by ``_serve_with_env``'s finally block.
     try:
         cli_support.build_provider(context)
-        _serve_with_env(context)
+        _serve_with_env(context, transport=transport.value, host=host, port=port)
     except cli_support.CliFailure as exc:
         typer.echo(f"✗ {exc.code}: {exc.message}", err=True)
         raise typer.Exit(exc.exit_code) from exc
@@ -384,18 +498,7 @@ def _serve_http_impl(
     allow_sensitive: list[str],
     cli_limits: dict[str, Any],
 ) -> int:
-    if host != "127.0.0.1":
-        raise cli_support.CliFailure(
-            EXIT_INPUT,
-            "http_host_not_loopback",
-            "HTTP server host must be 127.0.0.1",
-        )
-    if port < 0 or port > 65535:
-        raise cli_support.CliFailure(
-            EXIT_INPUT,
-            "http_port_invalid",
-            "HTTP server port must be between 0 and 65535",
-        )
+    _require_loopback(host, port, allow_port_zero=True)
 
     context = cli_support.build_command_context(
         cli_limits=cli_limits,

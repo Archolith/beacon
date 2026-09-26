@@ -124,6 +124,15 @@ Expected resource refusals preserve their stable public limit code. Any other to
 logged server-side and reduced to a generic `internal_error` response so private paths or secrets in
 exception text never cross the MCP boundary.
 
+`beacon serve --snapshot S --transport http` runs the same FastMCP server object over
+Streamable HTTP at `http://<host>:<port>/mcp` (`--host` default `127.0.0.1`, `--port`
+default `8766`). It is snapshot-only (`serve_http_requires_snapshot` otherwise) and
+loopback-only through the `_require_loopback` gate shared with `serve-http`; it is
+direct, unverified serving until the trust plan's broker and signing phases land.
+`_run_mcp_http` pre-binds the socket (`http_bind_failed`), runs uvicorn without an access
+log, and wraps the app in `beacon.loopback_guard.LoopbackGuard`, which refuses a
+non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
+
 ### Loopback HTTP data flow
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
