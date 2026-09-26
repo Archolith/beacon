@@ -555,11 +555,16 @@ def _serve_http_snapshot(
     status_observation: StatusObservation,
     limits: ResourceLimits,
 ) -> None:
-    """Bind one loopback socket and run the immutable ASGI snapshot application."""
+    """Bind one loopback socket and run the immutable ASGI snapshot application.
+
+    The app is wrapped in the same Host/Origin guard as MCP over HTTP: loopback keeps
+    other machines out, but a web page could still reach the port by DNS rebinding.
+    """
     import uvicorn
 
     from beacon import __version__
     from beacon.http_api import create_http_app
+    from beacon.loopback_guard import LoopbackGuard
 
     app_http = create_http_app(snap, status_observation=status_observation, limits=limits)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -580,7 +585,7 @@ def _serve_http_snapshot(
         err=True,
     )
     config = uvicorn.Config(
-        app_http,
+        LoopbackGuard(app_http),
         host=host,
         port=actual_port,
         access_log=False,

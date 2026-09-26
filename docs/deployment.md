@@ -118,21 +118,21 @@ TLS terminates at the proxy. The Beacon servers speak plain HTTP on loopback
 and must never be bound to a public interface (they refuse non-loopback binds
 with `http_host_not_loopback` anyway).
 
-### The Host rewrite is required for MCP
+### The Host rewrite is required for both servers
 
-The MCP server is wrapped in a `LoopbackGuard` (anti-DNS-rebinding): a request
+Both servers are wrapped in a `LoopbackGuard` (anti-DNS-rebinding): a request
 whose `Host` is not `127.0.0.1` or `localhost` (any port) is refused with
 **421**, and a request carrying a non-loopback browser `Origin` with **403**.
 A reverse proxy that forwards the client's `Host` header (Caddy's default) or
 carries the common `proxy_set_header Host $host;` boilerplate (nginx) would
-send `beacon.example.org` upstream — and **every proxied MCP request would be
+send `beacon.example.org` upstream — and **every proxied request would be
 refused**. The proxy must set the upstream Host to the loopback address:
 
-- nginx, in `location /mcp`: `proxy_set_header Host 127.0.0.1:8766;`
-- Caddy, in the `/mcp` reverse proxy: `header_up Host {upstream_hostport}`
+- nginx, in `location /mcp`: `proxy_set_header Host 127.0.0.1:8766;`, and in the
+  JSON API locations: `proxy_set_header Host 127.0.0.1:8765;`
+- Caddy, in both reverse proxies: `header_up Host {upstream_hostport}`
 
-The JSON API has no Host check today; the example configs still pin
-`Host 127.0.0.1:8765` upstream so the pattern is uniform and future-proof.
+The example configs already do this for both upstreams.
 
 ### No buffering, long timeouts, session header for MCP
 

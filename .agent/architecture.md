@@ -145,7 +145,9 @@ no auth, CORS, TLS, rate limiting, or in-process access logs.
 ### Loopback HTTP data flow
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
-embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
+embedded snapshot. `_serve_http_snapshot` serves the app behind `LoopbackGuard`, the same
+Host/Origin check as MCP over HTTP (421 for a non-loopback `Host`, 403 for a foreign `Origin`);
+in-process users of `create_http_app` get the bare app. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value.
 Before binding, the CLI separately captures bounded Git and source-digest evidence for the immutable
 status companion. Discovery descriptor 1.7 is the LLM entry point: it advertises
