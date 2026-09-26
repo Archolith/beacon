@@ -127,18 +127,11 @@ def _prepare_runtime() -> None:
     _configure_logging(include_console=False)
 
 
-def _run_mcp_server(
-    transport: str = "stdio", host: str = "127.0.0.1", port: int = 8766
-) -> None:
+def _run_mcp_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8766) -> None:
     from beacon.mcp.server import mcp
 
     if transport == "http":
-        print(
-            f"[beacon] MCP http starting on http://{host}:{port}/mcp (pid={os.getpid()})",
-            file=sys.stderr,
-            flush=True,
-        )
-        mcp.run(transport="http", host=host, port=port, path="/mcp")
+        _run_mcp_http(mcp, host=host, port=port)
         return
 
     from archolith_mcp_framework import run_server
@@ -149,6 +142,46 @@ def _run_mcp_server(
         flush=True,
     )
     run_server(mcp)
+
+
+def _run_mcp_http(mcp: Any, *, host: str, port: int) -> None:
+    """Serve *mcp* over Streamable HTTP at /mcp on one pre-bound loopback socket.
+
+    Mirrors ``_serve_http_snapshot``: bind first (``http_bind_failed`` on error), no
+    access log or server header, and a Host/Origin guard against DNS rebinding.
+    """
+    import uvicorn
+
+    from beacon.loopback_guard import LoopbackGuard
+
+    app_http = LoopbackGuard(mcp.http_app(path="/mcp", transport="http"))
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind((host, port))
+        listener.listen(2048)
+    except OSError as exc:
+        listener.close()
+        raise cli_support.CliFailure(
+            EXIT_INPUT, "http_bind_failed", "could not bind loopback HTTP server"
+        ) from exc
+    print(
+        f"[beacon] MCP http listening on http://{host}:{port}/mcp (pid={os.getpid()})",
+        file=sys.stderr,
+        flush=True,
+    )
+    config = uvicorn.Config(
+        app_http,
+        host=host,
+        port=port,
+        access_log=False,
+        server_header=False,
+        date_header=False,
+        log_level="warning",
+    )
+    try:
+        uvicorn.Server(config).run(sockets=[listener])
+    finally:
+        listener.close()
 
 
 def _set_serve_env(context: cli_support.CommandContext) -> None:

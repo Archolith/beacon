@@ -163,7 +163,7 @@ canonical snapshot:
 ```bash
 beacon export                                  # writes beacon.snapshot.json
 beacon serve --snapshot beacon.snapshot.json --transport http
-# [beacon] MCP http starting on http://127.0.0.1:8766/mcp
+# [beacon] MCP http listening on http://127.0.0.1:8766/mcp (pid=...)
 ```
 
 `--transport http` requires `--snapshot`, serves the same seven tools at the `/mcp`
@@ -171,6 +171,10 @@ path, and `--host` (default `127.0.0.1`) and `--port` (default `8766`) apply to 
 only. It binds loopback only, and it is direct, unverified access — no trust broker
 or signing yet (see the [trust plan](.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md));
 exposure beyond this machine goes through a reverse proxy (a later phase).
+Loopback keeps other machines out but not other local users or processes, which can
+read every served doc. Requests whose `Host` or browser `Origin` is not `127.0.0.1` or
+`localhost` are refused (421/403), so a web page cannot reach it through DNS rebinding.
+A port already in use fails with `http_bind_failed`.
 
 **6. Optionally serve the snapshot as plain JSON.**
 

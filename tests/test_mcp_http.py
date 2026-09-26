@@ -8,6 +8,7 @@ before anything starts.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import socket
@@ -25,6 +26,7 @@ from fastmcp.client.transports import StdioTransport
 from typer.testing import CliRunner
 
 from beacon.core import cli_support
+from beacon.loopback_guard import host_allowed, origin_allowed
 from beacon.main import app
 
 runner = CliRunner()
@@ -112,6 +114,96 @@ def _free_loopback_port() -> int:
         return int(probe.getsockname()[1])
 
 
+def _raw_post(port: int, *, host: str, origin: str | None = None) -> int:
+    """POST an MCP initialize with an explicit Host (and Origin); return the status."""
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "probe", "version": "0"},
+            },
+        }
+    ).encode()
+    headers = {
+        "Host": host,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if origin is not None:
+        headers["Origin"] = origin
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.putrequest("POST", "/mcp", skip_host=True)
+        for key, value in {**headers, "Content-Length": str(len(body))}.items():
+            conn.putheader(key, value)
+        conn.endheaders(body)
+        response = conn.getresponse()
+        response.read()
+        return response.status
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    ("host", "allowed"),
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.1:8766", True),
+        ("LOCALHOST:8766", True),
+        ("evil.example", False),
+        ("evil.example:8766", False),
+        ("127.0.0.1.evil.example", False),
+        ("user@127.0.0.1", False),
+        ("[::1]:8766", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_loopback_guard_host(host: str | None, allowed: bool) -> None:
+    assert host_allowed(host) is allowed
+
+
+@pytest.mark.parametrize(
+    ("origin", "allowed"),
+    [
+        (None, True),
+        ("http://127.0.0.1:8766", True),
+        ("http://localhost", True),
+        ("https://127.0.0.1:8766", False),
+        ("http://evil.example", False),
+        ("http://127.0.0.1.evil.example", False),
+        ("null", False),
+        ("", False),
+    ],
+)
+def test_loopback_guard_origin(origin: str | None, allowed: bool) -> None:
+    assert origin_allowed(origin) is allowed
+
+
+def test_http_transport_bind_failure_is_a_clean_refusal(tmp_path: Path) -> None:
+    manifest = _fixture(tmp_path)
+    snapshot_path = _export_snapshot(manifest)
+    fake_server = types.ModuleType("beacon.mcp.server")
+    fake_server.mcp = types.SimpleNamespace(http_app=lambda **_: object())
+    with (
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy,
+        mock.patch.dict(sys.modules, {"beacon.mcp.server": fake_server}),
+    ):
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = busy.getsockname()[1]
+        result = runner.invoke(
+            app,
+            ["serve", "--snapshot", str(snapshot_path), "--transport", "http", "--port", str(port)],
+        )
+    assert result.exit_code == cli_support.EXIT_INPUT
+    assert "http_bind_failed" in result.stderr
+
+
 async def test_http_transport_matches_stdio_on_all_seven_tools(tmp_path: Path) -> None:
     pytest.importorskip("archolith_mcp_framework")
     manifest = _fixture(tmp_path)
@@ -194,7 +286,23 @@ async def test_http_transport_matches_stdio_on_all_seven_tools(tmp_path: Path) -
                         http_result = await http_client.call_tool(name, arguments)
                         assert not stdio_result.is_error, name
                         assert not http_result.is_error, name
-                        assert _payload(http_result) == _payload(stdio_result), name
+                        payload = _payload(stdio_result)
+                        # Tool errors come back as {"ok": false, ...} with is_error False.
+                        assert not (isinstance(payload, dict) and payload.get("ok") is False), (
+                            name,
+                            payload,
+                        )
+                        assert _payload(http_result) == payload, name
+
+            # DNS rebinding: a foreign Host or browser Origin is refused before MCP runs.
+            assert _raw_post(port, host="evil.example") == 421
+            assert _raw_post(port, host=f"evil.example:{port}") == 421
+            assert _raw_post(port, host=f"127.0.0.1:{port}", origin="http://evil.example") == 403
+            assert _raw_post(port, host=f"localhost:{port}", origin="null") == 403
+            assert _raw_post(port, host=f"127.0.0.1:{port}") not in (421, 403)
+            assert _raw_post(
+                port, host=f"127.0.0.1:{port}", origin=f"http://localhost:{port}"
+            ) not in (421, 403)
         finally:
             http_proc.terminate()
             http_proc.wait(timeout=10)
@@ -231,7 +339,11 @@ def test_http_transport_cli_refusals(tmp_path: Path) -> None:
         assert result.exit_code == cli_support.EXIT_INPUT
         assert "serve_http_requires_snapshot" in result.stderr
 
-        result = runner.invoke(app, ["serve-http", "--host", "0.0.0.0"])
+        # If the gate regressed this must fail, not start a real server and hang.
+        with mock.patch(
+            "beacon.main._serve_http_snapshot", side_effect=AssertionError("server started")
+        ):
+            result = runner.invoke(app, ["serve-http", "--host", "0.0.0.0"])
         assert result.exit_code == cli_support.EXIT_INPUT
         assert "http_host_not_loopback" in result.stderr
 
