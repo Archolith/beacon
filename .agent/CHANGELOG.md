@@ -1,5 +1,23 @@
 # Changelog — beacon
 
+## 2026-09-26 — Salvage the v0.3 plans from PR #8
+
+PR #8 (a September v0.2 planning consolidation) went stale and conflicting. Its two plans that still
+describe open or future work are added here with 2026-09-26 status notes:
+
+- `beacon-build-pipeline-and-source-adapters-plan-2026-09-15.md`:
+  - shipped: steps 1–3 and 5 (`beacon build`, source adapters, merge policy with drift records,
+    Menhir adapter);
+  - open: steps 4, 6 and 7 (incremental invalidation, gated optional LLM drafting, retrieval) and
+    the snapshot 1.1 / `beacon check` questions.
+- `beacon-multi-intent-beacons-plan-2026-09-15.md`: not implemented. Its "stdio only" constraint is
+  superseded by #27/#28.
+
+The root workspace plans cite both files as their parent or owner docs; until now those citations
+pointed only at #8's unmerged branch. The two August v0.2 plans get a "for review: candidate for
+archive" banner instead of being moved (owner decision pending). #8's v0.2 consolidation itself is
+not carried over; v0.2 shipped. `.agent/README.md` lists the two plans.
+
 ## 2026-09-26 — Tool work runs off the event loop on every transport
 
 `BeaconBaseTool.execute` now runs the synchronous provider call on a worker thread. Each call

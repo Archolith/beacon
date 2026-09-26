@@ -1,5 +1,11 @@
 # Beacon v0.2 — Implementation Readiness Addendum
 
+> **FOR REVIEW (2026-09-26): candidate for archive.** v0.2 shipped (0.2.0rc2 on `release/v0.2.0`,
+> PR #4), and this plan's work packages are done. The "READY FOR IMPLEMENTATION" status below is
+> historical. Its locked decisions and normative policies (limits, publication, secrets, privacy,
+> JSON contracts) still describe shipped behavior. Owner to decide whether to move it to
+> `.agent/plans/archive/` (PR #8 proposed that) or keep it as the v0.2 reference.
+
 **Status:** READY FOR IMPLEMENTATION
 **Date:** 2026-08-09
 **Owner:** Beacon
