@@ -1,5 +1,59 @@
 # Changelog — beacon
 
+## 2026-09-26 — Deployment guide and reverse-proxy configs (issue #26, phase 4)
+
+Documentation and config only: how to serve Beacon beyond this machine through an
+explicitly configured TLS reverse proxy while the servers stay loopback-only. No
+source changes, no hosting, no new server behavior.
+
+- `docs/deployment.md` (new): what to expose (JSON API, MCP, or both) and the
+  `direct_unverified` trust label; building the snapshot with `beacon export` and
+  re-exporting plus restarting after changes; systemd service-manager setup; the
+  reverse-proxy contract (TLS, the required upstream Host rewrite to
+  `127.0.0.1:8766` for `/mcp`, no buffering and long read timeouts for Streamable
+  HTTP, `Mcp-Session-Id` passthrough, 64k request-body cap, GET/HEAD on the JSON
+  API and GET/POST/DELETE on `/mcp`, per-IP `limit_req` zones with stricter zones
+  for `/v1/search` and `/mcp`, and a `log_format` that logs `$uri` so query
+  strings never reach access logs); no CORS; a five-step curl verification
+  checklist (discovery through the proxy, forged Host at the loopback MCP port
+  gets 421, a probe query absent from the access log, plain HTTP redirects to
+  HTTPS, loopback-only binds); and what is not provided yet — auth, signing, and
+  the trust broker, pointing at the trust plan. States plainly that the configs
+  were not validated in this environment and gives the exact validate commands
+  (`nginx -t`, `caddy validate`, `systemd-analyze verify`).
+- `deploy/nginx/beacon.conf` (new): the primary, complete example — redirect
+  server on 80, TLS server on 443 with certificate placeholders, `location /mcp`
+  to 127.0.0.1:8766 with the Host rewrite, `proxy_buffering off`,
+  `proxy_http_version 1.1`, 3600s read/send timeouts and its own `limit_req`
+  zone, `location /` to 127.0.0.1:8765, an exact-match stricter zone on
+  `/v1/search`, `client_max_body_size 64k`, `limit_except` method gates, and the
+  query-free `log_format`.
+- `deploy/caddy/Caddyfile` (new): shorter equivalent with automatic TLS and
+  `header_up Host {upstream_hostport}` plus `flush_interval -1` for `/mcp`.
+  Comments state that Caddy has no built-in rate limiting (plugin or upstream
+  limiter needed) and that access-log query redaction syntax is not guessed but
+  must be verified against the operator's Caddy version.
+- `deploy/systemd/beacon-http.service` and `deploy/systemd/beacon-mcp.service`
+  (new): one unprivileged unit per server, loopback `--host 127.0.0.1` on the
+  default ports, `Restart=on-failure`, the standard hardening set
+  (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, plus
+  kernel/capability/syscall restrictions), and read-only manifest/snapshot paths
+  under `StateDirectory`.
+- `tests/test_deploy_configs.py` (new): static checks that the shipped configs
+  keep the safety-critical settings (MCP Host rewrite and unbuffered streaming,
+  loopback-only upstreams, no query-log tokens anywhere active, `limit_req` on
+  `/v1/search` and `/mcp` in distinct zones, `client_max_body_size`, no CORS
+  header, systemd loopback/default ports, Caddy Host rewrite), plus one
+  behavioral test proving the Host value the nginx config sends upstream passes
+  `LoopbackGuard` while `Host: beacon.example.org` gets 421.
+- `README.md`: the Streamable HTTP and serve-http sections each gain one sentence
+  linking to `docs/deployment.md` (replacing the "a later phase" forward
+  reference).
+- `.agent/architecture.md`: a short deployment-shape paragraph — exposure is
+  configuration, not code, and the proxy obligations the servers rely on.
+- `beacon.yaml`: `project_state` records phase 4 as recently completed; stale
+  phase 2/3 next-steps pointing at phase 4 are removed.
+
 ## 2026-09-26 — Discovery as an LLM entry point (issue #26, phase 3)
 
 Discovery descriptor 1.7 turns `/.well-known/archolith-beacon` from a listing into a

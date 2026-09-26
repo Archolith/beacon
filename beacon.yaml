@@ -65,6 +65,22 @@ project_state:
         path: docs/beacon-functional-product-roadmap.md
         status: current
   recently_completed:
+    - title: Deployment guide and reverse-proxy configs (issue #26 phase 4)
+      summary: >
+        docs/deployment.md plus deploy/nginx/beacon.conf, deploy/caddy/Caddyfile and
+        deploy/systemd/*.service document exposure beyond loopback through an explicitly
+        configured TLS reverse proxy while both servers stay on 127.0.0.1: the required
+        upstream Host rewrite for /mcp, no buffering for Streamable HTTP, per-IP rate
+        limits with stricter zones for /v1/search and /mcp, access logs without query
+        strings, a curl verification checklist, and the unvalidated-config disclosure;
+        static tests pin the safety-critical settings.
+      next_step: >
+        Auth, signing, and the trust broker remain future trust-plan phases.
+      sources:
+        - type: doc
+          title: Deployment guide
+          path: docs/deployment.md
+          status: current
     - title: Discovery as an LLM entry point (issue #26 phase 3)
       summary: >
         Discovery descriptor 1.7 gives every resource family and dynamic route a one-line
@@ -72,8 +88,6 @@ project_state:
         from the snapshot digest, generator version and the startup StatusObservation, and
         labels access trust: direct_unverified; the identity response repeats the freshness
         facts in headers while its body stays byte-identical.
-      next_step: >
-        Phase 4 covers deployment docs and the reverse-proxy story.
       sources:
         - type: file
           title: HTTP API surface
@@ -85,8 +99,6 @@ project_state:
         the dynamic routes call the same MCP tool classes over one snapshot-built provider and
         return the tool payloads in canonical JSON, with MCP refusal envelopes mapped to 404/400,
         body-derived ETags, and discovery descriptor 1.6.
-      next_step: >
-        Phase 4 covers deployment docs and the reverse-proxy story.
       sources:
         - type: file
           title: HTTP API surface

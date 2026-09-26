@@ -170,7 +170,8 @@ beacon serve --snapshot beacon.snapshot.json --transport http
 path, and `--host` (default `127.0.0.1`) and `--port` (default `8766`) apply to it
 only. It binds loopback only, and it is direct, unverified access — no trust broker
 or signing yet (see the [trust plan](.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md));
-exposure beyond this machine goes through a reverse proxy (a later phase).
+exposure beyond this machine goes through a TLS reverse proxy (see
+[docs/deployment.md](docs/deployment.md)).
 Loopback keeps other machines out but not other local users or processes, which can
 read every served doc. Requests whose `Host` or browser `Origin` is not `127.0.0.1` or
 `localhost` are refused (421/403), so a web page cannot reach it through DNS rebinding.
@@ -195,6 +196,9 @@ curl "http://127.0.0.1:8765/v1/read?chunk_id=c1-...&max_chars=4000"
 curl "http://127.0.0.1:8765/v1/explain?concept=adr-0005"
 curl http://127.0.0.1:8765/v1/snapshot
 ```
+
+The surface is loopback-only; to publish it beyond this machine, put the TLS reverse proxy from
+[docs/deployment.md](docs/deployment.md) in front.
 
 Start with `/v1/snapshot/identity` for the project, purpose, audiences, and current focus, then read
 `/v1/status` to see one explicit active-work item, recent completions, blockers, pending decisions,

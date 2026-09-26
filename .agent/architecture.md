@@ -134,6 +134,14 @@ direct, unverified serving until the trust plan's broker and signing phases land
 log, and wraps the app in `beacon.loopback_guard.LoopbackGuard`, which refuses a
 non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
 
+Exposure beyond the machine is configuration, not code: `docs/deployment.md` with
+`deploy/nginx/beacon.conf`, `deploy/caddy/Caddyfile`, and `deploy/systemd/*.service`
+put an explicitly configured TLS reverse proxy in front of the two loopback servers.
+The proxy must rewrite the upstream Host to `127.0.0.1:8766` for `/mcp` (the guard
+refuses any other Host), must not buffer MCP responses (Streamable HTTP can stream
+Server-Sent Events), and must log paths without query strings; Beacon itself ships
+no auth, CORS, TLS, rate limiting, or in-process access logs.
+
 ### Loopback HTTP data flow
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
