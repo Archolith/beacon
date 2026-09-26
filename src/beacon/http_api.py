@@ -46,11 +46,15 @@ echoed.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import threading
 from dataclasses import asdict
 from typing import Any
 
+import anyio
+import anyio.to_thread
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
@@ -551,7 +555,10 @@ def create_http_app(
             ),
             Route("/v1/decisions", decisions_index_route, methods=["GET", "HEAD"]),
             Route(
-                "/v1/decisions/{decision_id:str}", decision_resource_route, methods=["GET", "HEAD"]
+                # :path, not :str: decision ids may contain "/" (ADRs in nested directories).
+                "/v1/decisions/{decision_id:path}",
+                decision_resource_route,
+                methods=["GET", "HEAD"],
             ),
             Route("/v1/search", search_route, methods=["GET", "HEAD"]),
             Route("/v1/read", read_route, methods=["GET", "HEAD"]),
@@ -568,6 +575,7 @@ def create_http_app(
     app.state.beacon_status_sha256 = status_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.state.beacon_provider = provider
+    app.state.beacon_tool_slots = threading.BoundedSemaphore(_TOOL_CONCURRENCY)
     if decision_index_body is not None:
         app.state.beacon_decision_index_sha256 = decision_index_sha256
     app.add_exception_handler(HTTPException, _http_exception_handler)
@@ -773,6 +781,22 @@ def _dynamic_response(request: Request, body: bytes, *, status: int = 200) -> Re
     return Response(content=response_body, status_code=status, headers=headers)
 
 
+#: Dynamic queries run at once on worker threads; more wait their turn off the event loop.
+_TOOL_CONCURRENCY = 4
+
+
+def _execute_tool(
+    tool: BeaconBaseTool, kwargs: dict[str, Any], slots: threading.BoundedSemaphore
+) -> str:
+    """Run the tool's async ``execute`` to completion on this worker thread's own loop.
+
+    The slot is held by the thread itself, not by the awaiting request: a cancelled request
+    cannot free it while its worker is still running (an anyio limiter token would be).
+    """
+    with slots:
+        return asyncio.run(tool.execute(**kwargs))
+
+
 async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: Any) -> Response:
     """Run one MCP tool and answer with its exact payload in canonical form.
 
@@ -783,7 +807,10 @@ async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: An
     ``internal_error`` payload to 500; the tool logs unexpected exceptions
     without the query.
     """
-    payload = json.loads(await tool.execute(**kwargs))
+    # Provider search/read/explain are synchronous; run them on a worker thread so one slow
+    # query cannot stall every other request (health, static routes) on the event loop.
+    slots = request.app.state.beacon_tool_slots
+    payload = json.loads(await anyio.to_thread.run_sync(_execute_tool, tool, kwargs, slots))
     status = 200
     if isinstance(payload, dict) and payload.get("ok") is False:
         code = str(payload.get("error", {}).get("code", ""))
