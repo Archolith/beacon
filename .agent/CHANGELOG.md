@@ -1,5 +1,23 @@
 # Changelog — beacon
 
+## 2026-09-26 — End-to-end test for no-clone access (issue #26)
+
+`tests/test_e2e_no_clone_access.py` runs the whole path in real processes:
+- `beacon build` on a repository with two ADRs, one of them excluded;
+- `beacon export`;
+- `serve-http` and `serve --transport http` on loopback sockets.
+
+What it checks:
+- A fetch-only walk from discovery reaches the served decision: search `types=decisions`,
+  then the decision record, read and explain.
+- MCP over HTTP returns the same payloads as the JSON routes.
+- The excluded ADR is absent from every surface and probes like a bogus id.
+- Queries are never echoed in bodies, headers or server logs.
+- A forged Host on `/mcp` gets 421.
+
+Mutation-checked: restoring the query echo fails 2 tests, and removing `LoopbackGuard`
+fails 1.
+
 ## 2026-09-26 — Answers never echo the query (issue #26)
 
 `search` answers say `"N result(s)."` or `"No indexed knowledge matched the query."`
