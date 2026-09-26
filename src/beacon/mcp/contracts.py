@@ -13,12 +13,16 @@ expects async tool functions).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 import traceback
 from abc import abstractmethod
 from functools import wraps
 from typing import TYPE_CHECKING, Any
+
+import anyio.to_thread
 
 from beacon.core.limits import LimitError
 from beacon.core.schema import to_payload
@@ -40,6 +44,10 @@ def _json_default(value: Any) -> Any:
 def render_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True, default=_json_default)
 
+
+#: Tool calls that may run their provider work at once, per process (all transports share it).
+TOOL_CONCURRENCY = 4
+_TOOL_SLOTS = threading.BoundedSemaphore(TOOL_CONCURRENCY)
 
 #: Links of a __cause__/__context__ chain logged before giving up (cycles are skipped).
 _MAX_CHAIN = 8
@@ -86,7 +94,9 @@ class BeaconBaseTool:
 
     async def execute(self, *args: Any, **kwargs: Any) -> str:
         try:
-            return await self.endpoint(*args, **kwargs)
+            # Provider work is synchronous: run it on a worker thread so one slow call cannot
+            # stall the transport's event loop (MCP over HTTP or stdio, and the JSON routes).
+            return await anyio.to_thread.run_sync(self._run_endpoint, args, kwargs)
         except (LimitError, ServingRequestError) as exc:
             logger.info("beacon tool %r refused request: %s", self.name, exc.code)
             return _error_payload(self.name, exc.code, str(exc))
@@ -98,6 +108,15 @@ class BeaconBaseTool:
                 "internal_error",
                 "Beacon could not complete this request; see server logs.",
             )
+
+    def _run_endpoint(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+        """Run ``endpoint`` to completion on this worker thread's own event loop.
+
+        The slot is held by the thread itself, not by the awaiting caller, so a cancelled
+        call cannot free it while its work still runs (an anyio limiter token would be).
+        """
+        with _TOOL_SLOTS:
+            return asyncio.run(self.endpoint(*args, **kwargs))
 
     def render_json(self, payload: dict[str, Any]) -> str:
         return render_json(payload)
