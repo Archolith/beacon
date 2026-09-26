@@ -206,7 +206,7 @@ without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full pu
 `/beacon.json` is its permanent alias. To avoid fetching full, inspect `/v1/chunks`: each entry has a
 stable ID, parent document role/status, exact UTF-8 text bytes, exact response bytes, and a shared URL
 template for retrieving only that chunk. Each retrieved resource has its own SHA-256/ETag. Discovery
-descriptor 1.6 also advertises the status resource, `/v1/concepts`, `/v1/guardrails`, `/v1/decisions`,
+descriptor 1.7 also advertises the status resource, `/v1/concepts`, `/v1/guardrails`, `/v1/decisions`,
 and the dynamic query routes. Each knowledge catalog is a cheap selector index; `/v1/concepts` and
 `/v1/guardrails` use opaque resource IDs so a logical ID never becomes route structure, while
 `/v1/decisions/{id}` addresses each record by its decision id. All four companion indexes publish
@@ -236,6 +236,16 @@ decisions family is static: `/v1/decisions` lists the decisions whose ADR the sn
 `/v1/decisions/{id}` returns one complete record (decision text verbatim, alternatives with
 reasons, status, supersession, section spans, citations) with the same serving policy as search,
 read, and explain — excluded, local-only, or withheld ADRs probe exactly like a nonexistent id.
+
+**For LLM clients.** `/.well-known/archolith-beacon` is the entry point: each resource family and
+dynamic route carries a one-line `use_when`, and `recommended_flow` lists the routes to walk in
+order (identify, search decisions or keywords, read or explain, guardrails before changes). The
+`freshness` block states how old the answers are — the snapshot SHA-256, the generator version,
+and the repository commit/branch/dirty state observed once at startup, with `observed_at` and a
+pointer to `/v1/status` for the full evidence; the same facts ride on `/v1/snapshot/identity`
+response headers (`x-beacon-observed-at`, `x-beacon-repository-commit`, and siblings). An
+unobserved fact is `null` or `unavailable`, never invented at request time, and `trust` reads
+`direct_unverified`: there is no signing and no trust broker yet.
 
 ---
 

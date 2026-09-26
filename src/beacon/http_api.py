@@ -15,7 +15,8 @@ work -- those boundaries belong to the caller.
 
 Routes (GET and HEAD):
 
-* ``/.well-known/archolith-beacon`` -- deterministic discovery document;
+* ``/.well-known/archolith-beacon`` -- deterministic discovery document with
+  per-route usage guidance, a recommended flow, freshness, and a trust label;
 * ``/v1/snapshot/identity`` -- minimal project identity representation;
 * ``/v1/snapshot/orientation`` -- metadata-only orientation representation;
 * ``/v1/snapshot`` -- the canonical snapshot payload;
@@ -70,6 +71,7 @@ from beacon.core.loader import ManifestError
 from beacon.core.snapshot import (
     CONTENT_EMBEDDED,
     Snapshot,
+    SnapshotGenerator,
     identity_snapshot,
     metadata_only_snapshot,
     snapshot_bytes,
@@ -83,7 +85,7 @@ from beacon.mcp.tools.search import SearchTool
 from beacon.provider.manifest_provider import ManifestBeaconProvider
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.6"
+_DESCRIPTOR_VERSION = "1.7"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -99,6 +101,71 @@ _SCOPE = "loopback"
 
 #: Discovery authentication model.
 _AUTHENTICATION = "none"
+
+#: Trust level reported by discovery: direct access with nothing verified yet.
+_TRUST = "direct_unverified"
+
+#: One-line trust note accompanying :data:`_TRUST`.
+_TRUST_NOTE = "direct, unverified access: no signing and no trust broker yet"
+
+#: One-line usage guidance per resource family (static and factual).
+_FAMILY_USE_WHEN = {
+    "status": "check how fresh the snapshot and repository evidence are",
+    "chunks": "read document text in heading-sized chunks by stable id",
+    "concepts": "list core concepts and find their ids",
+    "guardrails": "read the rules to respect before making changes",
+    "decisions": "why the project is built this way",
+}
+
+#: One-line usage guidance per dynamic query route.
+_DYNAMIC_USE_WHEN = {
+    "search": "find documents, concepts, decisions or guardrails by keywords",
+    "read": "read one section by chunk id, path or heading; continue with offset",
+    "explain": "explain one concept in depth",
+}
+
+#: The first recommended step, served whether or not the manifest is servable.
+_FLOW_IDENTIFY = {
+    "step": "identify",
+    "url": "/v1/snapshot/identity",
+    "use_when": "start here: learn which project and snapshot this is",
+}
+
+#: The final recommended step, served whether or not the manifest is servable.
+_FLOW_GUARDRAILS = {
+    "step": "guardrails",
+    "url": "/v1/guardrails",
+    "use_when": "before making changes: read the guardrails",
+}
+
+#: Middle steps served only when the dynamic routes exist.
+_FLOW_SERVABLE_STEPS = (
+    {
+        "step": "why_search",
+        "url": "/v1/search",
+        "use_when": "for a why question: search with types=decisions",
+    },
+    {
+        "step": "why_decision",
+        "url": "/v1/decisions/{id}",
+        "use_when": "read the decision the why search found",
+    },
+    {
+        "step": "search",
+        "url": "/v1/search",
+        "use_when": "for any other question: search by keywords",
+    },
+    {
+        "step": "read",
+        "url": "/v1/read",
+        "use_when": "read the section a search hit points to; pass offset to continue",
+    },
+    {
+        "step": "explain",
+        "url": "/v1/explain",
+        "use_when": "alternative to read or the decision record: explain one concept",
+    },
+)
 
 
 def create_http_app(
@@ -156,6 +223,8 @@ def create_http_app(
     )
     status_sha256 = hashlib.sha256(status_payload).hexdigest()
     status_etag = f'"{status_sha256}"'
+    observed = status_observation or StatusObservation.unavailable()
+    freshness = _freshness_block(snapshot.generator, observed, sha256)
 
     decision_index_body: bytes | None = None
     decision_index_headers: dict[str, str] = {}
@@ -193,6 +262,7 @@ def create_http_app(
         status_sha256=status_sha256,
         status_byte_count=len(status_payload),
         schema_version=schema_version,
+        freshness=freshness,
     )
     discovery_body = dumps_canonical(discovery)
     health = _health_payload(sha256=sha256, schema_version=schema_version)
@@ -208,6 +278,7 @@ def create_http_app(
         '</v1/status>; rel="status"; title="project status", '
         '</v1/snapshot/orientation>; rel="alternate"; title="orientation snapshot"'
     )
+    identity_headers.update(_freshness_headers(snapshot.generator, observed, sha256))
     status_headers = _representation_headers(
         status_payload,
         status_sha256,
@@ -803,6 +874,65 @@ def _unexpected_exception_handler(request: Request, exc: Exception) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _freshness_block(
+    generator: SnapshotGenerator,
+    observed: StatusObservation,
+    snapshot_sha256: str,
+) -> dict[str, Any]:
+    """Freshness facts from data that already exists; never request-time I/O.
+
+    The repository shape mirrors the ``observed.repository`` block that
+    ``/v1/status`` serves. Facts the observation did not capture stay ``null``
+    or the existing ``unavailable`` state; nothing is invented.
+    """
+    repository: dict[str, Any] = {"state": observed.repository.state}
+    if observed.repository.state == "observed":
+        repository.update(
+            {
+                "commit": observed.repository.commit,
+                "branch": observed.repository.branch,
+                "dirty": observed.repository.dirty,
+            }
+        )
+    return {
+        "snapshot_sha256": snapshot_sha256,
+        "generator": {
+            "distribution": generator.distribution,
+            "version": generator.version or None,
+        },
+        "repository": repository,
+        "observed_at": observed.observed_at,
+        "status_url": "/v1/status",
+    }
+
+
+def _freshness_headers(
+    generator: SnapshotGenerator,
+    observed: StatusObservation,
+    snapshot_sha256: str,
+) -> dict[str, str]:
+    """Mirror the freshness facts on identity response headers, not its body.
+
+    A fact the observation did not capture is omitted from the headers rather
+    than emptied; branch names that cannot cross a header are omitted too.
+    """
+    headers: dict[str, str] = {
+        "x-beacon-repository-state": observed.repository.state,
+        "x-beacon-full-snapshot-sha256": snapshot_sha256,
+    }
+    if generator.version:
+        headers["x-beacon-generator-version"] = generator.version
+    if observed.observed_at:
+        headers["x-beacon-observed-at"] = observed.observed_at
+    if observed.repository.state == "observed":
+        headers["x-beacon-repository-commit"] = observed.repository.commit
+        if observed.repository.branch and observed.repository.branch.isascii():
+            headers["x-beacon-repository-branch"] = observed.repository.branch
+        if observed.repository.dirty is not None:
+            headers["x-beacon-repository-dirty"] = "true" if observed.repository.dirty else "false"
+    return headers
+
+
 def _discovery_payload(
     *,
     sha256: str,
@@ -826,14 +956,20 @@ def _discovery_payload(
     status_sha256: str,
     status_byte_count: int,
     schema_version: str,
+    freshness: dict[str, Any],
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document.
 
-    The decision resource family, the ``query`` capability, and the dynamic
-    route listing appear only when the snapshot's manifest is servable; a
-    snapshot without a servable manifest advertises the static surface only.
-    The dynamic entry is a listing of route names and parameters; usage
-    guidance is a later phase.
+    The document is the LLM entry point: every resource family and dynamic
+    route carries a one-line ``use_when``, ``recommended_flow`` lists the
+    routes an agent should walk in order, ``freshness`` states how old the
+    served knowledge is, and ``trust`` labels the access model.
+
+    The decision resource family, the ``query`` capability, the dynamic route
+    listing, and their flow steps appear only when the snapshot's manifest is
+    servable; a snapshot without a servable manifest advertises the static
+    surface only. The dynamic entry is a listing of route names, parameters,
+    and usage guidance.
     """
     capabilities: dict[str, Any] = {
         "snapshot": True,
@@ -850,7 +986,11 @@ def _discovery_payload(
         "beacon_version": __version__,
         "scope": _SCOPE,
         "authentication": _AUTHENTICATION,
+        "trust": _TRUST,
+        "trust_note": _TRUST_NOTE,
         "capabilities": capabilities,
+        "freshness": freshness,
+        "recommended_flow": [_FLOW_IDENTIFY, _FLOW_GUARDRAILS],
         "snapshot": {
             "url": "/v1/snapshot",
             "mode": "embedded",
@@ -886,6 +1026,7 @@ def _discovery_payload(
                 "version": STATUS_VERSION,
                 "sha256": status_sha256,
                 "bytes": status_byte_count,
+                "use_when": _FAMILY_USE_WHEN["status"],
             },
             "chunks": {
                 "index_url": "/v1/chunks",
@@ -894,6 +1035,7 @@ def _discovery_payload(
                 "count": chunk_count,
                 "sha256": chunk_index_sha256,
                 "bytes": chunk_index_byte_count,
+                "use_when": _FAMILY_USE_WHEN["chunks"],
             },
             "concepts": {
                 "index_url": "/v1/concepts",
@@ -902,6 +1044,7 @@ def _discovery_payload(
                 "count": concept_count,
                 "sha256": concept_index_sha256,
                 "bytes": concept_index_byte_count,
+                "use_when": _FAMILY_USE_WHEN["concepts"],
             },
             "guardrails": {
                 "index_url": "/v1/guardrails",
@@ -910,6 +1053,7 @@ def _discovery_payload(
                 "count": guardrail_count,
                 "sha256": guardrail_index_sha256,
                 "bytes": guardrail_index_byte_count,
+                "use_when": _FAMILY_USE_WHEN["guardrails"],
             },
         },
     }
@@ -923,24 +1067,33 @@ def _discovery_payload(
             "count": decision_count,
             "sha256": decision_index_sha256,
             "bytes": decision_index_byte_count,
+            "use_when": _FAMILY_USE_WHEN["decisions"],
         }
         payload["dynamic"] = {
             "search": {
                 "url": "/v1/search",
                 "method": "GET",
                 "parameters": ["q", "types", "limit"],
+                "use_when": _DYNAMIC_USE_WHEN["search"],
             },
             "read": {
                 "url": "/v1/read",
                 "method": "GET",
                 "parameters": ["chunk_id", "path", "heading", "line", "max_chars", "offset"],
+                "use_when": _DYNAMIC_USE_WHEN["read"],
             },
             "explain": {
                 "url": "/v1/explain",
                 "method": "GET",
                 "parameters": ["concept", "depth"],
+                "use_when": _DYNAMIC_USE_WHEN["explain"],
             },
         }
+        payload["recommended_flow"] = [
+            _FLOW_IDENTIFY,
+            *_FLOW_SERVABLE_STEPS,
+            _FLOW_GUARDRAILS,
+        ]
     return payload
 
 

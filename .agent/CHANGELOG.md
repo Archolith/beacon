@@ -1,5 +1,39 @@
 # Changelog — beacon
 
+## 2026-09-26 — Discovery as an LLM entry point (issue #26, phase 3)
+
+Discovery descriptor 1.7 turns `/.well-known/archolith-beacon` from a listing into a
+guide: usage lines and a recommended flow for agents, freshness facts from data the
+server already has, and an explicit trust label. No new routes, no snapshot changes,
+and no request-time I/O.
+
+- `src/beacon/http_api.py`: discovery moves to descriptor 1.7 (was 1.6). Every resource
+  family and dynamic route carries a static one-line `use_when`; `recommended_flow` is an
+  ordered list of short steps (identity; why-question search with `types=decisions` then
+  `/v1/decisions/{id}`; otherwise search then read with `offset`, or explain; guardrails
+  before changes) that mentions dynamic and decision routes only when the manifest is
+  servable. A `freshness` block is built once per process from the snapshot digest, the
+  snapshot generator version, and the `StatusObservation` handed to `create_http_app`
+  (repository state/commit/branch/dirty as `/v1/status` reports it, `observed_at`, and a
+  `status_url` pointer); unavailable facts stay `null` or `unavailable`. Discovery states
+  `trust: "direct_unverified"` with a one-line note (no signing or trust broker yet).
+  `/v1/snapshot/identity` repeats the freshness facts in response headers
+  (`x-beacon-observed-at`, `x-beacon-repository-state/-commit/-branch/-dirty`,
+  `x-beacon-generator-version`, `x-beacon-full-snapshot-sha256`) while its body stays
+  byte-identical.
+- `tests/test_http_discovery_guide.py` (new): use_when coverage, flow URLs answer 200
+  (templates filled with real ids, dynamic routes given real required parameters), the
+  unservable flow names no dynamic or decision routes, freshness equals a populated
+  observation and `StatusObservation.unavailable()`, identity body byte-identity plus new
+  headers, deterministic discovery bytes across app instances, and no filesystem paths,
+  hostnames, or query strings anywhere in discovery. The two existing discovery shape
+  tests take the forced descriptor-1.7/`use_when` assertion updates.
+- `README.md`: serve-http section documents discovery as the LLM entry point (new "for
+  LLM clients" paragraph) and descriptor 1.7.
+- `.agent/architecture.md`: loopback HTTP data flow describes the 1.7 guidance, flow,
+  freshness, and trust contract.
+- `beacon.yaml`: `project_state` records phase 3 as recently completed.
+
 ## 2026-09-25 — HTTP JSON routes with MCP-parity answers (issue #26, phase 2)
 
 `serve-http` gains `/v1/decisions`, `/v1/decisions/{id}`, `/v1/search`, `/v1/read` and

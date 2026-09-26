@@ -576,7 +576,7 @@ def test_decision_index_headers_support_head_and_etag(client: TestClient) -> Non
 
 def test_discovery_lists_the_dynamic_surface(client: TestClient) -> None:
     body = client.get("/.well-known/archolith-beacon").json()
-    assert body["descriptor_version"] == "1.6"
+    assert body["descriptor_version"] == "1.7"
     assert body["capabilities"]["query"] is True
     assert body["capabilities"]["decisions"] is True
 
@@ -588,13 +588,25 @@ def test_discovery_lists_the_dynamic_surface(client: TestClient) -> None:
         "count": 1,
         "sha256": hashlib.sha256(index.content).hexdigest(),
         "bytes": len(index.content),
+        "use_when": "why the project is built this way",
     }
     assert body["dynamic"] == {
-        "search": {"url": "/v1/search", "method": "GET", "parameters": ["q", "types", "limit"]},
+        "search": {
+            "url": "/v1/search",
+            "method": "GET",
+            "parameters": ["q", "types", "limit"],
+            "use_when": "find documents, concepts, decisions or guardrails by keywords",
+        },
         "read": {
             "url": "/v1/read",
             "method": "GET",
             "parameters": ["chunk_id", "path", "heading", "line", "max_chars", "offset"],
+            "use_when": "read one section by chunk id, path or heading; continue with offset",
         },
-        "explain": {"url": "/v1/explain", "method": "GET", "parameters": ["concept", "depth"]},
+        "explain": {
+            "url": "/v1/explain",
+            "method": "GET",
+            "parameters": ["concept", "depth"],
+            "use_when": "explain one concept in depth",
+        },
     }

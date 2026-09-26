@@ -509,12 +509,16 @@ def test_discovery_fields(
         "beacon_version",
         "scope",
         "authentication",
+        "trust",
+        "trust_note",
         "capabilities",
+        "freshness",
+        "recommended_flow",
         "snapshot",
         "representations",
         "resources",
     }
-    assert body["descriptor_version"] == "1.6"
+    assert body["descriptor_version"] == "1.7"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"
@@ -567,6 +571,7 @@ def test_discovery_fields(
             "version": "1.0",
             "sha256": hashlib.sha256(status.content).hexdigest(),
             "bytes": len(status.content),
+            "use_when": "check how fresh the snapshot and repository evidence are",
         },
         "chunks": {
             "index_url": "/v1/chunks",
@@ -575,6 +580,7 @@ def test_discovery_fields(
             "count": 1,
             "sha256": hashlib.sha256(chunk_index.content).hexdigest(),
             "bytes": len(chunk_index.content),
+            "use_when": "read document text in heading-sized chunks by stable id",
         },
         "concepts": {
             "index_url": "/v1/concepts",
@@ -583,6 +589,7 @@ def test_discovery_fields(
             "count": 1,
             "sha256": hashlib.sha256(concept_index.content).hexdigest(),
             "bytes": len(concept_index.content),
+            "use_when": "list core concepts and find their ids",
         },
         "guardrails": {
             "index_url": "/v1/guardrails",
@@ -591,6 +598,7 @@ def test_discovery_fields(
             "count": 1,
             "sha256": hashlib.sha256(guardrail_index.content).hexdigest(),
             "bytes": len(guardrail_index.content),
+            "use_when": "read the rules to respect before making changes",
         },
     }
 

@@ -65,6 +65,20 @@ project_state:
         path: docs/beacon-functional-product-roadmap.md
         status: current
   recently_completed:
+    - title: Discovery as an LLM entry point (issue #26 phase 3)
+      summary: >
+        Discovery descriptor 1.7 gives every resource family and dynamic route a one-line
+        use_when, orders a recommended_flow of agent steps, carries a freshness block built
+        from the snapshot digest, generator version and the startup StatusObservation, and
+        labels access trust: direct_unverified; the identity response repeats the freshness
+        facts in headers while its body stays byte-identical.
+      next_step: >
+        Phase 4 covers deployment docs and the reverse-proxy story.
+      sources:
+        - type: file
+          title: HTTP API surface
+          path: src/beacon/http_api.py
+          status: current
     - title: HTTP JSON routes with MCP-parity answers (issue #26 phase 2)
       summary: >
         serve-http adds /v1/decisions, /v1/decisions/{id}, /v1/search, /v1/read and /v1/explain;
@@ -72,8 +86,7 @@ project_state:
         return the tool payloads in canonical JSON, with MCP refusal envelopes mapped to 404/400,
         body-derived ETags, and discovery descriptor 1.6.
       next_step: >
-        Phase 3 adds usage guidance to the discovery dynamic listing; phase 4 covers deployment
-        docs and the reverse-proxy story.
+        Phase 4 covers deployment docs and the reverse-proxy story.
       sources:
         - type: file
           title: HTTP API surface

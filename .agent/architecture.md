@@ -140,8 +140,15 @@ non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
 embedded snapshot. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value.
 Before binding, the CLI separately captures bounded Git and source-digest evidence for the immutable
-status companion. Discovery descriptor 1.6 advertises `/v1/snapshot/identity`, `/v1/status`,
-`/v1/snapshot/orientation`, and `/v1/snapshot` with independent SHA-256 digests and exact byte sizes.
+status companion. Discovery descriptor 1.7 is the LLM entry point: it advertises
+`/v1/snapshot/identity`, `/v1/status`, `/v1/snapshot/orientation`, and `/v1/snapshot` with
+independent SHA-256 digests and exact byte sizes, gives every resource family and dynamic route a
+one-line `use_when`, orders a `recommended_flow` of routes for agents, labels the access
+`trust: direct_unverified` (no signing or trust broker yet), and carries a `freshness` block built
+only from data that already exists — the snapshot digest, the snapshot generator version, the
+startup `StatusObservation` repository evidence, `observed_at`, and a pointer to `/v1/status`;
+unobserved facts stay `null` or `unavailable`, and the same freshness facts ride on
+`/v1/snapshot/identity` response headers while its body stays byte-identical.
 All representations are immutable for the process lifetime, support GET/HEAD plus `If-None-Match`,
 and use snapshot schema 1.0. Identity carries only project, purpose, audiences, and current focus;
 orientation adds manifest knowledge, citations, document hashes, and chunk inventory without chunk
@@ -172,7 +179,7 @@ perform no file reads at request time, and never echo the query string in a body
 line. A snapshot whose embedded manifest is not servable (synthetic snapshots only; every
 `build_snapshot` product validates) keeps its static representations byte-identical, fails the query
 routes closed with the ordinary 404 body, and its discovery document keeps `query: false` and omits
-the decisions family and dynamic listing.
+the decisions family, the dynamic listing, and the dynamic flow steps from `recommended_flow`.
 
 ## Config / Environment Variables
 
