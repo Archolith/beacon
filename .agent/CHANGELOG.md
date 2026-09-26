@@ -1,5 +1,17 @@
 # Changelog — beacon
 
+## 2026-09-26 — serve-http guards against DNS rebinding (F20)
+
+`beacon serve-http` now serves its app behind `LoopbackGuard`, as `serve --transport http`
+already did. A non-loopback `Host` gets 421, and a non-loopback browser `Origin` gets 403.
+Loopback kept other machines out, but before this change a web page could reach the JSON API
+through DNS rebinding and read everything it serves, including search answers.
+`create_http_app` is unchanged, so in-process `TestClient` users are unaffected. The deploy
+configs already rewrite the JSON upstream's Host to `127.0.0.1:8765`. The docs now describe
+the guard on both servers.
+Test: `test_json_api_refuses_a_forged_host_or_origin` runs against the real `serve-http`
+process; without the guard it fails.
+
 ## 2026-09-26 — Review fixes for PR #28 (astra review)
 
 - `serve-http` turns off Starlette's trailing-slash redirect. `/v1/search/?q=...` used to answer

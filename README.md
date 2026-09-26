@@ -179,7 +179,9 @@ A port already in use fails with `http_bind_failed`.
 
 **6. Optionally serve the snapshot as plain JSON.**
 
-Clients that do not speak MCP can use the loopback-only HTTP compatibility surface:
+Clients that do not speak MCP can use the loopback-only HTTP compatibility surface. Like the MCP
+HTTP transport, it refuses a non-loopback `Host` (421) or browser `Origin` (403), so a web page
+cannot reach it through DNS rebinding:
 
 ```bash
 beacon serve-http --manifest beacon.yaml

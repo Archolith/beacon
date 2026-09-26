@@ -295,3 +295,31 @@ def test_remote_mcp_refuses_a_forged_host(served: dict[str, Any]) -> None:
     assert _mcp_status_for_host(port, "evil.example") == 421
     assert _mcp_status_for_host(port, f"evil.example:{port}") == 421
     assert _mcp_status_for_host(port, f"127.0.0.1:{port}") not in (421, 403)
+
+
+def _json_api_status(base: str, host: str, origin: str | None = None) -> int:
+    """GET discovery on the real serve-http with an explicit Host (and Origin)."""
+    port = int(base.rsplit(":", 1)[1])
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.putrequest("GET", "/.well-known/archolith-beacon", skip_host=True)
+        conn.putheader("Host", host)
+        if origin is not None:
+            conn.putheader("Origin", origin)
+        conn.endheaders()
+        response = conn.getresponse()
+        response.read()
+        return response.status
+    finally:
+        conn.close()
+
+
+def test_json_api_refuses_a_forged_host_or_origin(served: dict[str, Any]) -> None:
+    # F20: serve-http gets the same DNS-rebinding guard as MCP over HTTP.
+    base = served["http"]
+    port = base.rsplit(":", 1)[1]
+    assert _json_api_status(base, "evil.example") == 421
+    assert _json_api_status(base, f"evil.example:{port}") == 421
+    assert _json_api_status(base, f"127.0.0.1:{port}", origin="http://evil.example") == 403
+    assert _json_api_status(base, f"127.0.0.1:{port}") == 200
+    assert _json_api_status(base, f"localhost:{port}") == 200
