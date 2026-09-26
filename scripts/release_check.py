@@ -457,21 +457,25 @@ def probe_http_snapshot(
         if descriptor.get("scope") != "loopback" or descriptor.get("authentication") != "none":
             raise JourneyError("HTTP discovery has the wrong scope or authentication mode")
         capabilities = descriptor.get("capabilities")
+        # #26: a servable snapshot adds the decision resources and the query routes.
         if capabilities != {
             "chunks": True,
             "concepts": True,
+            "decisions": True,
             "guardrails": True,
             "status": True,
             "mcp_http": False,
-            "query": False,
+            "query": True,
             "question_submission": False,
             "snapshot": True,
         }:
-            raise JourneyError("HTTP discovery capabilities differ from the frozen RC2 contract")
+            raise JourneyError("HTTP discovery capabilities differ from the descriptor 1.7 contract")
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.5":
-            raise JourneyError("HTTP discovery descriptor version is not 1.5")
+        if descriptor.get("descriptor_version") != "1.7":
+            raise JourneyError("HTTP discovery descriptor version is not 1.7")
+        if descriptor.get("trust") != "direct_unverified":
+            raise JourneyError("HTTP discovery does not label itself direct and unverified")
         representations = descriptor.get("representations", {})
         if representations.get("identity") != {
             "url": "/v1/snapshot/identity",
@@ -502,7 +506,7 @@ def probe_http_snapshot(
         status_sha = hashlib.sha256(status_body).hexdigest()
         status = json.loads(status_body)
         _validate_http_schema(status, schema_name="beacon-status-1.0.schema.json")
-        if descriptor.get("resources", {}).get("status") != {
+        if _guided(descriptor.get("resources", {}).get("status")) != {
             "url": "/v1/status",
             "version": "1.0",
             "sha256": status_sha,
@@ -531,7 +535,7 @@ def probe_http_snapshot(
         chunk_index_body, chunk_index_headers = _http_request(base_url + "/v1/chunks")
         chunk_index_sha = hashlib.sha256(chunk_index_body).hexdigest()
         chunk_index = json.loads(chunk_index_body)
-        if descriptor.get("resources", {}).get("chunks") != {
+        if _guided(descriptor.get("resources", {}).get("chunks")) != {
             "index_url": "/v1/chunks",
             "item_url_template": "/v1/chunks/{id}",
             "version": "1.0",
@@ -599,7 +603,7 @@ def probe_http_snapshot(
                 raise JourneyError(f"HTTP {kind} index does not identify the full snapshot")
             if index_headers.get(index_digest_header) != index_sha:
                 raise JourneyError(f"HTTP {kind} index digest header is wrong")
-            advertised = descriptor.get("resources", {}).get(kind)
+            advertised = _guided(descriptor.get("resources", {}).get(kind))
             if advertised != {
                 "index_url": f"/v1/{kind}",
                 "item_url_template": f"/v1/{kind}/{{id}}",
@@ -1209,6 +1213,20 @@ def _setup_guard(work: Path, *, write_sitecustomize: bool) -> tuple[Path, Path, 
         (guard_dir / "sitecustomize.py").write_text(_SOCKET_GUARD_SITECUSTOMIZE, encoding="utf-8")
     marker = work / "network-attempted"
     return guard_dir, marker, socket_guard_env(guard_dir, marker)
+
+
+def _guided(resource: Any) -> Any:
+    """A discovery resource without its ``use_when`` line, which must be a non-empty string.
+
+    Descriptor 1.7 (#26) gives every resource family a one-line usage hint; the rest of
+    the entry is still compared exactly.
+    """
+    if not isinstance(resource, dict):
+        return resource
+    hint = resource.get("use_when")
+    if not isinstance(hint, str) or not hint.strip():
+        raise JourneyError("HTTP discovery resource has no use_when guidance")
+    return {key: value for key, value in resource.items() if key != "use_when"}
 
 
 def main(argv: list[str] | None = None) -> int:
