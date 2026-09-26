@@ -1,5 +1,21 @@
 # Changelog — beacon
 
+## 2026-09-26 — Tool work runs off the event loop on every transport
+
+`BeaconBaseTool.execute` now runs the synchronous provider call on a worker thread. Each call
+gets its own `asyncio.run` inside the thread, holding one of `TOOL_CONCURRENCY` (4) slots of a
+process-wide `BoundedSemaphore` that stays taken until the work finishes, even if the call is
+cancelled.
+
+- MCP over Streamable HTTP and stdio (fastmcp) get the same protection the JSON routes got in
+  #30: one slow tool call no longer stalls the session or other calls. This closes the remaining
+  gap noted there.
+- `http_api._tool_response` simply awaits `execute`. Its own thread and semaphore code moved into
+  the shared base, so the JSON routes no longer offload twice.
+- Test: `tests/test_mcp_tool_offload.py` runs two calls through a real fastmcp server and client;
+  the second finishes while the first is blocked in the provider. It fails when the offload is
+  removed.
+
 ## 2026-09-26 — Branch names are no longer published (status 1.1, descriptor 1.8)
 
 The repository branch name was read from the live checkout at startup and published as is, in

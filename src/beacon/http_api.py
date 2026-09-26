@@ -46,15 +46,11 @@ echoed.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
-import threading
 from dataclasses import asdict
 from typing import Any
 
-import anyio
-import anyio.to_thread
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
@@ -82,7 +78,7 @@ from beacon.core.snapshot import (
 )
 from beacon.core.status import STATUS_VERSION, StatusObservation, build_status_payload
 from beacon.core.validator import ManifestValidationError
-from beacon.mcp.contracts import BeaconBaseTool
+from beacon.mcp.contracts import TOOL_CONCURRENCY, BeaconBaseTool
 from beacon.mcp.tools.explain_concept import ExplainConceptTool
 from beacon.mcp.tools.read import ReadTool
 from beacon.mcp.tools.search import SearchTool
@@ -575,7 +571,6 @@ def create_http_app(
     app.state.beacon_status_sha256 = status_sha256
     app.state.beacon_snapshot_schema_version = schema_version
     app.state.beacon_provider = provider
-    app.state.beacon_tool_slots = threading.BoundedSemaphore(_TOOL_CONCURRENCY)
     if decision_index_body is not None:
         app.state.beacon_decision_index_sha256 = decision_index_sha256
     app.add_exception_handler(HTTPException, _http_exception_handler)
@@ -781,20 +776,8 @@ def _dynamic_response(request: Request, body: bytes, *, status: int = 200) -> Re
     return Response(content=response_body, status_code=status, headers=headers)
 
 
-#: Dynamic queries run at once on worker threads; more wait their turn off the event loop.
-_TOOL_CONCURRENCY = 4
-
-
-def _execute_tool(
-    tool: BeaconBaseTool, kwargs: dict[str, Any], slots: threading.BoundedSemaphore
-) -> str:
-    """Run the tool's async ``execute`` to completion on this worker thread's own loop.
-
-    The slot is held by the thread itself, not by the awaiting request: a cancelled request
-    cannot free it while its worker is still running (an anyio limiter token would be).
-    """
-    with slots:
-        return asyncio.run(tool.execute(**kwargs))
+#: Dynamic queries run at once on worker threads (the shared tool bound, see contracts).
+_TOOL_CONCURRENCY = TOOL_CONCURRENCY
 
 
 async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: Any) -> Response:
@@ -807,10 +790,9 @@ async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: An
     ``internal_error`` payload to 500; the tool logs unexpected exceptions
     without the query.
     """
-    # Provider search/read/explain are synchronous; run them on a worker thread so one slow
+    # ``execute`` runs the provider work on a worker thread (bounded, cancel-safe), so one slow
     # query cannot stall every other request (health, static routes) on the event loop.
-    slots = request.app.state.beacon_tool_slots
-    payload = json.loads(await anyio.to_thread.run_sync(_execute_tool, tool, kwargs, slots))
+    payload = json.loads(await tool.execute(**kwargs))
     status = 200
     if isinstance(payload, dict) and payload.get("ok") is False:
         code = str(payload.get("error", {}).get("code", ""))
