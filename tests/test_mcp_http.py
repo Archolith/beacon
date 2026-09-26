@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import socket
 import subprocess
 import sys
@@ -204,108 +203,113 @@ def test_http_transport_bind_failure_is_a_clean_refusal(tmp_path: Path) -> None:
     assert "http_bind_failed" in result.stderr
 
 
+def _start_http_server(snapshot_path: Path, log_path: Path) -> tuple[Any, int]:
+    """Start ``serve --transport http`` on a free port; ready means its own ready line.
+
+    ``serve --transport http`` refuses port 0, so a picked port can be taken before the
+    bind; a start that fails with ``http_bind_failed`` is retried on a new port.
+    """
+    for _attempt in range(3):
+        port = _free_loopback_port()
+        with log_path.open("wb") as log_file:
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "beacon",
+                    "serve",
+                    "--snapshot",
+                    str(snapshot_path),
+                    "--transport",
+                    "http",
+                    "--port",
+                    str(port),
+                ],
+                cwd=str(REPO_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=log_file,
+            )
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            if "MCP http listening" in text and proc.poll() is None:
+                return proc, port
+            if proc.poll() is not None:
+                break
+            time.sleep(0.1)
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=10)
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        if "http_bind_failed" not in text:
+            raise AssertionError("http server not ready: " + text[-2000:])
+    raise AssertionError("http server could not bind a free port in 3 attempts")
+
+
 async def test_http_transport_matches_stdio_on_all_seven_tools(tmp_path: Path) -> None:
     pytest.importorskip("archolith_mcp_framework")
     manifest = _fixture(tmp_path)
     snapshot_path = _export_snapshot(manifest)
-    port = _free_loopback_port()
-
-    env = os.environ.copy()
     log_path = tmp_path / "beacon-http-stderr.log"
-    with log_path.open("wb") as log_file:
-        http_proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "beacon",
-                "serve",
-                "--snapshot",
-                str(snapshot_path),
-                "--transport",
-                "http",
-                "--port",
-                str(port),
-            ],
-            env=env,
+    http_proc, port = _start_http_server(snapshot_path, log_path)
+    try:
+        expected = {
+            "beacon_project_overview",
+            "beacon_agent_onboarding",
+            "beacon_search",
+            "beacon_explain_concept",
+            "beacon_guardrails",
+            "beacon_catalog",
+            "beacon_read",
+        }
+        calls = {
+            "beacon_project_overview": {},
+            "beacon_agent_onboarding": {"task_hint": "review tests"},
+            "beacon_search": {"query": "fixture"},
+            "beacon_explain_concept": {"concept": "fixture-concept"},
+            "beacon_guardrails": {"task_hint": "review tests"},
+            "beacon_catalog": {},
+            "beacon_read": {"path": "README.md"},
+        }
+
+        stdio_transport = StdioTransport(
+            command=sys.executable,
+            args=["-m", "beacon", "serve", "--snapshot", str(snapshot_path)],
             cwd=str(REPO_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=log_file,
         )
-        try:
-            deadline = time.monotonic() + 20.0
-            while True:
-                if http_proc.poll() is not None:
-                    raise AssertionError(
-                        "http server exited before accepting connections: "
-                        + log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+        async with Client(stdio_transport, timeout=20) as stdio_client:
+            async with Client(f"http://127.0.0.1:{port}/mcp", timeout=20) as http_client:
+                stdio_tools = {tool.name for tool in await stdio_client.list_tools()}
+                http_tools = {tool.name for tool in await http_client.list_tools()}
+                assert stdio_tools == expected
+                assert http_tools == expected
+
+                for name, arguments in calls.items():
+                    stdio_result = await stdio_client.call_tool(name, arguments)
+                    http_result = await http_client.call_tool(name, arguments)
+                    assert not stdio_result.is_error, name
+                    assert not http_result.is_error, name
+                    payload = _payload(stdio_result)
+                    # Tool errors come back as {"ok": false, ...} with is_error False.
+                    assert not (isinstance(payload, dict) and payload.get("ok") is False), (
+                        name,
+                        payload,
                     )
-                try:
-                    with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                        break
-                except OSError:
-                    if time.monotonic() >= deadline:
-                        raise AssertionError(
-                            "http server did not accept connections within 20s: "
-                            + log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
-                        ) from None
-                    time.sleep(0.1)
+                    assert _payload(http_result) == payload, name
 
-            expected = {
-                "beacon_project_overview",
-                "beacon_agent_onboarding",
-                "beacon_search",
-                "beacon_explain_concept",
-                "beacon_guardrails",
-                "beacon_catalog",
-                "beacon_read",
-            }
-            calls = {
-                "beacon_project_overview": {},
-                "beacon_agent_onboarding": {"task_hint": "review tests"},
-                "beacon_search": {"query": "fixture"},
-                "beacon_explain_concept": {"concept": "fixture-concept"},
-                "beacon_guardrails": {"task_hint": "review tests"},
-                "beacon_catalog": {},
-                "beacon_read": {"path": "README.md"},
-            }
-
-            stdio_transport = StdioTransport(
-                command=sys.executable,
-                args=["-m", "beacon", "serve", "--snapshot", str(snapshot_path)],
-                cwd=str(REPO_ROOT),
-            )
-            async with Client(stdio_transport, timeout=20) as stdio_client:
-                async with Client(f"http://127.0.0.1:{port}/mcp", timeout=20) as http_client:
-                    stdio_tools = {tool.name for tool in await stdio_client.list_tools()}
-                    http_tools = {tool.name for tool in await http_client.list_tools()}
-                    assert stdio_tools == expected
-                    assert http_tools == expected
-
-                    for name, arguments in calls.items():
-                        stdio_result = await stdio_client.call_tool(name, arguments)
-                        http_result = await http_client.call_tool(name, arguments)
-                        assert not stdio_result.is_error, name
-                        assert not http_result.is_error, name
-                        payload = _payload(stdio_result)
-                        # Tool errors come back as {"ok": false, ...} with is_error False.
-                        assert not (isinstance(payload, dict) and payload.get("ok") is False), (
-                            name,
-                            payload,
-                        )
-                        assert _payload(http_result) == payload, name
-
-            # DNS rebinding: a foreign Host or browser Origin is refused before MCP runs.
-            assert _raw_post(port, host="evil.example") == 421
-            assert _raw_post(port, host=f"evil.example:{port}") == 421
-            assert _raw_post(port, host=f"127.0.0.1:{port}", origin="http://evil.example") == 403
-            assert _raw_post(port, host=f"localhost:{port}", origin="null") == 403
-            assert _raw_post(port, host=f"127.0.0.1:{port}") not in (421, 403)
-            assert _raw_post(
-                port, host=f"127.0.0.1:{port}", origin=f"http://localhost:{port}"
-            ) not in (421, 403)
-        finally:
-            http_proc.terminate()
-            http_proc.wait(timeout=10)
+        # DNS rebinding: a foreign Host or browser Origin is refused before MCP runs.
+        assert _raw_post(port, host="evil.example") == 421
+        assert _raw_post(port, host=f"evil.example:{port}") == 421
+        assert _raw_post(port, host=f"127.0.0.1:{port}", origin="http://evil.example") == 403
+        assert _raw_post(port, host=f"localhost:{port}", origin="null") == 403
+        assert _raw_post(port, host=f"127.0.0.1:{port}") not in (421, 403)
+        assert _raw_post(port, host=f"127.0.0.1:{port}", origin=f"http://localhost:{port}") not in (
+            421,
+            403,
+        )
+    finally:
+        http_proc.terminate()
+        http_proc.wait(timeout=10)
 
 
 def test_http_transport_cli_refusals(tmp_path: Path) -> None:

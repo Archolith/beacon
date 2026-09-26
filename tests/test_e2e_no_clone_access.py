@@ -139,14 +139,31 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
         tmp / "serve-http.log",
         re.compile(r"Beacon HTTP ready url=(http://127\.0\.0\.1:\d+)"),
     )
-    mcp_port = _free_port()
+    # `serve --transport http` refuses port 0, so a picked port can be taken before the
+    # bind; retry a start that failed with http_bind_failed on a fresh port.
     try:
-        mcp_proc, _ = _start(
-            ["serve", "--snapshot", str(snapshot), "--transport", "http", "--port", str(mcp_port)],
-            root,
-            tmp / "serve-mcp.log",
-            re.compile(r"MCP http listening"),
-        )
+        for attempt in range(3):
+            mcp_port = _free_port()
+            try:
+                mcp_proc, _ = _start(
+                    [
+                        "serve",
+                        "--snapshot",
+                        str(snapshot),
+                        "--transport",
+                        "http",
+                        "--port",
+                        str(mcp_port),
+                    ],
+                    root,
+                    tmp / "serve-mcp.log",
+                    re.compile(r"MCP http listening"),
+                )
+                break
+            except AssertionError:
+                log_text = (tmp / "serve-mcp.log").read_text(encoding="utf-8", errors="replace")
+                if attempt == 2 or "http_bind_failed" not in log_text:
+                    raise
     except BaseException:
         _stop(http_proc)
         raise

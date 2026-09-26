@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 from abc import abstractmethod
 from functools import wraps
 from typing import TYPE_CHECKING, Any
@@ -72,8 +73,14 @@ class BeaconBaseTool:
         except (LimitError, ServingRequestError) as exc:
             logger.info("beacon tool %r refused request: %s", self.name, exc.code)
             return _error_payload(self.name, exc.code, str(exc))
-        except Exception:
-            logger.exception("beacon tool %r raised", self.name)
+        except Exception as exc:
+            # Type and stack only: an exception message can quote the caller's query.
+            logger.error(
+                "beacon tool %r raised %s\n%s",
+                self.name,
+                type(exc).__name__,
+                "".join(traceback.format_tb(exc.__traceback__)).rstrip(),
+            )
             return _error_payload(
                 self.name,
                 "internal_error",

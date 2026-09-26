@@ -46,11 +46,14 @@ echoed.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import asdict
 from typing import Any
 
+import anyio
+import anyio.to_thread
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
@@ -551,7 +554,10 @@ def create_http_app(
             ),
             Route("/v1/decisions", decisions_index_route, methods=["GET", "HEAD"]),
             Route(
-                "/v1/decisions/{decision_id:str}", decision_resource_route, methods=["GET", "HEAD"]
+                # :path, not :str: decision ids may contain "/" (ADRs in nested directories).
+                "/v1/decisions/{decision_id:path}",
+                decision_resource_route,
+                methods=["GET", "HEAD"],
             ),
             Route("/v1/search", search_route, methods=["GET", "HEAD"]),
             Route("/v1/read", read_route, methods=["GET", "HEAD"]),
@@ -773,6 +779,15 @@ def _dynamic_response(request: Request, body: bytes, *, status: int = 200) -> Re
     return Response(content=response_body, status_code=status, headers=headers)
 
 
+#: Dynamic queries run at once on worker threads; more wait their turn off the event loop.
+_TOOL_CONCURRENCY = 4
+
+
+def _execute_tool(tool: BeaconBaseTool, kwargs: dict[str, Any]) -> str:
+    """Run the tool's async ``execute`` to completion on this worker thread's own loop."""
+    return asyncio.run(tool.execute(**kwargs))
+
+
 async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: Any) -> Response:
     """Run one MCP tool and answer with its exact payload in canonical form.
 
@@ -783,7 +798,15 @@ async def _tool_response(request: Request, tool: BeaconBaseTool, /, **kwargs: An
     ``internal_error`` payload to 500; the tool logs unexpected exceptions
     without the query.
     """
-    payload = json.loads(await tool.execute(**kwargs))
+    # Provider search/read/explain are synchronous; run them on a worker thread so one slow
+    # query cannot stall every other request (health, static routes) on the event loop.
+    limiter = getattr(request.app.state, "beacon_tool_limiter", None)
+    if limiter is None:
+        limiter = anyio.CapacityLimiter(_TOOL_CONCURRENCY)
+        request.app.state.beacon_tool_limiter = limiter
+    payload = json.loads(
+        await anyio.to_thread.run_sync(_execute_tool, tool, kwargs, limiter=limiter)
+    )
     status = 200
     if isinstance(payload, dict) and payload.get("ok") is False:
         code = str(payload.get("error", {}).get("code", ""))
