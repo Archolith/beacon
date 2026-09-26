@@ -188,7 +188,11 @@ curl http://127.0.0.1:8765/v1/status
 curl http://127.0.0.1:8765/v1/snapshot/orientation
 curl http://127.0.0.1:8765/v1/concepts
 curl http://127.0.0.1:8765/v1/guardrails
+curl http://127.0.0.1:8765/v1/decisions
 curl http://127.0.0.1:8765/v1/chunks
+curl "http://127.0.0.1:8765/v1/search?q=namespace+isolation&types=decisions"
+curl "http://127.0.0.1:8765/v1/read?chunk_id=c1-...&max_chars=4000"
+curl "http://127.0.0.1:8765/v1/explain?concept=adr-0005"
 curl http://127.0.0.1:8765/v1/snapshot
 ```
 
@@ -202,19 +206,36 @@ without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full pu
 `/beacon.json` is its permanent alias. To avoid fetching full, inspect `/v1/chunks`: each entry has a
 stable ID, parent document role/status, exact UTF-8 text bytes, exact response bytes, and a shared URL
 template for retrieving only that chunk. Each retrieved resource has its own SHA-256/ETag. Discovery
-descriptor 1.5 also advertises the status resource plus `/v1/concepts` and `/v1/guardrails`. Each
-knowledge catalog is a cheap selector index whose opaque resource IDs retrieve one complete
-source-cited manifest record without making its
-logical ID part of the URL. All three companion indexes publish exact byte sizes and digests;
-`/healthz` returns redacted readiness metadata. The
+descriptor 1.6 also advertises the status resource, `/v1/concepts`, `/v1/guardrails`, `/v1/decisions`,
+and the dynamic query routes. Each knowledge catalog is a cheap selector index; `/v1/concepts` and
+`/v1/guardrails` use opaque resource IDs so a logical ID never becomes route structure, while
+`/v1/decisions/{id}` addresses each record by its decision id. All four companion indexes publish
+exact byte sizes and digests; `/healthz` returns redacted readiness metadata. The
 server builds the embedded canonical snapshot once at startup, derives every lighter representation
 and companion resource from that approved in-memory source set, and serves immutable bytes with
 independent ETags. It accepts only `127.0.0.1`, sends no CORS or access-log output, and refuses to
 start unless the same publication, path, resource, and secret gates as `beacon export` pass.
 Documents with a `plan` or `*_plan` role are represented by title/path/role/status/hash only; their
-body chunks remain private to the local MCP index. Querying, question submission, remote binding,
+body chunks remain private to the local MCP index. Question submission, remote binding,
 authentication, and AI synthesis are not RC2 capabilities and are advertised as unavailable in
 discovery.
+
+**7. Query the same answers over plain HTTP.**
+
+`/v1/search`, `/v1/read` and `/v1/explain` accept GET (and HEAD) query parameters and answer with
+the same payloads as the `beacon_search`, `beacon_read` and `beacon_explain_concept` MCP tools —
+one provider is built from the served snapshot at startup and every answer is the tool's exact
+result rendered in the surface's canonical JSON. `/v1/search?q=...&types=...&limit=...` searches
+docs, concepts, decisions and guardrails; `/v1/read?chunk_id=...|path=...&heading=...|line=...`
+reads one section with its citation; `/v1/explain?concept=...&depth=...` explains a concept or an
+ADR. Refusals keep the MCP error envelope (`{"ok": false, "tool": ..., "error": {...}}`): a
+not-found code maps to HTTP 404 and other refusals (query over the byte cap, limit over the
+ceiling) to 400, with the refused query text never echoed in any body, header, or log line.
+Successful answers and refusals alike carry an ETag and honour `If-None-Match` with 304. The
+decisions family is static: `/v1/decisions` lists the decisions whose ADR the snapshot serves and
+`/v1/decisions/{id}` returns one complete record (decision text verbatim, alternatives with
+reasons, status, supersession, section spans, citations) with the same serving policy as search,
+read, and explain — excluded, local-only, or withheld ADRs probe exactly like a nonexistent id.
 
 ---
 

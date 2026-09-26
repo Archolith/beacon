@@ -1,5 +1,47 @@
 # Changelog — beacon
 
+## 2026-09-25 — HTTP JSON routes with MCP-parity answers (issue #26, phase 2)
+
+`serve-http` gains `/v1/decisions`, `/v1/decisions/{id}`, `/v1/search`, `/v1/read` and
+`/v1/explain`; the dynamic routes answer with exactly the payloads the matching MCP tools
+return, over one provider built from the served snapshot.
+
+- `src/beacon/http_api.py`: `create_http_app` builds one
+  `ManifestBeaconProvider.from_snapshot(snapshot, limits=...)` (new keyword-only `limits`
+  parameter) and binds the MCP tool classes to it — no second search/read/explain
+  implementation. `/v1/search?q=&types=&limit=`, `/v1/read?chunk_id=|path=&heading=|line=
+  &max_chars=&offset=` and `/v1/explain?concept=&depth=` (GET and HEAD) return the tool's
+  exact payload in the surface's canonical JSON: successes with 200, refusals in the MCP
+  `{"ok": false, "tool", "error"}` envelope with not-found codes mapped to 404 and other
+  refusals to 400, unexpected failures as the MCP `internal_error` payload with 500 (logged
+  without the query). Bad parameter types give a deterministic versioned 400
+  (`missing_parameter`/`invalid_parameter`, value never echoed). Every dynamic answer carries
+  a body-derived ETag and honours `If-None-Match`; answers are deterministic per
+  (snapshot, query) and no request reads a file. `/v1/decisions` and `/v1/decisions/{id}` are
+  precomputed from the provider manifest (already export-filtered by the snapshot, so no
+  second serving policy): the index is a selector listing, a record is the served
+  `BeaconDecision` verbatim (id, title, path, decision text, status, status_text, date,
+  truncated, implemented, alternatives, section spans, supersession, citations), and an
+  unknown or withheld id gives the ordinary 404 error body. A snapshot whose embedded
+  manifest is not servable (synthetic only — every `build_snapshot` product validates) keeps
+  its static bytes and fails the query routes closed with 404. Discovery descriptor 1.6
+  (was 1.5) advertises the decisions family, a dynamic route listing (names and parameters
+  only; usage guidance is phase 3), and flips `query` to true only when the query routes are
+  served.
+- `src/beacon/main.py`: `serve-http` threads its CLI limits into
+  `_serve_http_snapshot`/`create_http_app`.
+- `README.md`: serve-http section documents the decisions family and the dynamic query
+  routes (new step 7); descriptor 1.6.
+- `.agent/architecture.md`: loopback HTTP data flow covers the provider-backed query routes,
+  the refusal mapping, and the fail-closed unservable-snapshot path.
+- Tests: `tests/test_http_api_dynamic.py` (new) — byte parity with direct MCP tool
+  `execute` output for search/read/explain success and refusal (over-cap query, over-ceiling
+  limit, bad offset, unknown chunk), decision record equals the shared manifest data,
+  withheld decision/doc probes match bogus ids, deterministic 400s, GET/HEAD/405 surface,
+  ETag/304, CLI-limit threading, discovery 1.6, and the unservable-snapshot fail-closed
+  path. `tests/test_http_api.py` keeps every assertion except the mandated descriptor
+  version bump (1.5 → 1.6 in `test_discovery_fields`).
+
 ## 2026-09-25 — Streamable HTTP as a second MCP transport (issue #26, phase 1)
 
 `beacon serve --snapshot S --transport http` serves the same seven tools over
