@@ -271,7 +271,7 @@ class ManifestBeaconProvider:
                 statuses.append(chunk.status)
                 sources.append(source)
 
-        if not wanted or "guardrails" in wanted or "decisions" in wanted:
+        if not wanted or "guardrails" in wanted or "guardrail" in wanted:
             for guard in _guardrails_matching(m, query):
                 hits.append(
                     SearchHit(

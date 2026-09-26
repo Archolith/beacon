@@ -395,8 +395,9 @@ def create_http_app(
         limit, problem = _int_query(params, "limit", default=8)
         if problem is not None:
             return _parameter_error_response(request, problem)
-        types = params.get("types")
-        source_types = types.split(",") if types is not None else None
+        # "docs, decisions" and "docs,,decisions" mean the same as "docs,decisions".
+        wanted = [t.strip() for t in (params.get("types") or "").split(",") if t.strip()]
+        source_types = wanted or None
         return await _tool_response(
             request,
             search_tool,
@@ -571,6 +572,8 @@ def create_http_app(
         app.state.beacon_decision_index_sha256 = decision_index_sha256
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(Exception, _unexpected_exception_handler)
+    # A trailing-slash redirect would copy the query string into Location; answer 404 instead.
+    app.router.redirect_slashes = False
     return app
 
 

@@ -85,8 +85,20 @@ cron, manual step) is the operator's choice.
 `beacon` user, bind loopback on the default ports (8765 and 8766), restart on
 failure, and use the standard systemd hardening set (`NoNewPrivileges`,
 `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, plus a few more common
-restrictions). The manifest and snapshot paths are read-only to the service;
-the servers write nothing at runtime.
+restrictions). The manifest and snapshot paths are read-only to the service
+(`ReadOnlyPaths=/var/lib/beacon`); the servers write nothing at runtime.
+
+The units deliberately do **not** use `StateDirectory=`: systemd would make that
+directory writable by the service despite `ProtectSystem=strict`, so a
+compromised server could replace what it serves. Provision the content
+directory yourself, owned by the deployment user rather than `beacon`:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin beacon
+sudo install -d -o deploy -g beacon -m 0750 /var/lib/beacon /var/lib/beacon/snapshots
+# as the deployment user: place beacon.yaml + docs, then
+beacon export --output /var/lib/beacon/snapshots/beacon.snapshot.json
+```
 
 Adjust the placeholders (executable path, manifest/snapshot path, user), then:
 
@@ -167,9 +179,12 @@ server-side — the proxy must not become the leak. The nginx config defines a
 strings out of any other logging or analytics in front of Beacon. One caveat
 this format cannot fix: nginx can embed the raw request line — query string
 included — in its **error log** when a request is malformed or triggers an
-error, so the error log needs the same care (ship it to storage operators
-treat as potentially query-bearing, or keep it at a level where such lines
-are rare). Caddy's access logs record the full URI by default; see the
+error. The shipped config narrows this: `limit_req_log_level warn` plus a
+Beacon `error_log ... error` keeps rate-limit refusals (the common case under
+load) out of the error log entirely; they still appear, query-free, as 429s
+in the access log. What remains are genuine errors (upstream down, malformed
+requests), which can still carry the request line, so treat the error log as
+query-bearing: restrict access and rotate it quickly. Caddy's access logs record the full URI by default; see the
 comment in the Caddyfile for the redaction options rather than a guessed
 snippet.
 

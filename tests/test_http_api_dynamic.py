@@ -629,3 +629,37 @@ def test_successful_answers_never_echo_the_query(client: TestClient) -> None:
     for response in (hit, miss, unknown):
         assert QUERY_MARKER.lower() not in response.text.lower()
         assert QUERY_MARKER.lower() not in str(response.headers).lower()
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (astra, PR #28)
+# ---------------------------------------------------------------------------
+
+
+def test_trailing_slash_is_a_plain_404_that_never_echoes_the_query(snapshot: Snapshot) -> None:
+    client = TestClient(create_http_app(snapshot), follow_redirects=False)
+    for route in ("/v1/search/", "/v1/read/", "/v1/explain/", "/v1/decisions/", "/v1/concepts/"):
+        response = client.get(route, params={"q": QUERY_MARKER, "concept": QUERY_MARKER})
+        assert response.status_code == 404, route
+        assert "location" not in response.headers, route
+        assert QUERY_MARKER not in response.text and QUERY_MARKER not in str(response.headers)
+
+
+def test_types_filter_ignores_spaces_and_empty_items(client: TestClient) -> None:
+    exact = client.get("/v1/search", params={"q": "namespace isolation", "types": "docs,decisions"})
+    spaced = client.get(
+        "/v1/search", params={"q": "namespace isolation", "types": " docs , decisions ,, "}
+    )
+    assert exact.status_code == spaced.status_code == 200
+    assert spaced.content == exact.content
+    assert "decision" in {hit["source_type"] for hit in spaced.json()["results"]}
+
+
+def test_decisions_filter_returns_only_decisions(client: TestClient) -> None:
+    decisions = client.get("/v1/search", params={"q": "namespace isolation", "types": "decisions"})
+    hits = decisions.json()["results"]
+    assert hits and {hit["source_type"] for hit in hits} == {"decision"}
+    guardrails = client.get(
+        "/v1/search", params={"q": "namespace isolation", "types": "guardrails"}
+    )
+    assert {hit["source_type"] for hit in guardrails.json()["results"]} == {"guardrail"}

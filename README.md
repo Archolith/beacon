@@ -235,7 +235,9 @@ reads one section with its citation; `/v1/explain?concept=...&depth=...` explain
 ADR. Refusals keep the MCP error envelope (`{"ok": false, "tool": ..., "error": {...}}`): a
 not-found code maps to HTTP 404 and other refusals (query over the byte cap, limit over the
 ceiling) to 400, with the refused query text never echoed in any body, header, or log line.
-Successful answers and refusals alike carry an ETag and honour `If-None-Match` with 304. The
+Every answer carries an ETag; successful answers honour `If-None-Match` with 304, while
+refusals always keep their error status. `types` is comma-separated (spaces are ignored), and a
+trailing slash (`/v1/search/`) is a plain 404, never a redirect that would repeat the query. The
 decisions family is static: `/v1/decisions` lists the decisions whose ADR the snapshot serves and
 `/v1/decisions/{id}` returns one complete record (decision text verbatim, alternatives with
 reasons, status, supersession, section spans, citations) with the same serving policy as search,

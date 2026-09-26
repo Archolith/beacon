@@ -73,7 +73,7 @@ def _start(
         if proc.poll() is not None:
             break
         time.sleep(0.1)
-    proc.terminate()
+    _stop(proc)
     raise AssertionError(
         f"server not ready: {log.read_text(encoding='utf-8', errors='replace')[-2000:]}"
     )
@@ -85,6 +85,7 @@ def _stop(proc: Any) -> None:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait(timeout=10)
 
 
 def _get(
@@ -214,13 +215,20 @@ def test_excluded_adr_is_absent_from_every_http_surface(served: dict[str, Any]) 
     bogus = _get(base, "/v1/decisions/adr-9999")
     assert withheld[0] == bogus[0] == 404
     assert withheld[1] == bogus[1]
-    for path, params in (
-        ("/v1/snapshot", {}),
-        ("/v1/search", {"q": "canonical identity namespace"}),
-        ("/v1/explain", {"concept": "Canonical Self Identity"}),
-        ("/v1/read", {"path": "docs/adr/0010-self.md"}),
+    # Each probe must answer normally (a generic 500 would also "not contain" the ADR).
+    for path, params, expected in (
+        ("/v1/snapshot", {}, 200),
+        ("/v1/search", {"q": "canonical identity namespace"}, 200),
+        ("/v1/explain", {"concept": "Canonical Self Identity"}, 200),
+        ("/v1/read", {"path": "docs/adr/0010-self.md"}, 404),
     ):
-        _, body, _ = _get(base, path, params)
+        status, body, _ = _get(base, path, params)
+        assert status == expected, (path, status)
+        payload = json.loads(body)
+        if path == "/v1/read":
+            assert payload["error"]["code"] == "read_not_found"
+        elif path != "/v1/snapshot":
+            assert payload.get("ok") is not False, path
         text = body.decode("utf-8")
         assert WITHHELD_TEXT not in text and "0010-self" not in text, path
 
@@ -240,29 +248,46 @@ def test_unknown_concept_and_refusals_never_echo_the_query(served: dict[str, Any
 async def test_remote_mcp_gives_the_same_answers_as_http_json(served: dict[str, Any]) -> None:
     base = served["http"]
     port = served["mcp_port"]
+    _, body, _ = _get(base, "/v1/search", {"q": "namespace isolation", "types": "decisions"})
+    chunk_id = json.loads(body)["results"][0]["chunk_id"]
+    over_cap = "namespace " * 1000
     async with Client(f"http://127.0.0.1:{port}/mcp", timeout=30) as client:
         tools = {tool.name for tool in await client.list_tools()}
         assert {"beacon_search", "beacon_read", "beacon_explain_concept"} <= tools
-        for tool, arguments, path, params in (
+        for tool, arguments, path, params, expected in (
             (
                 "beacon_search",
                 {"query": "namespace isolation transport", "source_types": ["decisions"]},
                 "/v1/search",
                 {"q": "namespace isolation transport", "types": "decisions"},
+                200,
             ),
             (
                 "beacon_explain_concept",
                 {"concept": "adr-0005"},
                 "/v1/explain",
                 {"concept": "adr-0005"},
+                200,
+            ),
+            ("beacon_read", {"chunk_id": chunk_id}, "/v1/read", {"chunk_id": chunk_id}, 200),
+            # Refusals must match too: same error envelope, mapped to HTTP 400 / 404.
+            ("beacon_search", {"query": over_cap}, "/v1/search", {"q": over_cap}, 400),
+            (
+                "beacon_read",
+                {"path": "docs/adr/0010-self.md"},
+                "/v1/read",
+                {"path": "docs/adr/0010-self.md"},
+                404,
             ),
         ):
             result = await client.call_tool(tool, arguments)
             mcp_payload = json.loads(result.content[0].text)
             status, body, _ = _get(base, path, params)
-            assert status == 200
+            assert status == expected, (tool, status)
             assert json.loads(body) == mcp_payload, tool
-            assert SERVED_DECISION in json.dumps(mcp_payload) or tool == "beacon_search"
+            assert (mcp_payload.get("ok") is False) == (expected != 200), tool
+        read = await client.call_tool("beacon_read", {"chunk_id": chunk_id})
+        assert "Namespace isolation is enforced" in read.content[0].text
 
 
 def test_remote_mcp_refuses_a_forged_host(served: dict[str, Any]) -> None:

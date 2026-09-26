@@ -1,5 +1,25 @@
 # Changelog — beacon
 
+## 2026-09-26 — Review fixes for PR #28 (astra review)
+
+- `serve-http` turns off Starlette's trailing-slash redirect. `/v1/search/?q=...` used to answer
+  307 with the query copied into `Location`; it is now a plain 404 with no echo.
+- `types` is parsed tolerantly: spaces and empty items are ignored, so `docs, decisions` no longer
+  drops decisions.
+- Provider search: `source_types=decisions` returns only decisions. A Beacon v0 leftover also
+  added guardrails; `guardrail` is now accepted as a singular alias.
+- The deploy systemd units drop `StateDirectory=`, which made the served content writable despite
+  `ProtectSystem=strict`. Both use `ReadOnlyPaths=/var/lib/beacon`, and the guide shows how to
+  provision the directory as the deployment user.
+- nginx: `limit_req_log_level warn` plus `error_log ... error` keeps rate-limit refusals, which
+  log the request line and so the query, out of the error log.
+- README: 304 applies to successful answers only; refusals keep their status.
+- Tests:
+  - trailing-slash 404 with no echo, `types` whitespace, decisions-only filter;
+  - read-only content dir and error-log level in the deploy configs;
+  - e2e: withheld-content probes assert status and payload, and MCP/HTTP parity now also covers
+    read and two refusals.
+
 ## 2026-09-26 — End-to-end test for no-clone access (issue #26)
 
 `tests/test_e2e_no_clone_access.py` runs the whole path in real processes:

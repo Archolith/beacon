@@ -146,6 +146,25 @@ def test_systemd_units_bind_loopback_only() -> None:
             assert host == "127.0.0.1", f"{unit.name} --host must be 127.0.0.1"
 
 
+def test_systemd_units_leave_served_content_read_only() -> None:
+    # StateDirectory= would make the content dir writable despite ProtectSystem=strict,
+    # and a writable child mount escapes ReadOnlyPaths (astra review, PR #28).
+    for unit in (HTTP_UNIT, MCP_UNIT):
+        text = _strip_comments(_read(unit))
+        assert "StateDirectory" not in text, unit.name
+        assert "ReadWritePaths" not in text, unit.name
+        assert re.search(r"^ProtectSystem=strict$", text, re.MULTILINE), unit.name
+        assert re.search(r"^ReadOnlyPaths=/var/lib/beacon$", text, re.MULTILINE), unit.name
+
+
+def test_nginx_rate_limit_refusals_stay_out_of_the_error_log() -> None:
+    # limit_req refusals log the request line (query included); warn < error keeps them out.
+    text = _strip_comments(_read(NGINX_CONF))
+    assert re.search(r"^\s*limit_req_log_level\s+warn;", text, re.MULTILINE)
+    levels = re.findall(r"^\s*error_log\s+\S+\s+(\w+);", text, re.MULTILINE)
+    assert levels and all(level in ("error", "crit", "alert", "emerg") for level in levels)
+
+
 def test_systemd_units_keep_default_ports() -> None:
     for unit, default in ((HTTP_UNIT, "8765"), (MCP_UNIT, "8766")):
         for port in re.findall(r"--port\s+(\S+)", _read(unit)):

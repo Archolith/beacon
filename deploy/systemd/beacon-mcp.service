@@ -26,7 +26,10 @@ User=beacon
 Group=beacon
 ExecStart=/opt/beacon/.venv/bin/beacon serve --host 127.0.0.1 --snapshot /var/lib/beacon/snapshots/beacon.snapshot.json --transport http
 WorkingDirectory=/var/lib/beacon
-StateDirectory=beacon/snapshots
+# No StateDirectory=: systemd would make that directory writable (and chown it
+# to the service user) despite ProtectSystem=strict, and a writable child mount
+# would escape ReadOnlyPaths below. Provision /var/lib/beacon/snapshots yourself,
+# owned by the deployment user (not `beacon`), readable by `beacon`.
 
 # Restart on failure only; a clean exit stays down.
 Restart=on-failure

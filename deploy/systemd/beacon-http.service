@@ -21,7 +21,9 @@ User=beacon
 Group=beacon
 ExecStart=/opt/beacon/.venv/bin/beacon serve-http --host 127.0.0.1 --manifest /var/lib/beacon/beacon.yaml
 WorkingDirectory=/var/lib/beacon
-StateDirectory=beacon
+# No StateDirectory=: systemd would make that directory writable (and chown it
+# to the service user) despite ProtectSystem=strict. Provision /var/lib/beacon
+# yourself, owned by the deployment user (not `beacon`), readable by `beacon`.
 
 # Restart on failure only; a clean exit stays down.
 Restart=on-failure
@@ -30,7 +32,7 @@ RestartSec=5s
 # Hardening: unprivileged, no writable filesystem, no privileges. The API
 # builds its snapshot in memory at startup and writes nothing at runtime;
 # ProtectSystem=strict leaves nothing writable, so no ReadWritePaths are
-# carved out. The manifest, canonical docs, and code tree are read-only.
+# carved out, and ReadOnlyPaths pins the served content read-only.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -45,6 +47,7 @@ LockPersonality=true
 CapabilityBoundingSet=
 SystemCallFilter=@system-service
 SystemCallArchitectures=native
+ReadOnlyPaths=/var/lib/beacon
 
 [Install]
 WantedBy=multi-user.target
