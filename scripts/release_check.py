@@ -469,7 +469,9 @@ def probe_http_snapshot(
             "question_submission": False,
             "snapshot": True,
         }:
-            raise JourneyError("HTTP discovery capabilities differ from the descriptor 1.7 contract")
+            raise JourneyError(
+                "HTTP discovery capabilities differ from the descriptor 1.7 contract"
+            )
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
         if descriptor.get("descriptor_version") != "1.7":
