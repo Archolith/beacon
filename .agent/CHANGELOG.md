@@ -1,5 +1,27 @@
 # Changelog — beacon
 
+## 2026-09-25 — Streamable HTTP as a second MCP transport (issue #26, phase 1)
+
+`beacon serve --snapshot S --transport http` serves the same seven tools over
+Streamable HTTP at `/mcp` from a canonical snapshot; stdio stays the default and
+every existing stdio path is unchanged.
+
+- `src/beacon/main.py`: `serve` gains `--transport` (`stdio` | `http`), `--host`
+  (default `127.0.0.1`) and `--port` (default `8766`, both http-only). `--transport http`
+  requires `--snapshot` (`serve_http_requires_snapshot`, exit 2, before anything starts);
+  manifest mode stays stdio-only. The serve-http host/port gate moved into a shared
+  `_require_loopback(host, port, *, allow_port_zero)` (`http_host_not_loopback`,
+  `http_port_invalid`); `serve-http` keeps port 0, `serve --transport http` needs 1-65535.
+  `_run_mcp_server(transport, host, port)` runs the same `mcp` object: http prints
+  `[beacon] MCP http starting on http://<host>:<port>/mcp (pid=...)` to stderr and calls
+  `mcp.run(transport="http", ..., path="/mcp")`; `_serve_with_env` threads the three
+  keyword-only parameters through with stdio defaults.
+- `README.md`: documents `beacon serve --snapshot S --transport http` (loopback only,
+  direct/unverified until the trust plan's broker and signing land, reverse proxy later).
+- Tests: `tests/test_mcp_http.py` (new) — CLI refusal cases, plus a black-box parity test
+  that starts both a stdio and an HTTP server on one snapshot and asserts identical tool
+  lists and identical parsed payloads for all seven tools. Existing tests untouched.
+
 ## 2026-09-24 — architecture decision records become served decisions
 
 Plan: workspace `.agent/plans/beacon-why-decisions-design-2026-09-24.md` (owner-approved, Phase 1).
