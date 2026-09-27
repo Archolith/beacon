@@ -242,7 +242,10 @@ def test_deploy_script_verifies_before_switching_and_rolls_back_after() -> None:
     assert "--max-filesize" in text and 'sudo -n -u "$CONTENT_USER"' in text
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="needs a POSIX bash (Windows may resolve bash to the WSL launcher)",
+)
 def test_deploy_script_parses() -> None:
     done = subprocess.run(["bash", "-n", "deploy.sh"], cwd=PROD, capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
