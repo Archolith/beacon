@@ -1,5 +1,19 @@
 # Changelog — beacon
 
+## 2026-09-27 — Listener rebinds during TIME_WAIT (fix)
+
+- **The fix:** `serve-http` and `serve --transport http` create their listener through
+  `_new_listener()`, which sets `SO_REUSEADDR` on POSIX. The flag is never set on Windows,
+  where it would allow port stealing.
+- **Why:** a beacon container sharing its proxy's network namespace (yawn's `beacon-menhir`)
+  crash-looped on `http_bind_failed` for about 55 seconds after a rebuild, because the previous
+  instance's closed connections left TIME_WAIT on port 3366. That was the 2026-09-27
+  `menhir.archolith.dev` 502.
+- **Still refused:** a port another socket is listening on.
+- **Tests:** `tests/test_listener_rebind.py` (POSIX) reproduces TIME_WAIT, checks that a plain
+  socket gets `EADDRINUSE`, that the listener rebinds, and that a live listener is still
+  refused.
+
 ## 2026-09-27 — README badge, security headers, and doc fixes
 
 - **README badge:** `GET/HEAD /v1/badge.json` (shields.io endpoint schema v1) and
