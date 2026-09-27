@@ -1,6 +1,6 @@
 """Frozen resource-limits model for Beacon v0.2.
 
-The addendum (``.agent/plans/beacon-v0.2-implementation-readiness-addendum``,
+The addendum (``.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum``,
 §4) defines a small-to-medium repository profile with six *overridable* limits
 (six byte/count ceilings) and a set of non-overridable safety ceilings (YAML
 depth/node/alias, path bytes, query bytes, result limit). This module is the

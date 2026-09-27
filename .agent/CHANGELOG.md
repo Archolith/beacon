@@ -1,5 +1,17 @@
 # Changelog — beacon
 
+## 2026-09-26 — Archive the v0.2 plans
+
+The two August v0.2 plans move to `.agent/plans/archive/` (owner decision, after the #33 review
+banners): `beacon-v0.2-publishable-static-product-plan-2026-08-09.md` and
+`beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`.
+- v0.2 shipped. Their decisions and policies stay the reference for the shipped behavior, and the
+  banners now say ARCHIVED.
+- `beacon.yaml` keeps both as canonical docs at the new paths, with `status: superseded` so agents
+  see them as historical.
+- `.agent/README.md`, the roadmap links, the plans' cross-links and the `limits.py`/`policy.py`
+  docstrings point at the archive paths. Older CHANGELOG and wrapup mentions are left as history.
+
 ## 2026-09-26 — Salvage the v0.3 plans from PR #8
 
 PR #8 (a September v0.2 planning consolidation) went stale and conflicting. Its two plans that still
