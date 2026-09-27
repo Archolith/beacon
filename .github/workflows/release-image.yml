@@ -98,32 +98,32 @@ jobs:
           COMMIT: ${{ steps.meta.outputs.commit }}
           LABEL: ${{ steps.meta.outputs.label }}
         run: |
-          mkdir -p .release
-          docker save -o .release/image.tar beacon-release:candidate
+          mkdir -p release-evidence
+          docker save -o release-evidence/image.tar beacon-release:candidate
           image_id="$(docker image inspect --format '{{.Id}}' beacon-release:candidate)"
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected image id" >&2; exit 1; }
           printf '{"commit":"%s","label":"%s","image_id":"%s"}\n' "$COMMIT" "$LABEL" "$image_id" \
-            > .release/identity.json
+            > release-evidence/identity.json
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "label=$LABEL" >> "$GITHUB_OUTPUT"
           echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
 
       - name: SBOM (Syft, digest-pinned)
         run: |
-          docker run --rm -v "$PWD/.release:/work" "$SYFT_IMAGE" \
+          docker run --rm -v "$PWD/release-evidence:/work" "$SYFT_IMAGE" \
             docker-archive:/work/image.tar -o cyclonedx-json=/work/sbom.cdx.json
-          test -s .release/sbom.cdx.json
+          test -s release-evidence/sbom.cdx.json
 
       - name: Vulnerability scan (Grype, digest-pinned; Menhir's policy - maximum allowed severity High)
         run: |
-          docker run --rm -v "$PWD/.release:/work" "$GRYPE_IMAGE" \
+          docker run --rm -v "$PWD/release-evidence:/work" "$GRYPE_IMAGE" \
             sbom:/work/sbom.cdx.json --fail-on critical -o table --file /work/grype.txt \
-            || { cat .release/grype.txt >&2 || true; exit 1; }
-          cat .release/grype.txt
+            || { cat release-evidence/grype.txt >&2 || true; exit 1; }
+          cat release-evidence/grype.txt
 
       - name: Compress and record sealed checksums
         run: |
-          cd .release
+          cd release-evidence
           gzip -n image.tar
           sha256sum image.tar.gz identity.json sbom.cdx.json grype.txt > SHA256SUMS
 
@@ -131,7 +131,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: beacon-release-image
-          path: .release/
+          path: release-evidence/
           if-no-files-found: error
           retention-days: 14
 
@@ -156,14 +156,14 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: beacon-release-image
-          path: .release
+          path: release-evidence
 
       - name: Verify the sealed candidate before logging in
         env:
           COMMIT: ${{ needs.validate.outputs.commit }}
           IMAGE_ID: ${{ needs.validate.outputs.image_id }}
         run: |
-          cd .release
+          cd release-evidence
           sha256sum --strict -c SHA256SUMS
           python3 - "$COMMIT" "$IMAGE_ID" <<'PY'
           import json, sys
