@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import asdict
 from typing import Any
 
@@ -59,6 +60,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from beacon import __version__
+from beacon.badge import BadgeState, badge_state, endpoint_payload, render_svg
 from beacon.core.canonical_json import dumps_canonical
 from beacon.core.chunk_resources import CHUNK_INDEX_VERSION, build_chunk_catalog
 from beacon.core.knowledge_resources import (
@@ -79,6 +81,7 @@ from beacon.core.snapshot import (
 from beacon.core.status import STATUS_VERSION, StatusObservation, build_status_payload
 from beacon.core.validator import ManifestValidationError
 from beacon.mcp.contracts import TOOL_CONCURRENCY, BeaconBaseTool
+from beacon.mcp.tools import ALL_TOOLS
 from beacon.mcp.tools.explain_concept import ExplainConceptTool
 from beacon.mcp.tools.read import ReadTool
 from beacon.mcp.tools.search import SearchTool
@@ -100,6 +103,9 @@ _STARTUP_MODE = "immutable_snapshot"
 #: mode, a non-loopback bind behind a proxy or tunnel with an allowed-host list).
 _SCOPE = "loopback"
 _SCOPES = frozenset({"loopback", "container"})
+
+#: README badges are fetched by every README viewer (and shields.io); an hour is fresh enough.
+_BADGE_CACHE_CONTROL = "public, max-age=3600"
 
 #: Discovery authentication model.
 _AUTHENTICATION = "none"
@@ -237,6 +243,10 @@ def create_http_app(
     status_etag = f'"{status_sha256}"'
     observed = status_observation or StatusObservation.unavailable()
     freshness = _freshness_block(snapshot.generator, observed, sha256)
+    repository_observed = observed.repository.state == "observed"
+    badge_commit = observed.repository.commit if repository_observed else ""
+    badge_commit_time = observed.repository.commit_time if repository_observed else None
+    badge_tools = len(ALL_TOOLS) if mcp_path is not None and provider is not None else None
 
     decision_index_body: bytes | None = None
     decision_index_headers: dict[str, str] = {}
@@ -545,6 +555,32 @@ def create_http_app(
             _json_headers(health_body, cache_control="no-store"),
         )
 
+    def _badge_now() -> BadgeState:
+        # Startup facts only; the clock is the one per-request input (for the stale state).
+        return badge_state(
+            commit=badge_commit,
+            commit_time=badge_commit_time,
+            tools=badge_tools,
+            now=time.time(),
+        )
+
+    async def badge_json_route(request: Request) -> Response:
+        body = dumps_canonical(endpoint_payload(_badge_now()))
+        headers = _json_headers(body, cache_control=_BADGE_CACHE_CONTROL)
+        return _static_response(request.method, body, headers)
+
+    async def badge_svg_route(request: Request) -> Response:
+        body = render_svg(_badge_now())
+        headers = {
+            "content-type": "image/svg+xml; charset=utf-8",
+            "content-length": str(len(body)),
+            "cache-control": _BADGE_CACHE_CONTROL,
+            "x-content-type-options": "nosniff",
+            # Opened directly, the SVG must not run anything or load anything.
+            "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+        }
+        return _static_response(request.method, body, headers)
+
     app = Starlette(
         routes=[
             Route("/.well-known/archolith-beacon", discovery_route, methods=["GET", "HEAD"]),
@@ -553,6 +589,8 @@ def create_http_app(
             Route("/v1/snapshot", snapshot_route, methods=["GET", "HEAD"]),
             Route("/beacon.json", beacon_json_route, methods=["GET", "HEAD"]),
             Route("/v1/status", status_route, methods=["GET", "HEAD"]),
+            Route("/v1/badge.json", badge_json_route, methods=["GET", "HEAD"]),
+            Route("/v1/badge.svg", badge_svg_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks", chunk_index_route, methods=["GET", "HEAD"]),
             Route("/v1/chunks/{chunk_id:str}", chunk_resource_route, methods=["GET", "HEAD"]),
             Route("/v1/concepts", concept_index_route, methods=["GET", "HEAD"]),
@@ -1123,7 +1161,7 @@ def _discovery_payload(
         payload["mcp"] = {
             "url": mcp_path,
             "transport": "streamable-http",
-            "tools": 7,
+            "tools": len(ALL_TOOLS),
             "use_when": "an MCP client: the same answers as the JSON routes, as Beacon's tools",
         }
     return payload

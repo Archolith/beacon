@@ -14,7 +14,7 @@ import shutil
 
 # Fixed local Git inspection is the only subprocess use; it has no shell or network behavior.
 import subprocess  # nosec B404
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,9 @@ class RepositoryEvidence:
     commit: str = ""
     branch: str = ""
     dirty: bool | None = None
+    #: Committer time of HEAD (Unix seconds), for the badge's staleness. Internal: the status
+    #: payload does not publish it.
+    commit_time: int | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +127,7 @@ def observe_project_status(
     return StatusObservation(
         mode="startup",
         observed_at=timestamp,
-        repository=_observe_repository(root),
+        repository=_with_commit_time(root, _observe_repository(root)),
         sources=tuple(sources),
     )
 
@@ -274,6 +277,25 @@ def _observe_repository(root: Path) -> RepositoryEvidence:
     if not branch or len(branch) > 1024:
         return RepositoryEvidence(state="unavailable")
     return RepositoryEvidence(state="observed", commit=commit, branch=branch, dirty=dirty)
+
+
+def _with_commit_time(root: Path, evidence: RepositoryEvidence) -> RepositoryEvidence:
+    """Add the observed commit's committer time (for the README badge's staleness).
+
+    A separate step after the single porcelain status read, keyed to that exact commit (not
+    ``HEAD``), so it can never describe a different commit. Commit metadata only: sparse and
+    partial clones work. Any failure leaves the time unknown.
+    """
+    git = shutil.which("git")
+    if evidence.state != "observed" or git is None:
+        return evidence
+    try:
+        raw = _git(git, root, "show", "-s", "--format=%ct", evidence.commit)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return evidence
+    if not raw.isdigit() or len(raw) > 12:
+        return evidence
+    return replace(evidence, commit_time=int(raw))
 
 
 def _status_header(lines: list[str], prefix: str) -> str:

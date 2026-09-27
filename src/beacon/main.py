@@ -664,6 +664,7 @@ def _serve_http_snapshot(
     from beacon.http_api import create_http_app
     from beacon.loopback_guard import ASGIApp, LoopbackGuard
     from beacon.one_port import MCP_PATH, OnePortApp, build_mcp_app
+    from beacon.security_headers import SecurityHeaders
 
     app_http = create_http_app(
         snap,
@@ -698,7 +699,8 @@ def _serve_http_snapshot(
         err=True,
     )
     config = uvicorn.Config(
-        LoopbackGuard(served, allowed_hosts=allowed_hosts),
+        # Headers outermost, so the guard's own 421/403 refusals carry them too.
+        SecurityHeaders(LoopbackGuard(served, allowed_hosts=allowed_hosts)),
         host=host,
         port=actual_port,
         access_log=False,

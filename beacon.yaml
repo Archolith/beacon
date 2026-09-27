@@ -364,7 +364,7 @@ agent_guidance:
     - Changing the BeaconProvider Protocol (breaks all provider implementations).
     - Changing the answer-contract dataclasses (breaks MCP tool output shape).
     - Changing the manifest schema (beacon_version stays "0.1" until a migration exists).
-    - Adding new MCP tools before the existing five are well-documented.
+    - Adding new MCP tools before the existing seven are well-documented.
     - Renaming core concepts (id, definition, status, confidence, sources).
 
   expected_behavior:
@@ -421,7 +421,7 @@ guardrails:
     scope: mcp_surface
     severity: medium
     rule: >
-      Do not add a sixth MCP tool until the existing five have a demo
+      Do not add an eighth MCP tool until the existing seven have a demo
       transcript, golden-output tests, and client setup docs. Interface
       clarity comes before surface area.
     applies_to:
@@ -429,16 +429,16 @@ guardrails:
       - src/beacon/mcp/server.py
     sources:
       - type: file
-        title: Five-tool registry
+        title: Seven-tool registry
         path: src/beacon/mcp/tools/__init__.py
-        line_start: 24
-        line_end: 36
+        line_start: 26
+        line_end: 34
         status: current
       - type: doc
         title: Contribution surface policy
         path: README.md
-        line_start: 473
-        line_end: 479
+        line_start: 814
+        line_end: 814
         status: current
 
   - id: test_before_commit
@@ -454,6 +454,6 @@ guardrails:
       - type: doc
         title: Development test command
         path: README.md
-        line_start: 481
-        line_end: 491
+        line_start: 816
+        line_end: 823
         status: current

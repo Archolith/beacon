@@ -304,6 +304,33 @@ pushed from a workstation:
     to overwrite an existing tag.
   - Pin the asset URL and SHA-256 in the deployment.
 
+## README badge
+
+Every `serve-http` beacon serves a README badge built from its startup state: the served
+commit, that commit's date, and the MCP tool count. Nothing from the request reaches it.
+
+| Route | Format |
+|---|---|
+| `/v1/badge.json` | [shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON, e.g. `{"schemaVersion": 1, "label": "beacon", "message": "live · 6bb36fa · 7 tools", "color": "brightgreen", "cacheSeconds": 3600}` |
+| `/v1/badge.svg` | The same badge as a self-rendered SVG (no third party fetches it) |
+
+The badge shows `live · <commit> · <n> tools` in green. It turns amber, `stale · <n> days`,
+when the served commit is more than 30 days old. If the beacon is unreachable, shields.io
+shows that itself. Both routes send `Cache-Control: public, max-age=3600`; the SVG also
+sends a `Content-Security-Policy` that blocks scripts and loads.
+
+```markdown
+[![beacon](https://img.shields.io/endpoint?url=https%3A%2F%2Fbeacon.example.org%2Fv1%2Fbadge.json)](https://beacon.example.org/.well-known/archolith-beacon)
+[![beacon](https://beacon.example.org/v1/badge.svg)](https://beacon.example.org/.well-known/archolith-beacon)
+```
+
+## Security headers
+
+`serve-http` adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+`Referrer-Policy: no-referrer` to every response, including the Host/Origin guard's own
+421/403 refusals. That works behind a tunnel as well as behind a proxy. A header the app
+already set is left unchanged. A proxy can still add more (for example HSTS at the edge).
+
 ## Verify a deployment (curl checklist)
 
 With `beacon.example.org` standing in for your hostname, from any client
