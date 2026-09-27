@@ -116,6 +116,64 @@ jobs:
       - name: Repository cleanliness check
         run: python scripts/check_repo_clean.py .
 
+  demo-image:
+    name: demo image serves a bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out Beacon
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Beacon
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Build a demo bundle of this commit (includes the serve-http smoke)
+        run: |
+          python scripts/build_demo_bundle.py --source . --commit "$(git rev-parse HEAD)" \
+            --name beacon --out-dir .ci/demo
+          mkdir -p .ci/bundle
+          tar -xzf .ci/demo/*.tar.gz -C .ci/bundle
+
+      - name: Build the image
+        run: docker build -t beacon-demo:ci .
+
+      - name: Serve the bundle from the hardened container
+        run: |
+          bundle="$(ls -d "$PWD"/.ci/bundle/*)"
+          docker run -d --name beacon-demo --network host --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 512m \
+            -v "$bundle:/bundle:ro" beacon-demo:ci
+          curl -fsS --retry 30 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:3366/.well-known/archolith-beacon -o .ci/discovery.json
+          python - "$(git rev-parse HEAD)" <<'PY'
+          import asyncio, json, sys
+          from fastmcp import Client
+          d = json.load(open(".ci/discovery.json", encoding="utf-8"))
+          repo = d["freshness"]["repository"]
+          assert repo == {"state": "observed", "commit": sys.argv[1], "dirty": False}, repo
+          assert d["mcp"]["url"] == "/mcp", d.get("mcp")
+          async def tools():
+              async with Client("http://127.0.0.1:3366/mcp") as c:
+                  return await c.list_tools()
+          assert len(asyncio.run(tools())) == 7
+          print("container discovery, freshness and MCP ok")
+          PY
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: beacon.example.org' \
+            http://127.0.0.1:3366/.well-known/archolith-beacon)"
+          test "$code" = 421
+
+      - name: Container logs
+        if: always()
+        run: docker logs beacon-demo || true
+
   package:
     name: package, wheel, and installed journey
     runs-on: ubuntu-latest
