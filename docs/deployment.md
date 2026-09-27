@@ -8,8 +8,7 @@ directory ships the matching example configs:
 ```
 deploy/nginx/beacon.conf        primary, complete nginx example
 deploy/caddy/Caddyfile          shorter Caddy equivalent
-deploy/systemd/beacon-http.service   runs the JSON API under systemd
-deploy/systemd/beacon-mcp.service    runs the MCP server under systemd
+deploy/systemd/beacon-http.service   runs `beacon serve-http` (JSON API + MCP at /mcp) under systemd
 ```
 
 This is documentation and config only. Beacon ships no hosting, no DNS, and no
@@ -23,22 +22,26 @@ certificate.
 >
 > - nginx: `nginx -t` (after installing the file, e.g. in `/etc/nginx/conf.d/`)
 > - Caddy: `caddy validate --config deploy/caddy/Caddyfile`
-> - systemd: `systemd-analyze verify deploy/systemd/beacon-http.service deploy/systemd/beacon-mcp.service`
+> - systemd: `systemd-analyze verify deploy/systemd/beacon-http.service`
 
 ## What to expose
 
-Two independent loopback servers can be exposed, singly or side by side:
+One loopback server serves both surfaces on one port:
 
-| Server | Command | Loopback address | Path |
-|--------|---------|------------------|------|
-| JSON API | `beacon serve-http --manifest beacon.yaml` | `127.0.0.1:8765` | `/.well-known/archolith-beacon`, `/v1/*`, `/healthz` |
-| MCP (Streamable HTTP) | `beacon serve --snapshot beacon.snapshot.json --transport http` | `127.0.0.1:8766` | `/mcp` |
+| Surface | Served by | Loopback address | Path |
+|---------|-----------|------------------|------|
+| JSON API | `beacon serve-http --manifest beacon.yaml` | `127.0.0.1:3366` | `/.well-known/archolith-beacon`, `/v1/*`, `/healthz` |
+| MCP (Streamable HTTP) | the same `beacon serve-http` process | `127.0.0.1:3366` | `/mcp` |
 
 The JSON API serves immutable GET/HEAD representations plus the dynamic query
 routes (`/v1/search`, `/v1/read`, `/v1/explain`) for clients that speak plain
 HTTP. The MCP endpoint serves the same knowledge as MCP tools over Streamable
-HTTP. The example configs expose both behind one hostname: `/mcp` goes to 8766,
-everything else to 8765. Expose only what your clients need.
+HTTP, answering from the same snapshot and provider. The example configs expose
+both behind one hostname and one upstream (`127.0.0.1:3366`); `/mcp` keeps its
+own proxy location for streaming. To expose only the JSON API, run
+`beacon serve-http --no-mcp` and drop the `/mcp` location.
+(`beacon serve --snapshot S --transport http` still serves MCP alone, also on
+3366 by default, if you ever need it separately.)
 
 **Trust level: direct, unverified.** Both servers are unsigned and
 self-reported; the discovery document labels this `"trust": "direct_unverified"`.
@@ -67,22 +70,22 @@ cannot leak through a deployment.
 beacon export                     # writes beacon.snapshot.json, applying the serving policy
 ```
 
-The two servers consume snapshots differently:
+`serve-http` builds the same policy-checked snapshot in memory at startup from
+`--manifest` and serves both the JSON API and `/mcp` from it; it never serves the
+working tree directly. (The standalone `serve --transport http` requires a
+pre-exported snapshot file instead.)
 
-- `serve-http` builds the same policy-checked snapshot in memory at startup
-  from `--manifest`; it never serves the working tree directly.
-- `serve --transport http` requires a pre-exported snapshot file.
-
-Both hold the snapshot immutable for the process lifetime. **After content
+The snapshot stays immutable for the process lifetime. **After content
 changes, re-export and restart the service** — a stale snapshot is the quiet
 failure mode of a Beacon deployment, since the servers will happily keep
 serving yesterday's knowledge. How the re-export is triggered (systemd timer,
 cron, manual step) is the operator's choice.
 
-## Run each server under a service manager
+## Run the server under a service manager
 
-`deploy/systemd/` contains one unit per server. Both run as an unprivileged
-`beacon` user, bind loopback on the default ports (8765 and 8766), restart on
+`deploy/systemd/beacon-http.service` runs `beacon serve-http` (JSON API and
+`/mcp`) as an unprivileged `beacon` user, bound to loopback on the default port
+(3366). It restarts on
 failure, and use the standard systemd hardening set (`NoNewPrivileges`,
 `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, plus a few more common
 restrictions). The manifest and snapshot paths are read-only to the service
@@ -104,7 +107,7 @@ Adjust the placeholders (executable path, manifest/snapshot path, user), then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now beacon-http beacon-mcp
+sudo systemctl enable --now beacon-http
 ```
 
 ## The reverse proxy
@@ -128,8 +131,8 @@ carries the common `proxy_set_header Host $host;` boilerplate (nginx) would
 send `beacon.example.org` upstream — and **every proxied request would be
 refused**. The proxy must set the upstream Host to the loopback address:
 
-- nginx, in `location /mcp`: `proxy_set_header Host 127.0.0.1:8766;`, and in the
-  JSON API locations: `proxy_set_header Host 127.0.0.1:8765;`
+- nginx, in `location /mcp` and the JSON API locations alike:
+  `proxy_set_header Host 127.0.0.1:3366;`
 - Caddy, in both reverse proxies: `header_up Host {upstream_hostport}`
 
 The example configs already do this for both upstreams.
@@ -206,7 +209,7 @@ machine:
 
    ```bash
    curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-        -H 'Host: beacon.example.org' http://127.0.0.1:8766/mcp
+        -H 'Host: beacon.example.org' http://127.0.0.1:3366/mcp
    # expect: 421
 
    curl -s -o /dev/null -w '%{http_code}\n' -X POST \
@@ -232,8 +235,8 @@ machine:
 5. **Both servers still bind loopback only**, on the server itself:
 
    ```bash
-   ss -ltn | grep -E ':(8765|8766)'
-   # expect: Local Address:Port 127.0.0.1:8765 and 127.0.0.1:8766 — nothing else
+   ss -ltn | grep -E ':3366'
+   # expect: Local Address:Port 127.0.0.1:3366 — nothing else
    ```
 
 ## Not provided yet

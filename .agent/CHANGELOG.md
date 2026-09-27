@@ -1,5 +1,37 @@
 # Changelog — beacon
 
+## 2026-09-26 — One port: serve-http serves the JSON API and MCP; default port 3366
+
+**Breaking default:** Beacon's HTTP servers now default to port **3366**, replacing 8765
+(`serve-http`) and 8766 (`serve --transport http`). The reserved `BEACON_PORT` default moves
+from 8788 to 3366. Update client configs that relied on the old defaults.
+
+- **One process, one port.** `beacon serve-http` now also serves MCP over Streamable HTTP at
+  `/mcp`, on the same port and from the same snapshot.
+  - `beacon.one_port.OnePortApp` sends `/mcp`, `/mcp/...` and lifespan events to a FastMCP app,
+    and everything else to the JSON app. One `LoopbackGuard` wraps both.
+  - The MCP tools answer from the provider `create_http_app` built, via the new
+    `create_mcp_server(provider=...)` and `register_all_tools(..., provider=...)`. There is no
+    second provider.
+  - `--no-mcp` serves the JSON API alone.
+  - The ready line gains ` mcp=/mcp`.
+- **Discovery descriptor 1.9.** When MCP is mounted, `capabilities.mcp_http` is true and a new
+  `mcp` entry (`url`, `transport`, `tools`, `use_when`) is present. `create_http_app` advertises
+  it only when asked (`mcp_path`) and the manifest is servable.
+- **`serve --transport http`** stays, for MCP alone from an exported snapshot, also on 3366.
+- **Deploy:** nginx and Caddy proxy to one upstream, `127.0.0.1:3366`; `/mcp` keeps its own
+  unbuffered location. `deploy/systemd/beacon-mcp.service` is removed, since `beacon-http.service`
+  serves both and a second unit would contend for the port. The docs are updated.
+- `scripts/release_check.py` pins descriptor 1.9, `mcp_http: true` and the `/mcp` entry.
+- **Tests:** new `tests/test_one_port.py` covers:
+  - dispatch;
+  - the default port;
+  - a real `serve-http` answering MCP at `/mcp` with the same payloads as the JSON routes;
+  - the guard on `/mcp`;
+  - `--no-mcp`.
+  Forcing MCP off fails the one-port tests. Existing tests were updated only for the pinned
+  descriptor version and the deploy-config ports and unit.
+
 ## 2026-09-26 — Archive the v0.2 plans
 
 The two August v0.2 plans move to `.agent/plans/archive/` (owner decision, after the #33 review

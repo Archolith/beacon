@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from beacon.mcp.contracts import BeaconBaseTool
 from beacon.mcp.tools.agent_onboarding import AgentOnboardingTool
@@ -34,7 +34,18 @@ ALL_TOOLS: list[_ToolFactory] = [
 ]
 
 
-def register_all_tools(mcp: FastMCP) -> None:
-    """Instantiate every tool class and register its handler on *mcp*."""
+def register_all_tools(mcp: FastMCP, provider: Any = None) -> None:
+    """Instantiate every tool class and register its handler on *mcp*.
+
+    With *provider*, each tool answers from that provider instead of the process-wide
+    lifespan slot, so a server can be built around an already-loaded snapshot.
+    """
+
+    def bound_provider() -> Any:
+        return provider
+
     for tool_factory in ALL_TOOLS:
-        tool_factory().register(mcp)
+        tool = tool_factory()
+        if provider is not None:
+            tool.get_provider = bound_provider  # type: ignore[method-assign]
+        tool.register(mcp)
