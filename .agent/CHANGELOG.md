@@ -1,5 +1,27 @@
 # Changelog — beacon
 
+## 2026-09-27 — Own production deployment files (own deployment, step 2b)
+
+- **`deploy/production/`**, mirroring Menhir's deployment:
+  - **`beacon-prod`:** `serve-http` in container mode on `beacon-proxy`, an internal IPv4-only
+    network with no ports and no egress. Fixed IP 10.203.66.3, uid 10001, read-only, all
+    capabilities dropped, resource limits, a read-only bundle mount, and a `/healthz` check.
+  - **`beacon-ingress`:** its own cloudflared tunnel, the same pinned digest as Menhir's and
+    hardened the same way; it's the only container with egress.
+  - A tunnel config example that forwards the public Host unchanged.
+- **`pins.json` and `pins.py`:** a strict validator (GHCR digest, Archolith release URL
+  consistent with the name and commit, SHA-256) that emits shell-quoted assignments.
+- **`deploy.sh`:**
+  - verifies everything before switching: pins, bundle SHA-256, archive members (plain files
+    under `<stem>/` only), `bundle.json` against the pin, and the image pull by digest;
+  - extracts as `beacon-demo`, then switches `current` and `.env` and recreates the app;
+  - requires health and the pinned commit, both inside the container and on the public URL;
+  - rolls back the prior bundle, image and `.env` on any failure.
+- `tests/test_deploy_production.py` covers the compose isolation and hardening (with a real
+  `docker compose config` render where available), pins acceptance and refusal, the ordering
+  and rollback wiring of `deploy.sh`, and `bash -n`.
+- `.gitattributes` pins `*.sh` to LF.
+
 ## 2026-09-27 — Design principles and prior art (consolidates PRs #1–#3)
 
 - **`docs/design-principles.md`** condenses the June–July design notes from PR #1 into one page:

@@ -8,3 +8,5 @@
 *.json text eol=lf
 examples/** text eol=lf
 tests/fixtures/** text eol=lf
+# Shell scripts run on Linux hosts; a CRLF checkout must never reach one.
+*.sh text eol=lf

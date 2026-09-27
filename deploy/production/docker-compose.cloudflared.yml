@@ -1,0 +1,50 @@
+# Beacon ingress (compose project beacon-ingress): its own Cloudflare Tunnel, mirroring
+# Menhir's menhir-ingress. Outbound-only: no published ports. The tunnel joins beacon-proxy
+# (internal; reaches the app at 10.203.66.3) and its own default network for egress to
+# Cloudflare. Same digest-pinned cloudflared image as Menhir.
+name: beacon-ingress
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+    container_name: beacon-prod-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - type: bind
+        source: /srv/beacon/production/ingress/cloudflared-config.yml
+        target: /etc/cloudflared/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/beacon/production/secrets/cloudflare/credentials.json
+        target: /etc/cloudflared/credentials.json
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      beacon-proxy:
+        ipv4_address: 10.203.66.2
+      egress: {}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256m
+          pids: 128
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  beacon-proxy:
+    external: true
+  egress: {}
