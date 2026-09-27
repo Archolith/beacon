@@ -1,5 +1,21 @@
 # Changelog — beacon
 
+## 2026-09-27 — Release-image and demo-bundle workflows (own deployment, step 2a)
+
+- **`release-image.yml`**, mirroring Menhir's:
+  - **Validate:** a credential-free build, a smoke run, a digest-pinned Syft SBOM and a
+    digest-pinned Grype scan (fails on CRITICAL, Menhir's policy), and a sealed image with identity and
+    checksums.
+  - **Publish:** only on a `push: true` dispatch from `master`, in the `beacon-release-image`
+    environment. It verifies the sealed image before logging in, pushes that exact image to
+    `ghcr.io/archolith/beacon`, and attests provenance.
+- **`demo-bundle.yml`** (reusable): CI builds any public project's bundle at a pinned commit,
+  validating inputs and passing them only through env. With `publish: true` it creates a
+  prerelease asset in the calling repository, with no overwrite.
+- `tests/test_release_workflows.py` pins both workflows' gates, permissions, step order and
+  SHA/digest pins.
+- `docs/deployment.md` has a section on both.
+
 ## 2026-09-27 — Design principles and prior art (consolidates PRs #1–#3)
 
 - **`docs/design-principles.md`** condenses the June–July design notes from PR #1 into one page:
