@@ -281,6 +281,29 @@ beacon serve-http --manifest /bundle/beacon.generated.yaml --docs-root /bundle/r
   browser clients are out of scope. A future same-origin web page would need that rule
   revisited.
 
+### Release image and bundles in CI (no workstation in the loop)
+
+Two workflows build what a production deployment pins, so no bundle or image is ever
+pushed from a workstation:
+
+- **`.github/workflows/release-image.yml`**
+  - **Validate job:** builds the `Dockerfile` with no registry credentials, smoke-tests it,
+    generates an SBOM with digest-pinned Syft, and scans with digest-pinned Grype, failing
+    on any CRITICAL finding (Menhir's policy: maximum allowed severity High). It uploads the sealed image, identity and evidence.
+  - **Publish job:** runs only on a manual dispatch with `push: true` from `master`, behind
+    the `beacon-release-image` environment. It verifies the sealed image's checksums and
+    image ID before logging in, pushes that exact image to `ghcr.io/archolith/beacon`, and
+    attests build provenance.
+  - Pin the resulting `ghcr.io/archolith/beacon:<label>@sha256:...` in the deployment.
+- **`.github/workflows/demo-bundle.yml`** (reusable, `workflow_call`, plus manual dispatch)
+  - It takes a public `repository`, a full `commit` and a `name`, and runs
+    `scripts/build_demo_bundle.py` (build, strict validate, export, package, serve smoke).
+  - It uploads the tarball and its `.sha256`.
+  - With `publish: true` it creates a prerelease named `beacon-demo-<name>-<commit12>` in
+    the **calling** repository, so a project's bundle lives with that project, and refuses
+    to overwrite an existing tag.
+  - Pin the asset URL and SHA-256 in the deployment.
+
 ## Verify a deployment (curl checklist)
 
 With `beacon.example.org` standing in for your hostname, from any client
