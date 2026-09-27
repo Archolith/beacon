@@ -1,6 +1,6 @@
 """Publication/serving policy and explicit acknowledgement for validation.
 
-The addendum (``.agent/plans/beacon-v0.2-implementation-readiness-addendum``, §5)
+The addendum (``.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum``, §5)
 distinguishes *servable* from *publishable*:
 
 * ``error`` issues always block serving and publication.

@@ -1,15 +1,14 @@
 # Beacon v0.2 — Implementation Readiness Addendum
 
-> **FOR REVIEW (2026-09-26): candidate for archive.** v0.2 shipped (0.2.0rc2 on `release/v0.2.0`,
-> PR #4), and this plan's work packages are done. The "READY FOR IMPLEMENTATION" status below is
-> historical. Its locked decisions and normative policies (limits, publication, secrets, privacy,
-> JSON contracts) still describe shipped behavior. Owner to decide whether to move it to
-> `.agent/plans/archive/` (PR #8 proposed that) or keep it as the v0.2 reference.
+> **ARCHIVED (2026-09-26).** v0.2 shipped (0.2.0rc2 on `release/v0.2.0`, PR #4) and this plan's
+> work packages are done; the "READY FOR IMPLEMENTATION" status below is historical. Its locked
+> decisions and normative policies (limits, publication, secrets, privacy, JSON contracts) remain
+> the reference for how the shipped v0.2 behaves. Moved here by owner decision.
 
 **Status:** READY FOR IMPLEMENTATION
 **Date:** 2026-08-09
 **Owner:** Beacon
-**Parent plan:** `.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`
+**Parent plan:** `.agent/plans/archive/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`
 **Target release:** `0.2.0`
 
 ## 1. Purpose

@@ -11,7 +11,7 @@ This file is a router. Read it, then only the files your task needs; do not prel
 | Manifest schema, loader, validator | `data_models.md` |
 | Positioning, the open-standard track, roles, versioning | `../docs/beacon-open-standard.md` |
 | MCP / HTTP serving | `architecture.md` |
-| Release or packaging | `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` |
+| Release or packaging | `plans/archive/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` |
 
 `for-review/`, `reports/` and older plans are history: read them only when a task points to them.
 
@@ -23,8 +23,8 @@ This file is a router. Read it, then only the files your task needs; do not prel
 | `data_models.md` | Entities, DTOs, enums, converters, repository reference |
 | `CHANGELOG.md` | Running log of changes, most recent first |
 | `workflows/code_conventions.md` | Language-specific style and formatting rules |
-| `plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` | v0.2 plan (shipped): initialization, export, examples, packaging, and the release gate — *for review: candidate for archive* |
-| `plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` | v0.2 normative MCP baseline, limits, validation/secret/privacy policy, schemas, and release sequence — *for review: candidate for archive* |
+| `plans/archive/beacon-v0.2-publishable-static-product-plan-2026-08-09.md` | v0.2 plan (shipped): initialization, export, examples, packaging, and the release gate — *archived* |
+| `plans/archive/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md` | v0.2 normative MCP baseline, limits, validation/secret/privacy policy, schemas, and release sequence — *archived* |
 | `plans/beacon-trust-hub-and-federation-plan-2026-08-09.md` | Approved hybrid Archolith Hub, self-hosting, trust handshake, private access, and federation plan |
 | `plans/beacon-build-pipeline-and-source-adapters-plan-2026-09-15.md` | Build pipeline: source tiers, authority-aware merge and drift (shipped); incremental invalidation, optional LLM drafting, snapshot 1.1 (open) |
 | `plans/beacon-multi-intent-beacons-plan-2026-09-15.md` | Draft: several intent-scoped beacons per project (`contribute`/`operate`/`consume`); not implemented |

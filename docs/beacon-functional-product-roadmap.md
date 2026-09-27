@@ -328,10 +328,10 @@ milestone.
 Goal: make the shipped v0 pleasant and dependable for a real repository.
 
 Execution plan:
-[`../.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`](../.agent/plans/beacon-v0.2-publishable-static-product-plan-2026-08-09.md)
+[`../.agent/plans/archive/beacon-v0.2-publishable-static-product-plan-2026-08-09.md`](../.agent/plans/archive/beacon-v0.2-publishable-static-product-plan-2026-08-09.md)
 
 Implementation readiness addendum:
-[`../.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`](../.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md)
+[`../.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`](../.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md)
 
 Deliverables:
 

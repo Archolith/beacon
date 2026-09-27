@@ -1,10 +1,9 @@
 # Beacon v0.2 — Publishable Static Product Plan
 
-> **FOR REVIEW (2026-09-26): candidate for archive.** v0.2 shipped (0.2.0rc2 on `release/v0.2.0`,
-> PR #4), and this plan's work packages are done. The "READY FOR IMPLEMENTATION" status below is
-> historical. Its locked decisions and normative policies (limits, publication, secrets, privacy,
-> JSON contracts) still describe shipped behavior. Owner to decide whether to move it to
-> `.agent/plans/archive/` (PR #8 proposed that) or keep it as the v0.2 reference.
+> **ARCHIVED (2026-09-26).** v0.2 shipped (0.2.0rc2 on `release/v0.2.0`, PR #4) and this plan's
+> work packages are done; the "READY FOR IMPLEMENTATION" status below is historical. Its locked
+> decisions and normative policies (limits, publication, secrets, privacy, JSON contracts) remain
+> the reference for how the shipped v0.2 behaves. Moved here by owner decision.
 
 **Status:** READY FOR IMPLEMENTATION
 **Date:** 2026-08-09
@@ -13,7 +12,7 @@
 **Starting commit:** `77ad631`
 **Target release:** `0.2.0`
 **Release decisions approved:** 2026-08-09
-**Implementation addendum:** `.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`
+**Implementation addendum:** `.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`
 
 ## 1. Outcome
 
@@ -633,7 +632,7 @@ acceptance checks, and this plan before implementation diverges.
 ## 11. Implementation readiness contract
 
 The normative implementation details and executable JSON Schema fixtures live in
-`.agent/plans/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`. Implementation begins
+`.agent/plans/archive/beacon-v0.2-implementation-readiness-addendum-2026-08-09.md`. Implementation begins
 with that addendum's dependency/protocol gate, bounded readers, diagnostic policy, and schemas.
 
 The addendum keeps v0.2 on stable FastMCP 3.x/stdio, defines the supported small-to-medium resource
