@@ -61,10 +61,15 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           commit="$(git rev-parse HEAD)"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit SHA" >&2; exit 1; }
-          label="${INPUT_VERSION:-$REF_NAME}"
+          # Dispatch input, else the tag name, else ci-<commit12> (PR refs like 41/merge).
+          label="${INPUT_VERSION}"
+          if [ -z "$label" ]; then
+            if [ "$REF_TYPE" = tag ]; then label="$REF_NAME"; else label="ci-${commit:0:12}"; fi
+          fi
           [[ "$label" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] || { echo "invalid release label" >&2; exit 1; }
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
