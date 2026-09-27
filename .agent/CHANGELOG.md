@@ -1,5 +1,23 @@
 # Changelog — beacon
 
+## 2026-09-26 — Demo image and pinned demo bundles
+
+- **`scripts/build_demo_bundle.py`** builds a servable bundle of one project at one pinned
+  commit: shallow fetch, `beacon build`, `validate --strict-warnings`, `export` (never
+  `--allow-sensitive`), then a tarball holding the manifest, the snapshot and a sparse,
+  blob-filtered checkout of only the manifest's documents. It then extracts the tarball and
+  smoke-tests `serve-http` from it: discovery, freshness, search, the 7 MCP tools, and the
+  served snapshot SHA equal to the exported one.
+  - The checkout keeps its `.git`, so discovery freshness shows the pinned commit and
+    `dirty: false` with no server change.
+  - Checked on Beacon 8421304 (11 docs) and Menhir 8e72df8 from GitHub (36 docs, 764 KB).
+- **`Dockerfile`** (python 3.13-slim, digest-pinned, plus git, uid 10001) serves `/bundle`
+  with `serve-http` on 127.0.0.1:3366. It sets `safe.directory` and `GIT_OPTIONAL_LOCKS=0`
+  for the read-only bundle owned by another uid.
+- **CI `demo-image` job:** builds a bundle of the commit under test and the image, then runs
+  it read-only with dropped capabilities. It checks freshness, `/mcp` and the Host guard (421).
+- `docs/deployment.md` gains a container section.
+
 ## 2026-09-26 — One port: serve-http serves the JSON API and MCP; default port 3366
 
 **Breaking default:** Beacon's HTTP servers now default to port **3366**, replacing 8765

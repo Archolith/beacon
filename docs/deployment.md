@@ -191,6 +191,47 @@ query-bearing: restrict access and rotate it quickly. Caddy's access logs record
 comment in the Caddyfile for the redaction options rather than a guessed
 snippet.
 
+## Container: serve a pinned demo bundle
+
+For a public demo of one project at one commit, build a **bundle** locally and
+serve it with the repository's `Dockerfile` instead of a systemd unit.
+
+1. Build the bundle (a clean clone at the pinned commit; never your working tree):
+
+   ```bash
+   python scripts/build_demo_bundle.py --source https://github.com/<org>/<repo> \
+       --commit <full 40-hex sha> --name <slug> --out-dir dist/demo
+   ```
+
+   It runs `beacon build`, `beacon validate --strict-warnings` and `beacon export`
+   (never with `--allow-sensitive`), then writes `beacon-demo-<slug>-<commit12>.tar.gz`
+   holding `bundle.json`, `beacon.generated.yaml`, `beacon.snapshot.json` and `repo/`,
+   a sparse, shallow checkout of the commit with only the manifest's documents.
+   Before it returns, it extracts the tarball and smoke-tests `serve-http` from it:
+   discovery, the pinned commit in freshness, a search, and the MCP tool list.
+   `repo/` keeps its `.git` so discovery freshness reports that commit with
+   `dirty: false`.
+
+2. Build the image: `docker build -t beacon-demo .` (it installs Beacon from the
+   checked-out source and runs as uid 10001).
+
+3. Run it with the extracted bundle mounted read-only at `/bundle`:
+
+   ```bash
+   docker run -d --read-only --tmpfs /tmp --cap-drop ALL \
+       --security-opt no-new-privileges -v /srv/beacon-demo/<slug>/current:/bundle:ro \
+       --network container:<proxy> beacon-demo
+   ```
+
+   The server still binds `127.0.0.1:3366`, so the reverse proxy must share the
+   container's network namespace (`--network container:<proxy>`, or compose
+   `network_mode: "service:<proxy>"`). Two bundles in one namespace need distinct
+   ports: append `serve-http --manifest /bundle/beacon.generated.yaml --docs-root
+   /bundle/repo --port 3367` as the command.
+
+To refresh, build a new bundle, switch the mount, and restart the container. CI's
+`demo-image` job builds this image and serves a bundle of the commit under test.
+
 ## Verify a deployment (curl checklist)
 
 With `beacon.example.org` standing in for your hostname, from any client
