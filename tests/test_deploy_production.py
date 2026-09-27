@@ -197,6 +197,14 @@ def test_example_pins_are_placeholders_and_refused(pins: Any) -> None:
         pins.validate(example)
 
 
+def test_committed_pins_are_valid(pins: Any) -> None:
+    path = PROD / "pins.json"
+    if not path.exists():
+        pytest.skip("no production pins committed yet")
+    flat = pins.validate(json.loads(path.read_text(encoding="utf-8")))
+    assert flat["PIN_PUBLIC_HOST"] == "beacon.archolith.dev"
+
+
 def test_pins_cli_quotes_values(
     pins: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
