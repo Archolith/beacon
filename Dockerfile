@@ -1,8 +1,10 @@
 # Beacon demo image: serves one demo bundle (scripts/build_demo_bundle.py) with
 # `beacon serve-http` -- JSON API plus MCP at /mcp on 127.0.0.1:3366.
 #
-# The server binds loopback only, so a reverse proxy must share this container's
-# network namespace (for example compose `network_mode: "service:caddy"`).
+# The default command binds loopback only, so a reverse proxy must share this
+# container's network namespace (for example compose `network_mode: "service:caddy"`).
+# Alternatively override the command with container mode on a private network:
+#   serve-http ... --host 0.0.0.0 --allowed-host <public name>   (docs/deployment.md)
 # Mount the extracted bundle read-only at /bundle. See docs/deployment.md.
 FROM python:3.13-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26
 

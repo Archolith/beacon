@@ -248,15 +248,30 @@ beacon serve-http --manifest /bundle/beacon.generated.yaml --docs-root /bundle/r
 - A non-loopback `--host` must be an IPv4 address, and it is accepted **only**
   together with at least one `--allowed-host`. Without one, the loopback-only rule
   applies unchanged (`http_host_not_loopback`).
-- `--allowed-host` takes exact DNS names (repeatable). Wildcards, ports and IP
-  addresses are refused (`http_allowed_host_invalid`).
+- Container mode binds only `0.0.0.0`, loopback, or a private RFC 1918 address
+  (10/8, 172.16/12, 192.168/16). Public, multicast, broadcast, link-local and
+  shared-address binds are refused (`http_host_not_private`).
+- `--allowed-host` takes exact DNS names (repeatable). Wildcards, ports, IP
+  addresses, names a client could read as an IPv4 address (a numeric or `0x` last
+  label), and loopback names are refused (`http_allowed_host_invalid`).
 - The Host guard admits loopback names plus exactly those names. Any other `Host`
   gets **421**, and a browser `Origin` that is not loopback still gets **403**, as in
   loopback mode. The proxy or tunnel must send one of the allowed names as `Host`,
   which is the public hostname unless you rewrite it.
 - Discovery reports `"scope": "container"` (descriptor 1.10) instead of `"loopback"`.
-- The bind is reachable from every container on that network. Attach the Beacon
-  container only to a private network shared with its proxy, and publish no ports.
+- **The Host guard is not access control**: a client that can reach the port chooses its
+  own `Host`. Isolation comes from the network. The bind is reachable from every container
+  on that network, so attach Beacon only to a private network shared with its proxy or
+  tunnel. **Never** publish its port (`-p`/`-P`, compose `ports:`), never use
+  `network_mode: host`, and never run container mode directly on a host: any of those
+  serves plain HTTP past the proxy's TLS, rate limits and log redaction.
+- MCP at `/mcp` stays behind Beacon's own guard; fastmcp's separate host/origin
+  protection is switched off explicitly, so `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION`
+  cannot refuse the allowed names.
+- A `Host` port must be decimal 1-65535 in both modes; malformed forms get 421.
+- A browser `Origin` equal to the allowed host's own `https://` origin is still 403:
+  browser clients are out of scope. A future same-origin web page would need that rule
+  revisited.
 
 ## Verify a deployment (curl checklist)
 
@@ -305,6 +320,9 @@ machine:
    ss -ltn | grep -E ':3366'
    # expect: Local Address:Port 127.0.0.1:3366 — nothing else
    ```
+
+   In container mode, check instead that the container publishes no ports
+   (`docker port <container>` prints nothing) and sits only on its private network.
 
 ## Not provided yet
 

@@ -8,6 +8,7 @@ loopback names plus exactly the listed names (421 otherwise), foreign browser Or
 
 from __future__ import annotations
 
+import asyncio
 import http.client
 import json
 import re
@@ -53,6 +54,15 @@ def test_allowed_hosts_are_normalized_exact_names() -> None:
         "[::1]",
         "a..b",
         "a" * 64 + ".dev",
+        "x\n.y\n.z",
+        "beacon.dev\n.x",
+        "localhost",
+        "localhost.",
+        "127.0.0.1",
+        "0x7f000001",
+        "0x7f.0.0.1",
+        "beacon.123",
+        "beacon.0x10",
     ],
 )
 def test_invalid_allowed_hosts_are_refused(value: str) -> None:
@@ -80,10 +90,29 @@ def test_host_matching_is_exact() -> None:
         "beacon.archolith.dev@evil.com",
         "beacon.archolith.dev..",
         "beacon.archolith.dev:443:1",
+        "beacon.archolith.dev:abc",
+        "beacon.archolith.dev:99999",
+        "beacon.archolith.dev:0",
+        "beacon.archolith.dev:",
+        "[beacon.archolith.dev]junk",
         None,
     ):
         assert not host_allowed(host, allowed), host
     assert not host_allowed("beacon.archolith.dev")  # default: loopback names only
+    assert not host_allowed("127.0.0.1:abc")  # port must be decimal 1-65535 in both modes
+
+
+def test_real_dns_names_with_hex_looking_tlds_stay_valid() -> None:
+    assert normalize_allowed_hosts(["demo.cafe", "beacon.dev"]) == frozenset(
+        {"demo.cafe", "beacon.dev"}
+    )
+
+
+def test_a_bare_string_is_not_a_host_list() -> None:
+    with pytest.raises(TypeError):
+        normalize_allowed_hosts("beacon")  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        LoopbackGuard(_ok_app, allowed_hosts="beacon")
 
 
 # -- guard (ASGI) ----------------------------------------------------------------------
@@ -132,6 +161,27 @@ async def test_default_guard_is_unchanged() -> None:
     assert await _status(guard, {"Host": "beacon.archolith.dev"}) == 421
 
 
+async def test_duplicate_host_headers_are_refused_in_both_modes() -> None:
+    for guard in (LoopbackGuard(_ok_app), LoopbackGuard(_ok_app, allowed_hosts=["b.example"])):
+        sent: list[dict[str, Any]] = []
+
+        async def send(message: dict[str, Any], sent: list[dict[str, Any]] = sent) -> None:
+            sent.append(message)
+
+        scope = {"type": "http", "headers": [(b"host", b"127.0.0.1"), (b"host", b"b.example")]}
+        await guard(scope, None, send)  # type: ignore[arg-type]
+        assert sent[0]["status"] == 421
+
+
+def test_unknown_discovery_scope_is_refused() -> None:
+    from types import SimpleNamespace
+
+    from beacon.http_api import CONTENT_EMBEDDED, create_http_app
+
+    with pytest.raises(ValueError, match="scope"):
+        create_http_app(SimpleNamespace(content_mode=CONTENT_EMBEDDED), scope="bogus")  # type: ignore[arg-type]
+
+
 def test_guard_refuses_invalid_allowed_hosts_at_construction() -> None:
     with pytest.raises(ValueError):
         LoopbackGuard(_ok_app, allowed_hosts=["*"])
@@ -164,8 +214,38 @@ def test_non_loopback_bind_without_allowed_host_is_refused(manifest: Path) -> No
 def test_container_mode_needs_an_ipv4_literal_and_valid_names(manifest: Path) -> None:
     result, run = _invoke(manifest, "--host", "beacon.local", "--allowed-host", "beacon.dev")
     assert result.exit_code != 0 and "http_host_invalid" in result.output
+    run.assert_not_called()
     result, run = _invoke(manifest, "--host", "0.0.0.0", "--allowed-host", "*")
     assert result.exit_code != 0 and "http_allowed_host_invalid" in result.output
+    run.assert_not_called()
+    result, run = _invoke(manifest, "--host", "0.0.0.0", "--allowed-host", "localhost")
+    assert result.exit_code != 0 and "http_allowed_host_invalid" in result.output
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["8.8.8.8", "147.93.132.141", "224.0.0.1", "255.255.255.255", "169.254.1.1", "100.64.0.1"],
+)
+def test_container_mode_refuses_non_private_binds(manifest: Path, host: str) -> None:
+    result, run = _invoke(manifest, "--host", host, "--allowed-host", "beacon.dev", "--port", "0")
+    assert result.exit_code != 0 and "http_host_not_private" in result.output
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "127.0.0.1", "10.1.2.3", "172.20.0.5", "192.168.1.1"])
+def test_container_mode_accepts_private_binds(manifest: Path, host: str) -> None:
+    result, run = _invoke(manifest, "--host", host, "--allowed-host", "beacon.dev", "--port", "0")
+    assert result.exit_code == 0, result.output
+    assert run.call_args.kwargs["host"] == host
+
+
+@pytest.mark.parametrize("port", ["70000", "-1"])
+def test_container_mode_still_checks_the_port_range(manifest: Path, port: str) -> None:
+    result, run = _invoke(
+        manifest, "--host", "0.0.0.0", "--allowed-host", "beacon.dev", "--port", port
+    )
+    assert result.exit_code != 0 and "http_port_invalid" in result.output
     run.assert_not_called()
 
 
@@ -226,6 +306,42 @@ def test_container_mode_process_serves_allowed_host_only(manifest: Path, tmp_pat
         assert _request(port, "GET", "/healthz", "evil.example.org")[0] == 421
         assert _request(port, "GET", "/healthz", f"127.0.0.1:{port}")[0] == 200
         assert _request(port, "POST", "/mcp", "evil.example.org")[0] == 421
+        assert asyncio.run(_mcp_tool_count(port, "beacon.example.org")) == 7
+    finally:
+        _stop(proc)
+
+
+async def _mcp_tool_count(port: int, host: str) -> int:
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+
+    transport = StreamableHttpTransport(f"http://127.0.0.1:{port}/mcp", headers={"Host": host})
+    async with Client(transport) as client:
+        return len(await client.list_tools())
+
+
+def test_allowed_host_with_loopback_bind_reports_loopback_scope(
+    manifest: Path, tmp_path: Path
+) -> None:
+    proc, ready = _start(
+        [
+            "serve-http",
+            "--manifest",
+            str(manifest),
+            "--port",
+            "0",
+            "--allowed-host",
+            "beacon.example.org",
+        ],
+        manifest.parent,
+        tmp_path / "serve.log",
+        re.compile(r"Beacon HTTP ready url=http://127\.0\.0\.1:(\d+) .*allowed_hosts="),
+    )
+    try:
+        port = int(ready.group(1))
+        status, body = _request(port, "GET", "/.well-known/archolith-beacon", "beacon.example.org")
+        assert status == 200 and json.loads(body)["scope"] == "loopback"
+        assert _request(port, "GET", "/healthz", "evil.example.org")[0] == 421
     finally:
         _stop(proc)
 

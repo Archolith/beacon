@@ -206,8 +206,9 @@ curl "http://127.0.0.1:3366/v1/explain?concept=adr-0005"
 curl http://127.0.0.1:3366/v1/snapshot
 ```
 
-The surface is loopback-only; to publish it beyond this machine, put the TLS reverse proxy from
-[docs/deployment.md](docs/deployment.md) in front.
+The surface is loopback-only by default; to publish it beyond this machine, put the TLS reverse
+proxy from [docs/deployment.md](docs/deployment.md) in front, or run container mode on a private
+network behind your own proxy or tunnel.
 
 Start with `/v1/snapshot/identity` for the project, purpose, audiences, and current focus, then read
 `/v1/status` to see one explicit active-work item, recent completions, blockers, pending decisions,
@@ -220,7 +221,7 @@ without chunk bodies. Fetch `/v1/snapshot` only when the agent needs the full pu
 `/beacon.json` is its permanent alias. To avoid fetching full, inspect `/v1/chunks`: each entry has a
 stable ID, parent document role/status, exact UTF-8 text bytes, exact response bytes, and a shared URL
 template for retrieving only that chunk. Each retrieved resource has its own SHA-256/ETag. Discovery
-descriptor 1.7 also advertises the status resource, `/v1/concepts`, `/v1/guardrails`, `/v1/decisions`,
+descriptor 1.10 also advertises the status resource, `/v1/concepts`, `/v1/guardrails`, `/v1/decisions`,
 and the dynamic query routes. Each knowledge catalog is a cheap selector index; `/v1/concepts` and
 `/v1/guardrails` use opaque resource IDs so a logical ID never becomes route structure, while
 `/v1/decisions/{id}` addresses each record by its decision id. All four companion indexes publish
@@ -742,7 +743,7 @@ The manifest and canonical documents are never overwritten, even with `--force`
 
 Beacon is experimental, and this checkout is the `0.2.0rc2` release candidate. The v0.2
 local functionality is implemented: `beacon init`, `validate`, `inspect`,
-`export`, `serve`, and loopback-only `serve-http` (plus the no-argument stdio server) are shipped and
+`export`, `serve`, and `serve-http` (loopback-only by default; opt-in container mode) (plus the no-argument stdio server) are shipped and
 tested, and the maintained examples pass their validation/provider/snapshot
 matrix. One release gate remains, not missing feature scope:
 

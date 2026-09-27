@@ -1,4 +1,4 @@
-"""Loopback HTTP surface for an immutable Beacon snapshot.
+"""HTTP surface for an immutable Beacon snapshot (loopback, or a private container bind).
 
 Builds a small :class:`starlette.applications.Starlette` ASGI app over an
 already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded,

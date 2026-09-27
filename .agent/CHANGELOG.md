@@ -14,6 +14,18 @@
     both modes.
   - The ready line gains ` allowed_hosts=...` in container mode.
   - `serve --transport http` is unchanged (loopback only).
+- **Review fixes (Opus review, `.agent/reviews/beacon-pr37-opus-review.md`):**
+  - Container mode binds only `0.0.0.0`, loopback or RFC 1918 addresses; anything else gets
+    `http_host_not_private`.
+  - Allowed names use full-match labels (no embedded newlines); loopback names and names with a
+    numeric or `0x` last label are refused; a bare string is a `TypeError`.
+  - The Host port must be decimal 1-65535 in both modes, and `[host]junk` is refused.
+  - The MCP app is built with fastmcp's `host_origin_protection=False`, so its environment
+    setting cannot refuse allowed names.
+  - The ready line reports the bound socket address.
+  - Tests cover MCP through container mode, private and non-private binds, the port range,
+    duplicate Host headers, a bogus scope, and loopback scope with allowed hosts.
+  - The stale "loopback-only" wording and descriptor numbers in the docs are updated.
 - **Discovery descriptor 1.10:** `scope` is `"container"` when `serve-http` binds a non-loopback
   address, and still `"loopback"` otherwise. `create_http_app(scope=...)` accepts only those two
   values. The pins in the tests and `scripts/release_check.py` move from 1.9 to 1.10.
