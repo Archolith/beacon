@@ -3,6 +3,9 @@
 > Status: canonical product roadmap
 > Date: 2026-08-09
 > Scope: Beacon from the shipped manifest-driven v0 to a usable, operable v1 product
+>
+> **Note (2026-09-27):** this roadmap predates `beacon_catalog` and `beacon_read`. The MCP
+> surface is now seven tools; references to "five tools" below are the plan as written then.
 
 ## 1. Product outcome
 

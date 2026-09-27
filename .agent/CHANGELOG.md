@@ -1,5 +1,30 @@
 # Changelog — beacon
 
+## 2026-09-27 — README badge, security headers, and doc fixes
+
+- **README badge:** `GET/HEAD /v1/badge.json` (shields.io endpoint schema v1) and
+  `/v1/badge.svg` (self-rendered).
+  - They show `live · <commit7> · <n> tools` in green, or `stale · <n> days` in amber when the
+    served commit is more than 30 days old.
+  - They render only startup facts plus the clock; query strings are ignored.
+  - Cached for an hour; the SVG sends a no-script CSP.
+  - The badge reads commit time in a second, separate startup step, keyed to the exact
+    observed commit. It's internal: the status payload is unchanged, and the single porcelain
+    status read is kept.
+- **Security headers:** `serve-http` adds `nosniff`, `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer` to every response, including guard refusals. Behind the tunnel
+  these used to come only from yawn's Caddy.
+- The discovery `mcp.tools` count now comes from the tool registry (still 7).
+- **Docs:**
+  - "five tools" becomes seven in `beacon.yaml` (the guardrail and do-not-touch list served by
+    the live beacon) and in the demo transcript; both roadmaps get a dated note;
+  - two `beacon.yaml` README citations that had drifted onto the wrong sections are fixed;
+  - the README gains a badge row (CI, PyPI, Python, License, live beacon, VS Code and Cursor
+    install buttons), a navigation line and a "Try it live" section, and states that rc1 is
+    on PyPI and rc2 is pending;
+  - there's a new `docs/README.md` index;
+  - `docs/deployment.md` documents the badge and the headers.
+
 ## 2026-09-27 — Own production deployment files (own deployment, step 2b)
 
 - **`deploy/production/`**, mirroring Menhir's deployment:

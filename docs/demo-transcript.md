@@ -16,9 +16,10 @@
 BEACON_MANIFEST_PATH=/path/to/beacon/beacon.yaml beacon
 ```
 
-Client connects via stdio MCP. Five tools become available:
+Client connects via stdio MCP. Seven tools become available:
 `beacon_project_overview`, `beacon_agent_onboarding`, `beacon_search`,
-`beacon_explain_concept`, `beacon_guardrails`.
+`beacon_explain_concept`, `beacon_guardrails`, `beacon_catalog`, `beacon_read`.
+(The session below exercises the first five.)
 
 ---
 
@@ -159,7 +160,7 @@ Client connects via stdio MCP. Five tools become available:
     "Changing the BeaconProvider Protocol (breaks all provider implementations).",
     "Changing the answer-contract dataclasses (breaks MCP tool output shape).",
     "Changing the manifest schema (beacon_version stays '0.1' until a migration exists).",
-    "Adding new MCP tools before the existing five are well-documented.",
+    "Adding new MCP tools before the existing seven are well-documented.",
     "Renaming core concepts (id, definition, status, confidence, sources)."
   ],
 
@@ -208,7 +209,7 @@ Client connects via stdio MCP. Five tools become available:
               a migration plan. Existing beacon.yaml files in the wild must
               still load. Use optional fields with defaults for additions.",
 
-    "[medium] Do not add a sixth MCP tool until the existing five have a demo
+    "[medium] Do not add an eighth MCP tool until the existing seven have a demo
               transcript, golden-output tests, and client setup docs. Interface
               clarity comes before surface area.",
 

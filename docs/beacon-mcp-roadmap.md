@@ -3,6 +3,9 @@
 > Status: interface-level roadmap and backlog
 > Scope: Beacon MCP tools, demo flow, and interface ideas
 > Canonical product roadmap: [`beacon-functional-product-roadmap.md`](beacon-functional-product-roadmap.md)
+>
+> **Note (2026-09-27):** this roadmap predates `beacon_catalog` and `beacon_read`. The MCP
+> surface is now seven tools; references to "five tools" below are the plan as written then.
 
 This document remains the detailed history and backlog for the MCP surface. Product releases,
 maintainer/operator workflows, repository adapters, dynamic-provider architecture, evaluation,

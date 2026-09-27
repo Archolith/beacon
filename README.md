@@ -3,7 +3,17 @@
 > **Status: `0.2.0rc2` release candidate, pending publication.**
 > Use a source checkout until RC2 is published; then install the pinned release candidate from PyPI.
 
+[![CI](https://github.com/Archolith/beacon/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Archolith/beacon/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/archolith-beacon?include_prereleases&label=pypi)](https://pypi.org/project/archolith-beacon/)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776ab)](https://pypi.org/project/archolith-beacon/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![beacon](https://img.shields.io/endpoint?url=https%3A%2F%2Fbeacon.archolith.dev%2Fv1%2Fbadge.json)](https://beacon.archolith.dev/.well-known/archolith-beacon)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Add_Beacon-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=beacon&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fbeacon.archolith.dev%2Fmcp%22%7D)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=beacon&config=eyJ1cmwiOiJodHRwczovL2JlYWNvbi5hcmNob2xpdGguZGV2L21jcCJ9)
+
+[Try it live](#try-it-live) | [Install](#install) | [Quick start](#quick-start) |
+[Connecting an agent](#connecting-an-agent) | [What agents can ask](#what-agents-can-ask) |
+[Deploying](docs/deployment.md) | [Docs index](docs/README.md)
 
 Beacon gives software projects a consistent way to explain themselves to coding agents.
 
@@ -23,12 +33,35 @@ does not need an external service, database, runtime LLM call, telemetry, or upd
 
 ---
 
-## Install
+## Try it live
 
-After RC2 is published, install it and its published framework dependency from PyPI:
+Two public beacons run the current release. Point any MCP client at the Streamable HTTP URL, or
+read the JSON API directly. Both are read-only, unauthenticated, rate-limited, and labelled
+`trust: direct_unverified`: they are self-reported and unsigned.
+
+| Project | Discovery | MCP |
+|---|---|---|
+| Beacon (this repo) | <https://beacon.archolith.dev/.well-known/archolith-beacon> | `https://beacon.archolith.dev/mcp` |
+| [Menhir](https://github.com/Archolith/menhir) | <https://menhir.archolith.dev/.well-known/archolith-beacon> | `https://menhir.archolith.dev/mcp` |
 
 ```bash
-python -m pip install "archolith-beacon==0.2.0rc2"
+curl -s https://beacon.archolith.dev/.well-known/archolith-beacon
+curl -s "https://beacon.archolith.dev/v1/search?q=guardrails"
+```
+
+The badge above reads `/v1/badge.json` from the live beacon, so it shows the commit being served.
+Any beacon serves `/v1/badge.json` (shields.io endpoint format) and `/v1/badge.svg`; see
+[docs/deployment.md](docs/deployment.md#readme-badge).
+
+---
+
+## Install
+
+`0.2.0rc1` is on PyPI; `0.2.0rc2` is pending publication. Until it's published, use a source
+checkout (below). Afterwards, install it and its published framework dependency from PyPI:
+
+```bash
+python -m pip install "archolith-beacon==0.2.0rc2"   # after RC2 is published
 ```
 
 The distribution name is `archolith-beacon`; the import package is `beacon` and
