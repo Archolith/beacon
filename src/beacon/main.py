@@ -115,6 +115,11 @@ def _configure_utf8_stdio() -> None:
                 pass
 
 
+#: Default loopback port for Beacon's HTTP servers: ``serve-http`` (JSON API, plus MCP at
+#: ``/mcp``) and ``serve --transport http`` (MCP only). One port per server process.
+DEFAULT_HTTP_PORT = 3366
+
+
 def _prepare_runtime() -> None:
     """Load dotenv and force FastMCP privacy *before* the framework is imported."""
     from dotenv import load_dotenv
@@ -127,7 +132,9 @@ def _prepare_runtime() -> None:
     _configure_logging(include_console=False)
 
 
-def _run_mcp_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8766) -> None:
+def _run_mcp_server(
+    transport: str = "stdio", host: str = "127.0.0.1", port: int = DEFAULT_HTTP_PORT
+) -> None:
     from beacon.mcp.server import mcp
 
     if transport == "http":
@@ -207,7 +214,7 @@ def _serve_with_env(
     limits: ResourceLimits | None = None,
     transport: str = "stdio",
     host: str = "127.0.0.1",
-    port: int = 8766,
+    port: int = DEFAULT_HTTP_PORT,
 ) -> None:
     """Run the MCP server with *context* env overrides, restoring prior values.
 
@@ -324,7 +331,7 @@ def serve(
     host: str = typer.Option(
         "127.0.0.1", "--host", help="Bind host for --transport http (loopback only)."
     ),
-    port: int = typer.Option(8766, "--port", help="Bind port for --transport http."),
+    port: int = typer.Option(DEFAULT_HTTP_PORT, "--port", help="Bind port for --transport http."),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
     max_documents: int | None = typer.Option(None, "--max-documents"),
     max_document_bytes: int | None = typer.Option(None, "--max-document-bytes"),
@@ -455,7 +462,14 @@ def serve_http(
     ),
     docs_root: str | None = typer.Option(None, "--docs-root", help="Docs root directory."),
     host: str = typer.Option("127.0.0.1", "--host", help="Loopback bind address."),
-    port: int = typer.Option(8765, "--port", help="Loopback port; 0 selects an available port."),
+    port: int = typer.Option(
+        DEFAULT_HTTP_PORT, "--port", help="Loopback port; 0 selects an available port."
+    ),
+    mcp: bool = typer.Option(
+        True,
+        "--mcp/--no-mcp",
+        help="Also serve MCP over Streamable HTTP at /mcp on the same port (default: on).",
+    ),
     acknowledge: list[str] = typer.Option([], "--acknowledge"),
     allow_sensitive: list[str] = typer.Option([], "--allow-sensitive"),
     max_manifest_bytes: int | None = typer.Option(None, "--max-manifest-bytes"),
@@ -465,7 +479,7 @@ def serve_http(
     max_chunks: int | None = typer.Option(None, "--max-chunks"),
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
-    """Serve an immutable canonical snapshot over loopback HTTP."""
+    """Serve an immutable canonical snapshot over loopback HTTP (JSON API, plus MCP at /mcp)."""
     _safe(
         "serve-http",
         "text",
@@ -474,6 +488,7 @@ def serve_http(
             docs_root,
             host=host,
             port=port,
+            mcp=mcp,
             acknowledges=acknowledge,
             allow_sensitive=allow_sensitive,
             cli_limits=_six_limit_args(
@@ -494,6 +509,7 @@ def _serve_http_impl(
     *,
     host: str,
     port: int,
+    mcp: bool = True,
     acknowledges: list[str],
     allow_sensitive: list[str],
     cli_limits: dict[str, Any],
@@ -543,6 +559,7 @@ def _serve_http_impl(
         port=port,
         status_observation=status_observation,
         limits=context.limits,
+        mcp=mcp,
     )
     return EXIT_OK
 
@@ -554,19 +571,32 @@ def _serve_http_snapshot(
     port: int,
     status_observation: StatusObservation,
     limits: ResourceLimits,
+    mcp: bool = True,
 ) -> None:
     """Bind one loopback socket and run the immutable ASGI snapshot application.
 
-    The app is wrapped in the same Host/Origin guard as MCP over HTTP: loopback keeps
-    other machines out, but a web page could still reach the port by DNS rebinding.
+    With *mcp* (the default) the same port also serves MCP over Streamable HTTP at ``/mcp``,
+    answering from the provider the JSON routes use (one snapshot, one provider). The whole
+    app is wrapped in the Host/Origin guard: loopback keeps other machines out, but a web
+    page could still reach the port by DNS rebinding.
     """
     import uvicorn
 
     from beacon import __version__
     from beacon.http_api import create_http_app
-    from beacon.loopback_guard import LoopbackGuard
+    from beacon.loopback_guard import ASGIApp, LoopbackGuard
+    from beacon.one_port import MCP_PATH, OnePortApp, build_mcp_app
 
-    app_http = create_http_app(snap, status_observation=status_observation, limits=limits)
+    app_http = create_http_app(
+        snap,
+        status_observation=status_observation,
+        limits=limits,
+        mcp_path=MCP_PATH if mcp else None,
+    )
+    provider = app_http.state.beacon_provider
+    served: ASGIApp = app_http
+    if mcp and provider is not None:
+        served = OnePortApp(app_http, build_mcp_app(provider, MCP_PATH), MCP_PATH)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         listener.bind((host, port))
@@ -579,13 +609,15 @@ def _serve_http_snapshot(
 
     actual_port = int(listener.getsockname()[1])
     snapshot_sha = str(app_http.state.beacon_snapshot_sha256)
+    mcp_note = f" mcp={MCP_PATH}" if served is not app_http else ""
     typer.echo(
         f"Beacon HTTP ready url=http://{host}:{actual_port} beacon={__version__} "
-        f"snapshot_schema={snap.beacon_snapshot_version} snapshot_sha256={snapshot_sha}",
+        f"snapshot_schema={snap.beacon_snapshot_version} snapshot_sha256={snapshot_sha}"
+        f"{mcp_note}",
         err=True,
     )
     config = uvicorn.Config(
-        LoopbackGuard(app_http),
+        LoopbackGuard(served),
         host=host,
         port=actual_port,
         access_log=False,

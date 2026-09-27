@@ -44,7 +44,7 @@ class BeaconSettings:
 
     # MCP server listening host/port (for remote transport; stdio ignores these).
     host: str = "127.0.0.1"
-    port: int = 8788
+    port: int = 3366
 
     # Immutable resource-limit profile (defaults; overridable via BEACON_MAX_*).
     limits: ResourceLimits = field(default_factory=ResourceLimits)
@@ -74,6 +74,6 @@ class BeaconSettings:
             snapshot_path=_getenv("BEACON_SNAPSHOT_PATH"),
             validate_on_load=validate_raw not in ("false", "0", "no"),
             host=_getenv("BEACON_HOST", default="127.0.0.1"),
-            port=int(_getenv("BEACON_PORT", default="8788")),
+            port=int(_getenv("BEACON_PORT", default="3366")),
             limits=resource_limits_from_env(),
         )

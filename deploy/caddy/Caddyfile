@@ -32,14 +32,14 @@ beacon.example.org {
 		max_size 64KB
 	}
 
-	# MCP over Streamable HTTP -> 127.0.0.1:8766
+	# MCP over Streamable HTTP -> 127.0.0.1:3366 (serve-http, same port as the JSON API)
 	handle /mcp* {
 		# Streamable HTTP methods: POST (messages), GET (SSE stream),
 		# DELETE (session end).
 		@bad_mcp_method not method GET POST DELETE
 		error @bad_mcp_method 405
 
-		reverse_proxy 127.0.0.1:8766 {
+		reverse_proxy 127.0.0.1:3366 {
 			# REQUIRED: the MCP server answers 421 to any request whose Host
 			# is not 127.0.0.1/localhost (anti-DNS-rebinding guard). Caddy
 			# forwards the client's Host header by default, so this rewrite
@@ -58,13 +58,13 @@ beacon.example.org {
 	}
 
 	# JSON API (includes /.well-known/archolith-beacon and /v1/search)
-	# -> 127.0.0.1:8765
+	# -> 127.0.0.1:3366
 	handle {
 		# The JSON API serves GET and HEAD only.
 		@bad_api_method not method GET HEAD
 		error @bad_api_method 405
 
-		reverse_proxy 127.0.0.1:8765 {
+		reverse_proxy 127.0.0.1:3366 {
 			# The JSON API has no Host check today; pin the upstream Host
 			# anyway so the pattern matches /mcp.
 			header_up Host {upstream_hostport}

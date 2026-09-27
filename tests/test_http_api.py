@@ -518,7 +518,7 @@ def test_discovery_fields(
         "representations",
         "resources",
     }
-    assert body["descriptor_version"] == "1.8"
+    assert body["descriptor_version"] == "1.9"
     assert body["beacon_version"] == __version__
     assert body["scope"] == "loopback"
     assert body["authentication"] == "none"

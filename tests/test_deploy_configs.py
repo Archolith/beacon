@@ -23,7 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 NGINX_CONF = REPO_ROOT / "deploy" / "nginx" / "beacon.conf"
 CADDYFILE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile"
 HTTP_UNIT = REPO_ROOT / "deploy" / "systemd" / "beacon-http.service"
-MCP_UNIT = REPO_ROOT / "deploy" / "systemd" / "beacon-mcp.service"
+#: Removed with the one-port change: serve-http now serves MCP at /mcp itself.
+OLD_MCP_UNIT = REPO_ROOT / "deploy" / "systemd" / "beacon-mcp.service"
 
 #: Tokens that would smuggle the query string into an access log.
 QUERY_LOG_TOKENS = (
@@ -69,7 +70,7 @@ def _nginx_mcp_location() -> str:
 def test_nginx_mcp_location_rewrites_host_to_loopback() -> None:
     rewrite = re.search(r"proxy_set_header\s+Host\s+(\S+);", _nginx_mcp_location())
     assert rewrite, "the /mcp location must set an explicit upstream Host"
-    assert rewrite.group(1) == "127.0.0.1:8766"
+    assert rewrite.group(1) == "127.0.0.1:3366"
 
 
 def test_nginx_mcp_location_streams_unbuffered() -> None:
@@ -85,11 +86,11 @@ def test_nginx_mcp_location_streams_unbuffered() -> None:
 def test_nginx_upstreams_are_loopback_only() -> None:
     conf = _strip_comments(_read(NGINX_CONF))
     passes = re.findall(r"proxy_pass\s+https?://([^/;\s]+)", conf)
-    assert passes, "the config must proxy to the two Beacon upstreams"
+    assert passes, "the config must proxy to the Beacon upstream"
     hosts = {target.rsplit(":", 1)[0] for target in passes}
     ports = {target.rsplit(":", 1)[1] for target in passes}
     assert hosts == {"127.0.0.1"}, f"non-loopback upstreams: {sorted(hosts)}"
-    assert ports == {"8765", "8766"}, f"unexpected upstream ports: {sorted(ports)}"
+    assert ports == {"3366"}, f"one Beacon process serves JSON and /mcp: {sorted(ports)}"
     assert "0.0.0.0" not in conf
 
 
@@ -139,7 +140,7 @@ def test_nginx_adds_no_cors_header() -> None:
 
 
 def test_systemd_units_bind_loopback_only() -> None:
-    for unit in (HTTP_UNIT, MCP_UNIT):
+    for unit in (HTTP_UNIT,):
         text = _read(unit)
         assert "0.0.0.0" not in text, f"{unit.name} must not bind 0.0.0.0"
         for host in re.findall(r"--host\s+(\S+)", text):
@@ -149,7 +150,7 @@ def test_systemd_units_bind_loopback_only() -> None:
 def test_systemd_units_leave_served_content_read_only() -> None:
     # StateDirectory= would make the content dir writable despite ProtectSystem=strict,
     # and a writable child mount escapes ReadOnlyPaths (astra review, PR #28).
-    for unit in (HTTP_UNIT, MCP_UNIT):
+    for unit in (HTTP_UNIT,):
         text = _strip_comments(_read(unit))
         assert "StateDirectory" not in text, unit.name
         assert "ReadWritePaths" not in text, unit.name
@@ -166,7 +167,7 @@ def test_nginx_rate_limit_refusals_stay_out_of_the_error_log() -> None:
 
 
 def test_systemd_units_keep_default_ports() -> None:
-    for unit, default in ((HTTP_UNIT, "8765"), (MCP_UNIT, "8766")):
+    for unit, default in ((HTTP_UNIT, "3366"),):
         for port in re.findall(r"--port\s+(\S+)", _read(unit)):
             assert port == default, f"{unit.name} must keep the default port {default}"
 
@@ -174,12 +175,9 @@ def test_systemd_units_keep_default_ports() -> None:
 def test_systemd_units_run_the_documented_servers() -> None:
     http_exec = re.search(r"^ExecStart=(.+)$", _read(HTTP_UNIT), re.MULTILINE)
     assert http_exec and " serve-http" in http_exec.group(1)
-    mcp_exec = re.search(r"^ExecStart=(.+)$", _read(MCP_UNIT), re.MULTILINE)
-    assert mcp_exec, "beacon-mcp.service must carry an ExecStart"
-    for fragment in (" serve ", "--snapshot", "--transport http"):
-        assert fragment in mcp_exec.group(1), (
-            f"beacon-mcp.service ExecStart must contain {fragment!r}"
-        )
+    assert "--no-mcp" not in http_exec.group(1), "the one unit serves MCP at /mcp too"
+    # A separate MCP unit would contend for the same port.
+    assert not OLD_MCP_UNIT.exists(), "beacon-mcp.service was folded into beacon-http.service"
 
 
 # --- Caddyfile -------------------------------------------------------------
@@ -188,7 +186,7 @@ def test_systemd_units_run_the_documented_servers() -> None:
 def test_caddy_rewrites_host_for_the_mcp_upstream() -> None:
     conf = _read(CADDYFILE)
     mcp = _brace_block(conf, re.compile(r"handle\s+/mcp\*\s*\{"))
-    assert "reverse_proxy 127.0.0.1:8766" in mcp, "the /mcp upstream must be 8766"
+    assert "reverse_proxy 127.0.0.1:3366" in mcp, "the /mcp upstream must be 3366"
     assert re.search(r"header_up\s+Host\s+\{upstream_hostport\}", mcp), (
         "the /mcp reverse proxy must rewrite Host to the loopback upstream"
     )

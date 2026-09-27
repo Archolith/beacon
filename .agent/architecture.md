@@ -125,9 +125,16 @@ Expected resource refusals preserve their stable public limit code. Any other to
 logged server-side and reduced to a generic `internal_error` response so private paths or secrets in
 exception text never cross the MCP boundary.
 
-`beacon serve --snapshot S --transport http` runs the same FastMCP server object over
-Streamable HTTP at `http://<host>:<port>/mcp` (`--host` default `127.0.0.1`, `--port`
-default `8766`). It is snapshot-only (`serve_http_requires_snapshot` otherwise) and
+**One port.** `beacon serve-http` (default port 3366) serves the JSON API and MCP over
+Streamable HTTP at `/mcp` from one process: `beacon.one_port.OnePortApp` sends `/mcp` and
+lifespan events to a FastMCP app built by `create_mcp_server(provider=...)`, whose seven tools
+answer from the provider `create_http_app` built, and everything else to the JSON app; one
+`LoopbackGuard` wraps both. Discovery advertises it (`capabilities.mcp_http`, `mcp`) only when
+mounted; `--no-mcp` turns it off. Tool work runs on bounded worker threads in
+`BeaconBaseTool.execute` on every transport.
+
+`beacon serve --snapshot S --transport http` still runs MCP alone over Streamable HTTP at
+`http://<host>:<port>/mcp` (`--host` default `127.0.0.1`, `--port` default `3366`). It is snapshot-only (`serve_http_requires_snapshot` otherwise) and
 loopback-only through the `_require_loopback` gate shared with `serve-http`; it is
 direct, unverified serving until the trust plan's broker and signing phases land.
 `_run_mcp_http` pre-binds the socket (`http_bind_failed`), runs uvicorn without an access
@@ -136,8 +143,8 @@ non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
 
 Exposure beyond the machine is configuration, not code: `docs/deployment.md` with
 `deploy/nginx/beacon.conf`, `deploy/caddy/Caddyfile`, and `deploy/systemd/*.service`
-put an explicitly configured TLS reverse proxy in front of the two loopback servers.
-The proxy must rewrite the upstream Host to `127.0.0.1:8766` for `/mcp` (the guard
+put an explicitly configured TLS reverse proxy in front of the one loopback server.
+The proxy must rewrite the upstream Host to `127.0.0.1:3366` (the guard
 refuses any other Host), must not buffer MCP responses (Streamable HTTP can stream
 Server-Sent Events), and must log paths without query strings; Beacon itself ships
 no auth, CORS, TLS, rate limiting, or in-process access logs.
@@ -200,7 +207,7 @@ the decisions family, the dynamic listing, and the dynamic flow steps from `reco
 | `BEACON_VALIDATE_ON_LOAD` | no | `true` | Hard-fail at startup on manifest errors |
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level |
 | `BEACON_HOST` | no | `127.0.0.1` | Remote transport host (stdio ignores) |
-| `BEACON_PORT` | no | `8788` | Remote transport port (stdio ignores) |
+| `BEACON_PORT` | no | `3366` | Remote transport port (reserved; the HTTP commands take `--port`, default 3366) |
 | `BEACON_MAX_MANIFEST_BYTES` | no | `1048576` | Manifest source byte ceiling |
 | `BEACON_MAX_DOCUMENTS` | no | `256` | Canonical document count ceiling |
 | `BEACON_MAX_DOCUMENT_BYTES` | no | `2097152` | One canonical document byte ceiling |

@@ -88,14 +88,14 @@ For a client that does not speak MCP, start the immutable loopback HTTP surface:
 
 ```bash
 beacon serve-http --manifest beacon.yaml
-curl http://127.0.0.1:8765/.well-known/archolith-beacon
-curl http://127.0.0.1:8765/v1/snapshot/identity
-curl http://127.0.0.1:8765/v1/status
-curl http://127.0.0.1:8765/v1/snapshot/orientation
-curl http://127.0.0.1:8765/v1/concepts
-curl http://127.0.0.1:8765/v1/guardrails
-curl http://127.0.0.1:8765/v1/chunks
-curl http://127.0.0.1:8765/v1/snapshot
+curl http://127.0.0.1:3366/.well-known/archolith-beacon
+curl http://127.0.0.1:3366/v1/snapshot/identity
+curl http://127.0.0.1:3366/v1/status
+curl http://127.0.0.1:3366/v1/snapshot/orientation
+curl http://127.0.0.1:3366/v1/concepts
+curl http://127.0.0.1:3366/v1/guardrails
+curl http://127.0.0.1:3366/v1/chunks
+curl http://127.0.0.1:3366/v1/snapshot
 ```
 
 Use `/v1/snapshot/identity` as the cheapest project read, then `/v1/status` for the single declared

@@ -7,11 +7,12 @@
 # This unit ships unvalidated; check it with:
 #   systemd-analyze verify beacon-http.service
 #
-# The JSON API binds 127.0.0.1:8765 (both defaults). TLS termination and
+# `beacon serve-http` binds 127.0.0.1:3366 (both defaults) and serves the JSON API
+# and MCP over Streamable HTTP (/mcp) on that one port. TLS termination and
 # public exposure happen in the reverse proxy (see docs/deployment.md).
 
 [Unit]
-Description=Beacon JSON API (loopback 127.0.0.1:8765)
+Description=Beacon JSON API + MCP (loopback 127.0.0.1:3366)
 After=network-online.target
 Wants=network-online.target
 

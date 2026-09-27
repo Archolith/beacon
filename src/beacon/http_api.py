@@ -85,7 +85,7 @@ from beacon.mcp.tools.search import SearchTool
 from beacon.provider.manifest_provider import ManifestBeaconProvider
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.8"
+_DESCRIPTOR_VERSION = "1.9"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -173,8 +173,13 @@ def create_http_app(
     *,
     status_observation: StatusObservation | None = None,
     limits: ResourceLimits | None = None,
+    mcp_path: str | None = None,
 ) -> Starlette:
     """Return a Starlette app serving an immutable view of *snapshot*.
+
+    *mcp_path* (``serve-http`` passes ``/mcp``) only advertises the MCP endpoint in
+    discovery; the caller mounts it beside this app on the same port. It is advertised
+    only when the snapshot's manifest is servable, since MCP answers from the same provider.
 
     The snapshot is serialized to canonical bytes exactly once here; all
     requests thereafter serve that immutable payload. Discovery and health are
@@ -263,6 +268,7 @@ def create_http_app(
         status_byte_count=len(status_payload),
         schema_version=schema_version,
         freshness=freshness,
+        mcp_path=mcp_path if provider is not None else None,
     )
     discovery_body = dumps_canonical(discovery)
     health = _health_payload(sha256=sha256, schema_version=schema_version)
@@ -964,6 +970,7 @@ def _discovery_payload(
     status_byte_count: int,
     schema_version: str,
     freshness: dict[str, Any],
+    mcp_path: str | None = None,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document.
 
@@ -1101,6 +1108,15 @@ def _discovery_payload(
             *_FLOW_SERVABLE_STEPS,
             _FLOW_GUARDRAILS,
         ]
+    if mcp_path is not None:
+        # MCP over Streamable HTTP on this same origin and port (``serve-http``, #26).
+        capabilities["mcp_http"] = True
+        payload["mcp"] = {
+            "url": mcp_path,
+            "transport": "streamable-http",
+            "tools": 7,
+            "use_when": "an MCP client: the same answers as the JSON routes, as Beacon's tools",
+        }
     return payload
 
 

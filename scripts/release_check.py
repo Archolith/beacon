@@ -464,18 +464,22 @@ def probe_http_snapshot(
             "decisions": True,
             "guardrails": True,
             "status": True,
-            "mcp_http": False,
+            "mcp_http": True,
             "query": True,
             "question_submission": False,
             "snapshot": True,
         }:
             raise JourneyError(
-                "HTTP discovery capabilities differ from the descriptor 1.8 contract"
+                "HTTP discovery capabilities differ from the descriptor 1.9 contract"
             )
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.8":
-            raise JourneyError("HTTP discovery descriptor version is not 1.8")
+        if descriptor.get("descriptor_version") != "1.9":
+            raise JourneyError("HTTP discovery descriptor version is not 1.9")
+        # One port (#26 follow-up): serve-http also serves MCP at /mcp by default.
+        mcp_entry = descriptor.get("mcp", {})
+        if mcp_entry.get("url") != "/mcp" or mcp_entry.get("transport") != "streamable-http":
+            raise JourneyError("HTTP discovery does not advertise MCP at /mcp")
         if descriptor.get("trust") != "direct_unverified":
             raise JourneyError("HTTP discovery does not label itself direct and unverified")
         representations = descriptor.get("representations", {})

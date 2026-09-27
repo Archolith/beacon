@@ -157,17 +157,19 @@ Configure your agent client to launch one of these commands (see
 [Connecting an agent](#connecting-an-agent) and the maintained
 [docs/client-setup.md](docs/client-setup.md)).
 
-**Streamable HTTP.** The same server also runs over MCP Streamable HTTP, from a
-canonical snapshot:
+**Streamable HTTP.** The same seven tools also run over MCP Streamable HTTP at `/mcp`.
+The usual way is `beacon serve-http` (step 6), which serves MCP at `/mcp` and the JSON
+API on **one port, 3366 by default**, from one snapshot. For MCP alone, from an exported
+snapshot:
 
 ```bash
 beacon export                                  # writes beacon.snapshot.json
 beacon serve --snapshot beacon.snapshot.json --transport http
-# [beacon] MCP http listening on http://127.0.0.1:8766/mcp (pid=...)
+# [beacon] MCP http listening on http://127.0.0.1:3366/mcp (pid=...)
 ```
 
-`--transport http` requires `--snapshot`, serves the same seven tools at the `/mcp`
-path, and `--host` (default `127.0.0.1`) and `--port` (default `8766`) apply to it
+`--transport http` requires `--snapshot`, serves the seven tools at the `/mcp`
+path, and `--host` (default `127.0.0.1`) and `--port` (default `3366`) apply to it
 only. It binds loopback only, and it is direct, unverified access — no trust broker
 or signing yet (see the [trust plan](.agent/plans/beacon-trust-hub-and-federation-plan-2026-08-09.md));
 exposure beyond this machine goes through a TLS reverse proxy (see
@@ -179,24 +181,27 @@ A port already in use fails with `http_bind_failed`.
 
 **6. Optionally serve the snapshot as plain JSON.**
 
-Clients that do not speak MCP can use the loopback-only HTTP compatibility surface. Like the MCP
-HTTP transport, it refuses a non-loopback `Host` (421) or browser `Origin` (403), so a web page
-cannot reach it through DNS rebinding:
+`beacon serve-http` serves the loopback-only JSON API **and** MCP over Streamable HTTP at
+`/mcp`, on one port (default **3366**), from one snapshot: MCP clients connect to
+`http://127.0.0.1:3366/mcp`, and everything else uses the JSON routes below. Discovery advertises
+the MCP endpoint (`capabilities.mcp_http`, `mcp.url`); `--no-mcp` serves the JSON API alone. Both
+surfaces refuse a non-loopback `Host` (421) or browser `Origin` (403), so a web page cannot reach
+them through DNS rebinding:
 
 ```bash
 beacon serve-http --manifest beacon.yaml
-curl http://127.0.0.1:8765/.well-known/archolith-beacon
-curl http://127.0.0.1:8765/v1/snapshot/identity
-curl http://127.0.0.1:8765/v1/status
-curl http://127.0.0.1:8765/v1/snapshot/orientation
-curl http://127.0.0.1:8765/v1/concepts
-curl http://127.0.0.1:8765/v1/guardrails
-curl http://127.0.0.1:8765/v1/decisions
-curl http://127.0.0.1:8765/v1/chunks
-curl "http://127.0.0.1:8765/v1/search?q=namespace+isolation&types=decisions"
-curl "http://127.0.0.1:8765/v1/read?chunk_id=c1-...&max_chars=4000"
-curl "http://127.0.0.1:8765/v1/explain?concept=adr-0005"
-curl http://127.0.0.1:8765/v1/snapshot
+curl http://127.0.0.1:3366/.well-known/archolith-beacon
+curl http://127.0.0.1:3366/v1/snapshot/identity
+curl http://127.0.0.1:3366/v1/status
+curl http://127.0.0.1:3366/v1/snapshot/orientation
+curl http://127.0.0.1:3366/v1/concepts
+curl http://127.0.0.1:3366/v1/guardrails
+curl http://127.0.0.1:3366/v1/decisions
+curl http://127.0.0.1:3366/v1/chunks
+curl "http://127.0.0.1:3366/v1/search?q=namespace+isolation&types=decisions"
+curl "http://127.0.0.1:3366/v1/read?chunk_id=c1-...&max_chars=4000"
+curl "http://127.0.0.1:3366/v1/explain?concept=adr-0005"
+curl http://127.0.0.1:3366/v1/snapshot
 ```
 
 The surface is loopback-only; to publish it beyond this machine, put the TLS reverse proxy from
@@ -661,7 +666,7 @@ Any MCP client that accepts a stdio server can use this shape:
 | `BEACON_VALIDATE_ON_LOAD` | no | `true` | Hard-fail at startup if the manifest has errors |
 | `BEACON_LOG_LEVEL` | no | `WARNING` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `BEACON_HOST` | no | `127.0.0.1` | Reserved runtime transport host; current stdio and `serve-http` paths use stdio or explicit CLI flags |
-| `BEACON_PORT` | no | `8788` | Reserved runtime transport port; current stdio and `serve-http` paths use stdio or explicit CLI flags |
+| `BEACON_PORT` | no | `3366` | Reserved runtime transport port (the HTTP servers' `--port` default is also 3366); current stdio and `serve-http` paths use stdio or explicit CLI flags |
 | `BEACON_MAX_MANIFEST_BYTES` | no | `1048576` | Manifest source byte ceiling |
 | `BEACON_MAX_DOCUMENTS` | no | `256` | Canonical document count ceiling |
 | `BEACON_MAX_DOCUMENT_BYTES` | no | `2097152` | Per-document byte ceiling |

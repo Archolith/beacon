@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -18,25 +19,39 @@ from fastmcp import FastMCP
 from beacon.mcp.lifecycle import beacon_lifespan
 from beacon.mcp.tools import register_all_tools
 
-__all__ = ["mcp", "register_all_tools"]
+__all__ = ["INSTRUCTIONS", "create_mcp_server", "mcp", "register_all_tools"]
 
 load_dotenv(os.getenv("ENV_FILE") or None)
 logger = logging.getLogger(__name__)
 
 # All seven tools are always visible — the surface is intentionally small: the five v0
 # tools plus beacon_catalog and beacon_read; no gateway meta-tools, no transforms.
-mcp = FastMCP(
-    name="beacon",
-    # Sent once on connect, so it is kept to a few lines: load only what the task needs.
-    instructions=(
-        "Beacon: cited, current knowledge about this project. Load it lazily: start with "
-        "beacon_project_overview, then call beacon_agent_onboarding or beacon_guardrails "
-        "with a task_hint for what you are about to change. When a question comes up, use "
-        "beacon_search or beacon_catalog, then beacon_read only the sections you need; "
-        "beacon_explain_concept defines project terms. For why something is built the way "
-        "it is, search source_types=['decisions'] (the project's ADRs)."
-    ),
-    lifespan=beacon_lifespan,
+# Sent once on connect, so it is kept to a few lines: load only what the task needs.
+INSTRUCTIONS = (
+    "Beacon: cited, current knowledge about this project. Load it lazily: start with "
+    "beacon_project_overview, then call beacon_agent_onboarding or beacon_guardrails "
+    "with a task_hint for what you are about to change. When a question comes up, use "
+    "beacon_search or beacon_catalog, then beacon_read only the sections you need; "
+    "beacon_explain_concept defines project terms. For why something is built the way "
+    "it is, search source_types=['decisions'] (the project's ADRs)."
 )
 
-register_all_tools(mcp)
+
+def create_mcp_server(provider: Any = None) -> FastMCP:
+    """A Beacon MCP server with all seven tools.
+
+    Without *provider* the server builds its provider at startup (``beacon_lifespan``, from
+    the environment) — the stdio and ``serve --transport http`` path. With *provider* it
+    answers from that provider and has no lifespan of its own: ``serve-http`` mounts it at
+    ``/mcp`` beside the JSON routes so both surfaces share one snapshot.
+    """
+    server: FastMCP = FastMCP(
+        name="beacon",
+        instructions=INSTRUCTIONS,
+        lifespan=beacon_lifespan if provider is None else None,
+    )
+    register_all_tools(server, provider=provider)
+    return server
+
+
+mcp = create_mcp_server()
