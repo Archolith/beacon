@@ -281,7 +281,7 @@ pushed from a workstation:
 - **`.github/workflows/release-image.yml`**
   - **Validate job:** builds the `Dockerfile` with no registry credentials, smoke-tests it,
     generates an SBOM with digest-pinned Syft, and scans with digest-pinned Grype, failing
-    on HIGH or CRITICAL. It uploads the sealed image, identity and evidence.
+    on any CRITICAL finding (Menhir's policy: maximum allowed severity High). It uploads the sealed image, identity and evidence.
   - **Publish job:** runs only on a manual dispatch with `push: true` from `master`, behind
     the `beacon-release-image` environment. It verifies the sealed image's checksums and
     image ID before logging in, pushes that exact image to `ghcr.io/archolith/beacon`, and

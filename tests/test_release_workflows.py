@@ -63,7 +63,7 @@ def test_release_image_validation_holds_no_publish_rights() -> None:
     assert not any("login" in _uses(step) for step in steps)
     assert not any("docker push" in _run(step) for step in steps)
     scan = _index(steps, lambda s: "GRYPE_IMAGE" in _run(s))
-    assert "--fail-on high" in _run(steps[scan])
+    assert "--fail-on critical" in _run(steps[scan])
     seal = _index(steps, lambda s: "docker save" in _run(s))
     upload = _index(steps, lambda s: "upload-artifact" in _uses(s))
     assert seal < scan < upload

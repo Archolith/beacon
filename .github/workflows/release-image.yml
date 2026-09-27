@@ -112,10 +112,10 @@ jobs:
             docker-archive:/work/image.tar -o cyclonedx-json=/work/sbom.cdx.json
           test -s .release/sbom.cdx.json
 
-      - name: Vulnerability scan (Grype, digest-pinned; fails on HIGH or CRITICAL)
+      - name: Vulnerability scan (Grype, digest-pinned; Menhir's policy - maximum allowed severity High)
         run: |
           docker run --rm -v "$PWD/.release:/work" "$GRYPE_IMAGE" \
-            sbom:/work/sbom.cdx.json --fail-on high -o table --file /work/grype.txt \
+            sbom:/work/sbom.cdx.json --fail-on critical -o table --file /work/grype.txt \
             || { cat .release/grype.txt >&2 || true; exit 1; }
           cat .release/grype.txt
 

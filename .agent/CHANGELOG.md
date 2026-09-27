@@ -4,7 +4,7 @@
 
 - **`release-image.yml`**, mirroring Menhir's:
   - **Validate:** a credential-free build, a smoke run, a digest-pinned Syft SBOM and a
-    digest-pinned Grype scan (fails on HIGH or CRITICAL), and a sealed image with identity and
+    digest-pinned Grype scan (fails on CRITICAL, Menhir's policy), and a sealed image with identity and
     checksums.
   - **Publish:** only on a `push: true` dispatch from `master`, in the `beacon-release-image`
     environment. It verifies the sealed image before logging in, pushes that exact image to

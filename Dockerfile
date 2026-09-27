@@ -6,10 +6,12 @@
 # Alternatively override the command with container mode on a private network:
 #   serve-http ... --host 0.0.0.0 --allowed-host <public name>   (docs/deployment.md)
 # Mount the extracted bundle read-only at /bundle. See docs/deployment.md.
-FROM python:3.13-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26
+FROM python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 # git: serve-http observes the bundle's pinned commit at startup for discovery freshness.
+# upgrade: pick up Debian security fixes newer than the pinned base (release-image.yml scans).
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
