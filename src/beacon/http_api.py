@@ -1,4 +1,4 @@
-"""Loopback HTTP surface for an immutable Beacon snapshot.
+"""HTTP surface for an immutable Beacon snapshot (loopback, or a private container bind).
 
 Builds a small :class:`starlette.applications.Starlette` ASGI app over an
 already-built :class:`beacon.core.snapshot.Snapshot`. The canonical embedded,
@@ -85,7 +85,7 @@ from beacon.mcp.tools.search import SearchTool
 from beacon.provider.manifest_provider import ManifestBeaconProvider
 
 #: Discovery descriptor version.
-_DESCRIPTOR_VERSION = "1.9"
+_DESCRIPTOR_VERSION = "1.10"
 
 #: Error envelope version shared by every error body.
 _ERROR_VERSION = "1.0"
@@ -96,8 +96,10 @@ _DECISION_INDEX_VERSION = "1.0"
 #: Redacted readiness mode.
 _STARTUP_MODE = "immutable_snapshot"
 
-#: Loopback scope reported by discovery.
+#: Bind scope reported by discovery: loopback (default), or container (serve-http container
+#: mode, a non-loopback bind behind a proxy or tunnel with an allowed-host list).
 _SCOPE = "loopback"
+_SCOPES = frozenset({"loopback", "container"})
 
 #: Discovery authentication model.
 _AUTHENTICATION = "none"
@@ -174,8 +176,11 @@ def create_http_app(
     status_observation: StatusObservation | None = None,
     limits: ResourceLimits | None = None,
     mcp_path: str | None = None,
+    scope: str = _SCOPE,
 ) -> Starlette:
     """Return a Starlette app serving an immutable view of *snapshot*.
+
+    *scope* is the bind scope discovery reports (``loopback`` or ``container``).
 
     *mcp_path* (``serve-http`` passes ``/mcp``) only advertises the MCP endpoint in
     discovery; the caller mounts it beside this app on the same port. It is advertised
@@ -191,6 +196,8 @@ def create_http_app(
     """
     if snapshot.content_mode != CONTENT_EMBEDDED:
         raise ValueError("HTTP snapshot must use embedded content mode")
+    if scope not in _SCOPES:
+        raise ValueError(f"unknown discovery scope: {scope!r}")
 
     try:
         provider = ManifestBeaconProvider.from_snapshot(snapshot, limits=limits)
@@ -269,6 +276,7 @@ def create_http_app(
         schema_version=schema_version,
         freshness=freshness,
         mcp_path=mcp_path if provider is not None else None,
+        scope=scope,
     )
     discovery_body = dumps_canonical(discovery)
     health = _health_payload(sha256=sha256, schema_version=schema_version)
@@ -971,6 +979,7 @@ def _discovery_payload(
     schema_version: str,
     freshness: dict[str, Any],
     mcp_path: str | None = None,
+    scope: str = _SCOPE,
 ) -> dict[str, Any]:
     """Return the deterministic, redacted discovery document.
 
@@ -998,7 +1007,7 @@ def _discovery_payload(
     payload: dict[str, Any] = {
         "descriptor_version": _DESCRIPTOR_VERSION,
         "beacon_version": __version__,
-        "scope": _SCOPE,
+        "scope": scope,
         "authentication": _AUTHENTICATION,
         "trust": _TRUST,
         "trust_note": _TRUST_NOTE,

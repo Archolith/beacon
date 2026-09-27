@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -461,14 +462,29 @@ def serve_http(
         None, "--manifest", "-m", help="Path to beacon.yaml (default: ./beacon.yaml)."
     ),
     docs_root: str | None = typer.Option(None, "--docs-root", help="Docs root directory."),
-    host: str = typer.Option("127.0.0.1", "--host", help="Loopback bind address."),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help=(
+            "Bind address: 127.0.0.1 (default). A non-loopback IPv4 address (container mode) "
+            "is accepted only together with --allowed-host."
+        ),
+    ),
     port: int = typer.Option(
-        DEFAULT_HTTP_PORT, "--port", help="Loopback port; 0 selects an available port."
+        DEFAULT_HTTP_PORT, "--port", help="Port; 0 selects an available port."
     ),
     mcp: bool = typer.Option(
         True,
         "--mcp/--no-mcp",
         help="Also serve MCP over Streamable HTTP at /mcp on the same port (default: on).",
+    ),
+    allowed_host: list[str] = typer.Option(
+        [],
+        "--allowed-host",
+        help=(
+            "Container mode: an exact host name a trusted proxy or tunnel sends in Host "
+            "(repeatable). Any other non-loopback Host is still refused with 421."
+        ),
     ),
     acknowledge: list[str] = typer.Option([], "--acknowledge"),
     allow_sensitive: list[str] = typer.Option([], "--allow-sensitive"),
@@ -479,7 +495,10 @@ def serve_http(
     max_chunks: int | None = typer.Option(None, "--max-chunks"),
     max_snapshot_bytes: int | None = typer.Option(None, "--max-snapshot-bytes"),
 ) -> None:
-    """Serve an immutable canonical snapshot over loopback HTTP (JSON API, plus MCP at /mcp)."""
+    """Serve an immutable canonical snapshot over HTTP (JSON API, plus MCP at /mcp).
+
+    Loopback-only by default; --allowed-host enables container mode (a private bind).
+    """
     _safe(
         "serve-http",
         "text",
@@ -489,6 +508,7 @@ def serve_http(
             host=host,
             port=port,
             mcp=mcp,
+            allowed_hosts=allowed_host,
             acknowledges=acknowledge,
             allow_sensitive=allow_sensitive,
             cli_limits=_six_limit_args(
@@ -510,11 +530,12 @@ def _serve_http_impl(
     host: str,
     port: int,
     mcp: bool = True,
+    allowed_hosts: list[str] | None = None,
     acknowledges: list[str],
     allow_sensitive: list[str],
     cli_limits: dict[str, Any],
 ) -> int:
-    _require_loopback(host, port, allow_port_zero=True)
+    allowed = _require_serve_http_bind(host, port, allowed_hosts or [])
 
     context = cli_support.build_command_context(
         cli_limits=cli_limits,
@@ -560,8 +581,62 @@ def _serve_http_impl(
         status_observation=status_observation,
         limits=context.limits,
         mcp=mcp,
+        allowed_hosts=allowed,
     )
     return EXIT_OK
+
+
+def _require_serve_http_bind(host: str, port: int, allowed_hosts: list[str]) -> frozenset[str]:
+    """Validate the ``serve-http`` bind; return the normalized allowed host names.
+
+    Without ``--allowed-host`` this is the loopback-only rule shared with ``serve``. With it
+    (container mode) the bind may also be ``0.0.0.0`` or a private (RFC 1918) IPv4 address.
+    The Host guard is not access control (clients choose their Host), so isolation comes
+    from the private container network; public, multicast and broadcast addresses are
+    refused so a bind cannot face the internet directly.
+    """
+    if not allowed_hosts:
+        _require_loopback(host, port, allow_port_zero=True)
+        return frozenset()
+    from beacon.loopback_guard import normalize_allowed_hosts
+
+    try:
+        allowed = normalize_allowed_hosts(allowed_hosts)
+    except ValueError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_allowed_host_invalid",
+            "--allowed-host must be an exact DNS host name "
+            "(no wildcard, port, IP address or loopback name)",
+        ) from exc
+    try:
+        address = ipaddress.IPv4Address(host)
+    except ValueError as exc:
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_host_invalid",
+            "HTTP server host must be an IPv4 address in container mode",
+        ) from exc
+    if not (
+        address.is_unspecified
+        or address.is_loopback
+        or any(address in network for network in _CONTAINER_BIND_NETWORKS)
+    ):
+        raise cli_support.CliFailure(
+            EXIT_INPUT,
+            "http_host_not_private",
+            "container mode binds only 0.0.0.0, loopback or a private (RFC 1918) address",
+        )
+    _require_loopback("127.0.0.1", port, allow_port_zero=True)  # port range check only
+    return allowed
+
+
+#: Container-mode bind networks besides 0.0.0.0 and loopback (RFC 1918 private ranges).
+_CONTAINER_BIND_NETWORKS = (
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+)
 
 
 def _serve_http_snapshot(
@@ -572,13 +647,16 @@ def _serve_http_snapshot(
     status_observation: StatusObservation,
     limits: ResourceLimits,
     mcp: bool = True,
+    allowed_hosts: frozenset[str] = frozenset(),
 ) -> None:
-    """Bind one loopback socket and run the immutable ASGI snapshot application.
+    """Bind one socket (loopback, or private in container mode) and run the snapshot app.
 
     With *mcp* (the default) the same port also serves MCP over Streamable HTTP at ``/mcp``,
     answering from the provider the JSON routes use (one snapshot, one provider). The whole
     app is wrapped in the Host/Origin guard: loopback keeps other machines out, but a web
-    page could still reach the port by DNS rebinding.
+    page could still reach the port by DNS rebinding. In container mode (*allowed_hosts*)
+    the guard also admits those exact Host names, and discovery reports ``scope: container``
+    when the bind is not loopback.
     """
     import uvicorn
 
@@ -592,6 +670,7 @@ def _serve_http_snapshot(
         status_observation=status_observation,
         limits=limits,
         mcp_path=MCP_PATH if mcp else None,
+        scope="loopback" if ipaddress.IPv4Address(host).is_loopback else "container",
     )
     provider = app_http.state.beacon_provider
     served: ASGIApp = app_http
@@ -607,17 +686,19 @@ def _serve_http_snapshot(
             EXIT_INPUT, "http_bind_failed", "could not bind loopback HTTP server"
         ) from exc
 
-    actual_port = int(listener.getsockname()[1])
+    bound_host, actual_port = listener.getsockname()[:2]
+    actual_port = int(actual_port)
     snapshot_sha = str(app_http.state.beacon_snapshot_sha256)
     mcp_note = f" mcp={MCP_PATH}" if served is not app_http else ""
+    hosts_note = f" allowed_hosts={','.join(sorted(allowed_hosts))}" if allowed_hosts else ""
     typer.echo(
-        f"Beacon HTTP ready url=http://{host}:{actual_port} beacon={__version__} "
+        f"Beacon HTTP ready url=http://{bound_host}:{actual_port} beacon={__version__} "
         f"snapshot_schema={snap.beacon_snapshot_version} snapshot_sha256={snapshot_sha}"
-        f"{mcp_note}",
+        f"{mcp_note}{hosts_note}",
         err=True,
     )
     config = uvicorn.Config(
-        LoopbackGuard(served),
+        LoopbackGuard(served, allowed_hosts=allowed_hosts),
         host=host,
         port=actual_port,
         access_log=False,

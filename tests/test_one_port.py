@@ -87,7 +87,7 @@ def test_json_and_mcp_share_one_port_and_one_guard(served: dict[str, Any]) -> No
     status, body, _ = _get(base, "/.well-known/archolith-beacon")
     discovery = json.loads(body)
     assert status == 200
-    assert discovery["descriptor_version"] == "1.9"
+    assert discovery["descriptor_version"] == "1.10"
     assert discovery["capabilities"]["mcp_http"] is True
     assert discovery["mcp"]["url"] == "/mcp" and discovery["mcp"]["transport"] == "streamable-http"
     log = served["logs"][0].read_text(encoding="utf-8", errors="replace")

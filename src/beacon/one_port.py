@@ -46,5 +46,7 @@ def build_mcp_app(provider: Any, mcp_path: str = MCP_PATH) -> ASGIApp:
     from beacon.mcp.server import create_mcp_server
 
     server = create_mcp_server(provider=provider)
-    app: ASGIApp = server.http_app(path=mcp_path, transport="http")
+    # Beacon's LoopbackGuard wraps this app; fastmcp's own guard stays off explicitly so a
+    # FASTMCP_HTTP_HOST_ORIGIN_PROTECTION setting cannot refuse container-mode allowed hosts.
+    app: ASGIApp = server.http_app(path=mcp_path, transport="http", host_origin_protection=False)
     return app

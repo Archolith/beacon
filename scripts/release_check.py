@@ -470,12 +470,12 @@ def probe_http_snapshot(
             "snapshot": True,
         }:
             raise JourneyError(
-                "HTTP discovery capabilities differ from the descriptor 1.9 contract"
+                "HTTP discovery capabilities differ from the descriptor 1.10 contract"
             )
         if descriptor.get("snapshot", {}).get("sha256") != expected_sha:
             raise JourneyError("HTTP discovery snapshot digest differs from the canonical export")
-        if descriptor.get("descriptor_version") != "1.9":
-            raise JourneyError("HTTP discovery descriptor version is not 1.9")
+        if descriptor.get("descriptor_version") != "1.10":
+            raise JourneyError("HTTP discovery descriptor version is not 1.10")
         # One port (#26 follow-up): serve-http also serves MCP at /mcp by default.
         mcp_entry = descriptor.get("mcp", {})
         if mcp_entry.get("url") != "/mcp" or mcp_entry.get("transport") != "streamable-http":

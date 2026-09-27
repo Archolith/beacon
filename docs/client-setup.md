@@ -106,7 +106,7 @@ and source changes after startup require a restart. Its trust block says `self_r
 attestation. Continue to
 `/v1/snapshot/orientation` when concepts, guardrails, citations, or document inventory are needed.
 Use `/v1/snapshot` for the full corpus; `/beacon.json` is its identical alias. Discovery descriptor
-1.5 advertises status and three companion catalogs. `/v1/concepts` and `/v1/guardrails` let a client select and
+1.10 advertises status and three companion catalogs. `/v1/concepts` and `/v1/guardrails` let a client select and
 retrieve one complete source-cited manifest record through an opaque resource ID. `/v1/chunks`
 supports selective body retrieval; each entry carries
 a stable location-derived ID, parent role/status, exact UTF-8 text bytes, exact response bytes, and

@@ -144,6 +144,10 @@ non-loopback `Host` (421) or browser `Origin` (403) against DNS rebinding.
 Exposure beyond the machine is configuration, not code: `docs/deployment.md` with
 `deploy/nginx/beacon.conf`, `deploy/caddy/Caddyfile`, and `deploy/systemd/*.service`
 put an explicitly configured TLS reverse proxy in front of the one loopback server.
+`serve-http` container mode (`--host <private IPv4> --allowed-host <name>`) is the other
+option: a private-network bind behind the operator's own proxy or tunnel, where the guard
+admits only loopback names plus the exact allowed names and discovery reports
+`scope: container`.
 The proxy must rewrite the upstream Host to `127.0.0.1:3366` (the guard
 refuses any other Host), must not buffer MCP responses (Streamable HTTP can stream
 Server-Sent Events), and must log paths without query strings; Beacon itself ships
@@ -153,11 +157,12 @@ no auth, CORS, TLS, rate limiting, or in-process access logs.
 
 `beacon serve-http` applies the export publication, path, resource, and secret gates, then builds one
 embedded snapshot. `_serve_http_snapshot` serves the app behind `LoopbackGuard`, the same
-Host/Origin check as MCP over HTTP (421 for a non-loopback `Host`, 403 for a foreign `Origin`);
+Host/Origin check as MCP over HTTP (421 for a `Host` that is not loopback or, in container mode,
+an allowed name; 403 for a foreign `Origin`);
 in-process users of `create_http_app` get the bare app. `http_api.create_http_app()` serializes that full representation and derives
 identity and metadata-only orientation representations from the same approved in-memory value.
 Before binding, the CLI separately captures bounded Git and source-digest evidence for the immutable
-status companion. Discovery descriptor 1.7 is the LLM entry point: it advertises
+status companion. Discovery descriptor 1.10 is the LLM entry point: it advertises
 `/v1/snapshot/identity`, `/v1/status`, `/v1/snapshot/orientation`, and `/v1/snapshot` with
 independent SHA-256 digests and exact byte sizes, gives every resource family and dynamic route a
 one-line `use_when`, orders a `recommended_flow` of routes for agents, labels the access
