@@ -18,6 +18,14 @@ on:
   push:
     tags:
       - "v[0-9]*"
+  # Validate (build, SBOM, scan) every change to what goes into the image; never publishes.
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - src/**
+      - .github/workflows/release-image.yml
 
 permissions:
   contents: read
