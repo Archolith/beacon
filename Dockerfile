@@ -10,9 +10,19 @@ FROM python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bc
 
 # git: serve-http observes the bundle's pinned commit at startup for discovery freshness.
 # upgrade: pick up Debian security fixes newer than the pinned base (release-image.yml scans).
+# Beacon runs only local git (status, rev-parse), built into /usr/bin/git. The HTTP remote
+# helpers are the only libcurl users and carry won't-fix critical CVEs, so they and libcurl
+# are removed; the build fails if anything left still links libcurl or git stops working.
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends git \
+    && for f in /usr/lib/git-core/*; do \
+         if [ -f "$f" ] && ldd "$f" 2>/dev/null | grep -q libcurl; then rm -f "$f"; fi; \
+       done \
+    && dpkg --purge --force-depends libcurl3t64-gnutls \
+    && ! (ldd /usr/bin/git; for f in /usr/lib/git-core/*; do ldd "$f" 2>/dev/null || true; done) \
+         | grep -q libcurl \
+    && git --version \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/beacon-src

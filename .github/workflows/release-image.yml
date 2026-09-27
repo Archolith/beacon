@@ -89,6 +89,8 @@ jobs:
         run: |
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
             beacon-release:candidate --version
+          # Local git must work without the removed HTTP helpers and libcurl.
+          docker run --rm --read-only --entrypoint git beacon-release:candidate --version
 
       - name: Seal the candidate
         id: seal
