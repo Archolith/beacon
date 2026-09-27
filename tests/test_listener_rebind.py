@@ -4,6 +4,11 @@ Regression for the 2026-09-27 incident: a beacon container sharing its proxy's n
 namespace crash-looped on ``http_bind_failed`` for about a minute after a rebuild, because the
 old instance's closed connections left TIME_WAIT on the port and the listener had no
 ``SO_REUSEADDR``. POSIX only; Windows never sets the flag (it would allow port stealing).
+
+On Linux a TIME_WAIT socket inherits ``SO_REUSEADDR`` from the listener that accepted it, and
+a rebind passes only when both sides carry it. So the fix holds from the second rebuild on:
+a server created by ``_new_listener`` can be replaced at once, while replacing an older
+server (plain socket) may still wait out one TIME_WAIT.
 """
 
 from __future__ import annotations
@@ -19,9 +24,9 @@ from beacon.main import _new_listener
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="SO_REUSEADDR is set on POSIX only")
 
 
-def _time_wait_port() -> int:
+def _time_wait_port(*, previous_server_fixed: bool) -> int:
     """Leave the server side of a closed connection in TIME_WAIT on a fresh loopback port."""
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server = _new_listener() if previous_server_fixed else socket.socket()
     server.bind(("127.0.0.1", 0))
     server.listen(1)
     port = int(server.getsockname()[1])
@@ -35,7 +40,8 @@ def _time_wait_port() -> int:
 
 
 def test_plain_socket_cannot_rebind_during_time_wait() -> None:
-    port = _time_wait_port()
+    # The pre-fix behaviour: plain sockets on both sides.
+    port = _time_wait_port(previous_server_fixed=False)
     plain = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         with pytest.raises(OSError) as info:
@@ -46,7 +52,8 @@ def test_plain_socket_cannot_rebind_during_time_wait() -> None:
 
 
 def test_listener_rebinds_during_time_wait() -> None:
-    port = _time_wait_port()
+    # A fixed server replaced by a fixed server: the recreate case the fix is for.
+    port = _time_wait_port(previous_server_fixed=True)
     listener = _new_listener()
     try:
         listener.bind(("127.0.0.1", port))

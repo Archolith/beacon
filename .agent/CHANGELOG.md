@@ -10,6 +10,9 @@
   instance's closed connections left TIME_WAIT on port 3366. That was the 2026-09-27
   `menhir.archolith.dev` 502.
 - **Still refused:** a port another socket is listening on.
+- **When it takes effect:** on Linux a TIME_WAIT socket inherits `SO_REUSEADDR` from the listener
+  that accepted it, so this works from the second rebuild on (a fixed server replaced by a fixed
+  one). The first switch from an older build may still wait out one TIME_WAIT.
 - **Tests:** `tests/test_listener_rebind.py` (POSIX) reproduces TIME_WAIT, checks that a plain
   socket gets `EADDRINUSE`, that the listener rebinds, and that a live listener is still
   refused.
