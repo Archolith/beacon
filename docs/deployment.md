@@ -234,6 +234,14 @@ serve it with the repository's `Dockerfile` instead of a systemd unit.
 To refresh, build a new bundle, switch the mount, and restart the container. CI's
 `demo-image` job builds this image and serves a bundle of the commit under test.
 
+### Beacon's own production deployment
+
+`deploy/production/` is the reference container-mode deployment. It uses its own compose
+projects and its own Cloudflare Tunnel, and it mirrors Menhir's: an internal IPv4-only network
+with no ports or egress, a digest-pinned image and bundle from CI, strict `pins.json`, and a
+mechanical `deploy.sh` with rollback. See
+[`deploy/production/README.md`](../deploy/production/README.md).
+
 ### Container mode: `--allowed-host` (no shared network namespace)
 
 Sharing the proxy's network namespace couples the containers: recreating the proxy

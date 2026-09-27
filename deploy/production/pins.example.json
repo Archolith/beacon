@@ -1,0 +1,11 @@
+{
+  "pins_version": 1,
+  "image": "ghcr.io/archolith/beacon:<label>@sha256:<64 hex, from release-image.yml's publish output>",
+  "public_host": "beacon.archolith.dev",
+  "bundle": {
+    "name": "beacon",
+    "commit": "<40 hex, the bundled commit>",
+    "url": "https://github.com/Archolith/beacon/releases/download/beacon-demo-beacon-<commit12>/beacon-demo-beacon-<commit12>.tar.gz",
+    "sha256": "<64 hex, from demo-bundle.yml's output>"
+  }
+}

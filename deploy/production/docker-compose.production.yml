@@ -1,0 +1,63 @@
+# Beacon production app (compose project beacon-prod), mirroring Menhir's layout:
+# /srv/beacon/production/{deploy,ingress,bundles,secrets}. Deployed only by deploy.sh,
+# which writes .env from validated pins.json.
+#
+# The app runs serve-http in container mode (--host 0.0.0.0 --allowed-host <public host>)
+# on beacon-proxy, an *internal* IPv4-only network shared only with its cloudflared tunnel:
+# no published ports and no internet egress. The tunnel reaches it at the fixed IPv4 address
+# 10.203.66.3, so Docker DNS never resolves the service name to IPv6 first.
+name: beacon-prod
+
+services:
+  beacon:
+    image: "${BEACON_IMAGE:?BEACON_IMAGE (digest-pinned ghcr.io/archolith/beacon image) is required}"
+    container_name: beacon-prod-app
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - serve-http
+      - --manifest
+      - /bundle/beacon.generated.yaml
+      - --docs-root
+      - /bundle/repo
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3366"
+      - --allowed-host
+      - "${BEACON_PUBLIC_HOST:?BEACON_PUBLIC_HOST (the public host name) is required}"
+    volumes:
+      - type: bind
+        source: "${BEACON_BUNDLE_DIR:?BEACON_BUNDLE_DIR (the bundle's current symlink) is required}"
+        target: /bundle
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      beacon-proxy:
+        ipv4_address: 10.203.66.3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3366/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384m
+          pids: 128
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  beacon-proxy:
+    external: true

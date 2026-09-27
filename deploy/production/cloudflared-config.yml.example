@@ -1,0 +1,14 @@
+# Copy to /srv/beacon/production/ingress/cloudflared-config.yml and fill in the tunnel UUID.
+# The credentials file is created when the tunnel is created; it lives under secrets/ and is
+# never committed.
+tunnel: <cloudflare-tunnel-uuid>
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  # No httpHostHeader override: cloudflared forwards the public host name as Host, which is
+  # exactly the app's --allowed-host. Any other Host would get 421 from Beacon's guard.
+  - hostname: beacon.archolith.dev
+    service: http://10.203.66.3:3366
+    originRequest:
+      connectTimeout: 10s
+  - service: http_status:404
