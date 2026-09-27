@@ -20,3 +20,9 @@ updates:
     ignore:
       # Remove after the framework's real-PyPI release is established.
       - dependency-name: archolith-mcp-framework
+      # fastmcp 4 needs mcp 2 and a framework release; migration deferred to the MVP
+      # (see PR #11). Majors only: minor/patch and security updates still arrive.
+      - dependency-name: fastmcp
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mcp
+        update-types: ["version-update:semver-major"]
