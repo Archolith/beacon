@@ -1,0 +1,166 @@
+name: Demo bundle
+
+# Build one project's Beacon demo bundle at one pinned commit, in CI rather than on a
+# workstation, and optionally publish it as a GitHub Release asset. Reusable: any project
+# (Menhir included) can call it; the bundle is published to the *calling* repository.
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: GitHub repository to bundle, owner/name (public)
+        required: true
+        type: string
+      commit:
+        description: Full 40-hex commit SHA to pin
+        required: true
+        type: string
+      name:
+        description: Project slug (lowercase, [a-z0-9-])
+        required: true
+        type: string
+      beacon_ref:
+        description: Archolith/beacon ref whose build_demo_bundle.py and CLI build the bundle
+        required: false
+        type: string
+        default: master
+      publish:
+        description: Publish the bundle as a release asset in the calling repository
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      asset_url:
+        description: Download URL of the published tarball (empty unless published)
+        value: ${{ jobs.publish.outputs.asset_url }}
+      sha256:
+        description: SHA-256 of the tarball
+        value: ${{ jobs.build.outputs.sha256 }}
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: GitHub repository to bundle, owner/name (public)
+        required: true
+        type: string
+      commit:
+        description: Full 40-hex commit SHA to pin
+        required: true
+        type: string
+      name:
+        description: Project slug (lowercase, [a-z0-9-])
+        required: true
+        type: string
+      beacon_ref:
+        description: Archolith/beacon ref whose build_demo_bundle.py and CLI build the bundle
+        required: false
+        type: string
+        default: master
+      publish:
+        description: Publish the bundle as a release asset in this repository
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and smoke-test the bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      stem: ${{ steps.bundle.outputs.stem }}
+      sha256: ${{ steps.bundle.outputs.sha256 }}
+    steps:
+      - name: Validate inputs
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          COMMIT: ${{ inputs.commit }}
+          NAME: ${{ inputs.name }}
+        run: |
+          [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "invalid repository" >&2; exit 1; }
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "commit must be a full 40-hex SHA" >&2; exit 1; }
+          [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "invalid name" >&2; exit 1; }
+
+      - name: Check out Beacon (the bundler)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Archolith/beacon
+          ref: ${{ inputs.beacon_ref }}
+          path: beacon
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Beacon
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./beacon
+
+      - name: Build the bundle (fetch, build, strict validate, export, package, serve smoke)
+        id: bundle
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          COMMIT: ${{ inputs.commit }}
+          NAME: ${{ inputs.name }}
+        run: |
+          python beacon/scripts/build_demo_bundle.py \
+            --source "https://github.com/$REPOSITORY.git" --commit "$COMMIT" --name "$NAME" \
+            --out-dir dist > summary.json
+          cat summary.json
+          stem="beacon-demo-$NAME-${COMMIT:0:12}"
+          test -f "dist/$stem.tar.gz"
+          (cd dist && sha256sum "$stem.tar.gz" > "$stem.tar.gz.sha256")
+          echo "stem=$stem" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cut -d' ' -f1 "dist/$stem.tar.gz.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.bundle.outputs.stem }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish the bundle as a release asset
+    needs: build
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      asset_url: ${{ steps.release.outputs.asset_url }}
+    steps:
+      - name: Download the bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.stem }}
+          path: dist
+
+      - name: Verify the bundle before publishing
+        env:
+          STEM: ${{ needs.build.outputs.stem }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          cd dist
+          sha256sum --strict -c "$STEM.tar.gz.sha256"
+          [ "$(cut -d' ' -f1 "$STEM.tar.gz.sha256")" = "$SHA256" ] || { echo "digest changed" >&2; exit 1; }
+
+      - name: Create the release (refuses to overwrite an existing tag)
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEM: ${{ needs.build.outputs.stem }}
+          REPOSITORY: ${{ inputs.repository }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          gh release create "$STEM" "dist/$STEM.tar.gz" "dist/$STEM.tar.gz.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "$STEM" \
+            --notes "Beacon demo bundle of $REPOSITORY at $COMMIT. SHA-256 in the .sha256 asset."
+          echo "asset_url=https://github.com/$GITHUB_REPOSITORY/releases/download/$STEM/$STEM.tar.gz" \
+            >> "$GITHUB_OUTPUT"

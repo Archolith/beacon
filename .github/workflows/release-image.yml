@@ -1,0 +1,193 @@
+name: Release image
+
+# Build, scan and seal the Beacon container image; publish it to GHCR only on an explicit,
+# environment-gated dispatch. Mirrors Menhir's release-image workflow: validation never holds
+# registry credentials, and publication pushes exactly the image that was validated.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release label for the image tag (e.g. 0.2.0rc2-1); the digest is the identity
+        required: true
+        type: string
+      push:
+        description: Publish the validated image to ghcr.io/archolith/beacon (needs environment approval)
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/archolith/beacon
+  # Digest-pinned scanners (the same releases Menhir's pipeline uses).
+  SYFT_IMAGE: docker.io/anchore/syft@sha256:600896ff278677fb13b16dc35999452f4e79636fc098c9fee6ce3cffef9858e2
+  GRYPE_IMAGE: docker.io/anchore/grype@sha256:461c87fefcd20d133f4d99db4623608637eecb439045f9fc8d6eebbb4149e766
+
+jobs:
+  validate:
+    name: build, scan and seal (no publish)
+    if: ${{ github.repository == 'Archolith/beacon' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      commit: ${{ steps.seal.outputs.commit }}
+      image_id: ${{ steps.seal.outputs.image_id }}
+      label: ${{ steps.seal.outputs.label }}
+    steps:
+      - name: Check out Beacon
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the exact commit and release label
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          commit="$(git rev-parse HEAD)"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit SHA" >&2; exit 1; }
+          label="${INPUT_VERSION:-$REF_NAME}"
+          [[ "$label" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] || { echo "invalid release label" >&2; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
+      - name: Build the image (no registry credentials in this job)
+        env:
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          LABEL: ${{ steps.meta.outputs.label }}
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/Archolith/beacon" \
+            --label "org.opencontainers.image.revision=$COMMIT" \
+            --label "org.opencontainers.image.version=$LABEL" \
+            -t beacon-release:candidate .
+
+      - name: Smoke the image
+        run: |
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            beacon-release:candidate --version
+
+      - name: Seal the candidate
+        id: seal
+        env:
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          LABEL: ${{ steps.meta.outputs.label }}
+        run: |
+          mkdir -p .release
+          docker save -o .release/image.tar beacon-release:candidate
+          image_id="$(docker image inspect --format '{{.Id}}' beacon-release:candidate)"
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected image id" >&2; exit 1; }
+          printf '{"commit":"%s","label":"%s","image_id":"%s"}\n' "$COMMIT" "$LABEL" "$image_id" \
+            > .release/identity.json
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+
+      - name: SBOM (Syft, digest-pinned)
+        run: |
+          docker run --rm -v "$PWD/.release:/work" "$SYFT_IMAGE" \
+            docker-archive:/work/image.tar -o cyclonedx-json=/work/sbom.cdx.json
+          test -s .release/sbom.cdx.json
+
+      - name: Vulnerability scan (Grype, digest-pinned; fails on HIGH or CRITICAL)
+        run: |
+          docker run --rm -v "$PWD/.release:/work" "$GRYPE_IMAGE" \
+            sbom:/work/sbom.cdx.json --fail-on high -o table --file /work/grype.txt \
+            || { cat .release/grype.txt >&2 || true; exit 1; }
+          cat .release/grype.txt
+
+      - name: Compress and record sealed checksums
+        run: |
+          cd .release
+          gzip -n image.tar
+          sha256sum image.tar.gz identity.json sbom.cdx.json grype.txt > SHA256SUMS
+
+      - name: Upload the sealed candidate and evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beacon-release-image
+          path: .release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish the validated image to GHCR
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.push && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: beacon-release-image
+      url: https://github.com/Archolith/beacon/pkgs/container/beacon
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image_ref: ${{ steps.push.outputs.image_ref }}
+    steps:
+      - name: Download the sealed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: beacon-release-image
+          path: .release
+
+      - name: Verify the sealed candidate before logging in
+        env:
+          COMMIT: ${{ needs.validate.outputs.commit }}
+          IMAGE_ID: ${{ needs.validate.outputs.image_id }}
+        run: |
+          cd .release
+          sha256sum --strict -c SHA256SUMS
+          python3 - "$COMMIT" "$IMAGE_ID" <<'PY'
+          import json, sys
+          identity = json.load(open("identity.json", encoding="utf-8"))
+          if identity["commit"] != sys.argv[1] or identity["image_id"] != sys.argv[2]:
+              raise SystemExit("sealed identity does not match the validate job's outputs")
+          PY
+          loaded="$(gunzip -c image.tar.gz | docker load | sed -n 's/^Loaded image: //p')"
+          [ "$loaded" = "beacon-release:candidate" ] || { echo "unexpected image loaded" >&2; exit 1; }
+          [ "$(docker image inspect --format '{{.Id}}' beacon-release:candidate)" = "$IMAGE_ID" ] \
+            || { echo "loaded image id differs from the validated one" >&2; exit 1; }
+
+      - name: Log in to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the exact validated image
+        id: push
+        env:
+          COMMIT: ${{ needs.validate.outputs.commit }}
+          LABEL: ${{ needs.validate.outputs.label }}
+        run: |
+          short="${COMMIT:0:12}"
+          docker tag beacon-release:candidate "$IMAGE:$LABEL"
+          docker tag beacon-release:candidate "$IMAGE:sha-$short"
+          docker push "$IMAGE:$LABEL"
+          docker push "$IMAGE:sha-$short"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$LABEL" | sed 's/.*@//')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no registry digest" >&2; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image_ref=$IMAGE:$LABEL@$digest" >> "$GITHUB_OUTPUT"
+          echo "Published $IMAGE:$LABEL@$digest (commit $COMMIT)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
