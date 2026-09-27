@@ -1,5 +1,23 @@
 # Changelog — beacon
 
+## 2026-09-27 — serve-http container mode (`--allowed-host`); discovery descriptor 1.10
+
+- **Container mode** (owner decision D1-b, `beacon-own-deployment-plan-2026-09-27`):
+  `serve-http --host <IPv4> --allowed-host <name>` lets Beacon sit on a private container network
+  behind its own proxy or tunnel, instead of sharing the proxy's network namespace.
+  - A non-loopback `--host` must be an IPv4 literal, and it is accepted only with at least one
+    `--allowed-host`. Otherwise the loopback-only rule is unchanged (`http_host_not_loopback`).
+  - Allowed hosts are exact DNS names: wildcards, ports and IP literals are refused
+    (`http_allowed_host_invalid`); a non-IP bind gives `http_host_invalid`.
+  - `LoopbackGuard(app, allowed_hosts=...)` admits loopback names plus exactly those names in
+    `Host` (421 otherwise). The Origin rule is unchanged: a non-loopback browser Origin is 403 in
+    both modes.
+  - The ready line gains ` allowed_hosts=...` in container mode.
+  - `serve --transport http` is unchanged (loopback only).
+- **Discovery descriptor 1.10:** `scope` is `"container"` when `serve-http` binds a non-loopback
+  address, and still `"loopback"` otherwise. `create_http_app(scope=...)` accepts only those two
+  values. The pins in the tests and `scripts/release_check.py` move from 1.9 to 1.10.
+
 ## 2026-09-26 — Demo image and pinned demo bundles
 
 - **`scripts/build_demo_bundle.py`** builds a servable bundle of one project at one pinned

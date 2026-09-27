@@ -186,7 +186,9 @@ A port already in use fails with `http_bind_failed`.
 `http://127.0.0.1:3366/mcp`, and everything else uses the JSON routes below. Discovery advertises
 the MCP endpoint (`capabilities.mcp_http`, `mcp.url`); `--no-mcp` serves the JSON API alone. Both
 surfaces refuse a non-loopback `Host` (421) or browser `Origin` (403), so a web page cannot reach
-them through DNS rebinding:
+them through DNS rebinding. Behind a proxy or tunnel on a private container network,
+`--host 0.0.0.0 --allowed-host <public name>` (container mode) additionally admits those exact
+Host names; see [docs/deployment.md](docs/deployment.md#container-mode---allowed-host-no-shared-network-namespace).
 
 ```bash
 beacon serve-http --manifest beacon.yaml

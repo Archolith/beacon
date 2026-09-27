@@ -119,7 +119,9 @@ equivalent. What the proxy must do, and why:
 
 TLS terminates at the proxy. The Beacon servers speak plain HTTP on loopback
 and must never be bound to a public interface (they refuse non-loopback binds
-with `http_host_not_loopback` anyway).
+with `http_host_not_loopback` anyway). The one exception is `serve-http`'s
+container mode (below): a non-loopback bind on a private container network,
+accepted only together with an exact `--allowed-host` list.
 
 ### The Host rewrite is required for both servers
 
@@ -231,6 +233,30 @@ serve it with the repository's `Dockerfile` instead of a systemd unit.
 
 To refresh, build a new bundle, switch the mount, and restart the container. CI's
 `demo-image` job builds this image and serves a bundle of the commit under test.
+
+### Container mode: `--allowed-host` (no shared network namespace)
+
+Sharing the proxy's network namespace couples the containers: recreating the proxy
+leaves Beacon in the old namespace. Instead, run `serve-http` in **container mode**
+on a private container network, the way an app sits behind its own tunnel or proxy:
+
+```bash
+beacon serve-http --manifest /bundle/beacon.generated.yaml --docs-root /bundle/repo \
+    --host 0.0.0.0 --port 3366 --allowed-host beacon.example.org
+```
+
+- A non-loopback `--host` must be an IPv4 address, and it is accepted **only**
+  together with at least one `--allowed-host`. Without one, the loopback-only rule
+  applies unchanged (`http_host_not_loopback`).
+- `--allowed-host` takes exact DNS names (repeatable). Wildcards, ports and IP
+  addresses are refused (`http_allowed_host_invalid`).
+- The Host guard admits loopback names plus exactly those names. Any other `Host`
+  gets **421**, and a browser `Origin` that is not loopback still gets **403**, as in
+  loopback mode. The proxy or tunnel must send one of the allowed names as `Host`,
+  which is the public hostname unless you rewrite it.
+- Discovery reports `"scope": "container"` (descriptor 1.10) instead of `"loopback"`.
+- The bind is reachable from every container on that network. Attach the Beacon
+  container only to a private network shared with its proxy, and publish no ports.
 
 ## Verify a deployment (curl checklist)
 
