@@ -152,6 +152,21 @@ def _run_mcp_server(
     run_server(mcp)
 
 
+def _new_listener() -> socket.socket:
+    """A TCP listening socket that can rebind while a previous server's sockets are in TIME_WAIT.
+
+    A server recreated inside a shared network namespace (a beacon container joined to its
+    proxy's namespace) otherwise fails with ``http_bind_failed`` for about a minute after the
+    previous instance closes its connections. POSIX ``SO_REUSEADDR`` still refuses a port that
+    another socket is listening on. On Windows the same flag would let a second process take
+    over a bound port, so it is set on POSIX only.
+    """
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name != "nt":
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    return listener
+
+
 def _run_mcp_http(mcp: Any, *, host: str, port: int) -> None:
     """Serve *mcp* over Streamable HTTP at /mcp on one pre-bound loopback socket.
 
@@ -163,7 +178,7 @@ def _run_mcp_http(mcp: Any, *, host: str, port: int) -> None:
     from beacon.loopback_guard import LoopbackGuard
 
     app_http = LoopbackGuard(mcp.http_app(path="/mcp", transport="http"))
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener = _new_listener()
     try:
         listener.bind((host, port))
         listener.listen(2048)
@@ -677,7 +692,7 @@ def _serve_http_snapshot(
     served: ASGIApp = app_http
     if mcp and provider is not None:
         served = OnePortApp(app_http, build_mcp_app(provider, MCP_PATH), MCP_PATH)
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener = _new_listener()
     try:
         listener.bind((host, port))
         listener.listen(2048)
