@@ -1,5 +1,17 @@
 # Changelog — beacon
 
+## 2026-09-27 — Design principles and prior art (consolidates PRs #1–#3)
+
+- **`docs/design-principles.md`** condenses the June–July design notes from PR #1 into one page:
+  time-to-competence, the introspection contract, knowledge kinds, trust axes, visibility tiers,
+  provider maturity, validation and conformance, and origin.
+  - Each principle is checked against current Beacon and marked shipped, partial or open.
+  - The superseded notes (review response, first-three-steps, v0 boundary, the "permissioned
+    semantic object" framing, and the edits to the strategy and MCP roadmap docs) are dropped,
+    with reasons given.
+- **`docs/prior-art/`** carries the Graft (PR #2) and Atlaso (PR #3) comparisons verbatim, plus
+  a dated index.
+
 ## 2026-09-27 — serve-http container mode (`--allowed-host`); discovery descriptor 1.10
 
 - **Container mode** (owner decision D1-b, `beacon-own-deployment-plan-2026-09-27`):
