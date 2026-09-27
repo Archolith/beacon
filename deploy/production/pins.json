@@ -1,11 +1,11 @@
 {
   "pins_version": 1,
-  "image": "ghcr.io/archolith/beacon:0.2.0rc2-1@sha256:191c5239f56f1647252f00e44afcf71c0c864b1d3b1d8d044d4c3937e0c1ae58",
+  "image": "ghcr.io/archolith/beacon:0.2.0rc2-2@sha256:b3ff0940181b35afad0d73bd91014d573d594a9aecc95e1aca18f31aed595545",
   "public_host": "beacon.archolith.dev",
   "bundle": {
     "name": "beacon",
-    "commit": "6bb36fa498611e154beef8330b5040cdfd72471f",
-    "url": "https://github.com/Archolith/beacon/releases/download/beacon-demo-beacon-6bb36fa49861/beacon-demo-beacon-6bb36fa49861.tar.gz",
-    "sha256": "3986a3a7cef6ad9bdf386da33678f2ad9efe25a53ce9be3a2a8082d479f57283"
+    "commit": "9fe56e2d1add5a9f04e5b65c4f7b829ba0c8aed5",
+    "url": "https://github.com/Archolith/beacon/releases/download/beacon-demo-beacon-9fe56e2d1add/beacon-demo-beacon-9fe56e2d1add.tar.gz",
+    "sha256": "df56677495d1edcf595a03b7cbd7f61e15d486f9a490b7561c31318a6cdf6d7e"
   }
 }
