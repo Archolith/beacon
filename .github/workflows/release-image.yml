@@ -177,7 +177,7 @@ jobs:
             || { echo "loaded image id differs from the validated one" >&2; exit 1; }
 
       - name: Log in to GHCR
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
