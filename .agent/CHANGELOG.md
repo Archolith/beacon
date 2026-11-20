@@ -1,5 +1,12 @@
 # Changelog — beacon
 
+## 2026-10-26 — cloudflared 2026.10.4 (chore)
+
+- `deploy/production/docker-compose.cloudflared.yml` pins `cloudflare/cloudflared` 2026.10.4
+  (`sha256:c6c7ae1d...0515`), up from 2026.8.2. Cloudflare asked for 2026.10.2 or later.
+- Already running on the VPS (`beacon-prod-cloudflared` recreated 2026-10-26, 4 tunnel
+  connections registered); this keeps the repo pin from rolling it back.
+
 ## 2026-09-27 — Listener rebinds during TIME_WAIT (fix)
 
 - **The fix:** `serve-http` and `serve --transport http` create their listener through
